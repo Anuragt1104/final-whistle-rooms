@@ -1,0 +1,26 @@
+# One-click backend deploy on Render (https://render.com).
+# In Render: New + → "Blueprint" → connect this repo → it reads this file.
+services:
+  - type: web
+    name: final-whistle-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free          # free spins down on idle (cold start ~30s); upgrade to keep warm
+    healthCheckPath: /api/config
+    autoDeploy: true
+    envVars:
+      - key: TXLINE_MODE
+        value: simulation            # set to "live" once you hold a TxLINE API token
+      - key: SIM_SECONDS_PER_MATCH_MINUTE
+        value: "2"
+      - key: NEXT_PUBLIC_SOLANA_CLUSTER
+        value: mainnet-beta          # mainnet identity/anchor display
+      - key: NEXT_PUBLIC_SOLANA_RPC
+        value: https://api.mainnet-beta.solana.com
+      # Optional — paste these to enable the real paths:
+      # - key: TXLINE_API_TOKEN          (live TxLINE data)
+      #   sync: false
+      # - key: SOLANA_ANCHOR_SECRET_KEY  (anchor room proofs on-chain)
+      #   sync: false
+      # - key: ANTHROPIC_API_KEY         (Claude-written recaps)
+      #   sync: false

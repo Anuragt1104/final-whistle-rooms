@@ -1,0 +1,6 @@
+# Copy to android/key.properties (gitignored) after creating your upload keystore.
+# See ../PLAYSTORE.md for the keytool command.
+storePassword=your-store-password
+keyPassword=your-key-password
+keyAlias=upload
+storeFile=/absolute/path/to/upload-keystore.jks
