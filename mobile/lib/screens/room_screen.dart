@@ -6,6 +6,7 @@ import '../api/models.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../state/room_controller.dart';
+import '../local/live_engine.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/ticket.dart';
@@ -19,13 +20,15 @@ import '../widgets/proof_sheet.dart';
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
-  const RoomScreen({super.key, required this.roomId});
+  final LiveMatchEngine? engine; // non-null = local solo room
+  final bool autoStart;
+  const RoomScreen({super.key, required this.roomId, this.engine, this.autoStart = false});
   @override
   State<RoomScreen> createState() => _RoomScreenState();
 }
 
 class _RoomScreenState extends State<RoomScreen> {
-  late final RoomController _c = RoomController(widget.roomId);
+  late final RoomController _c = widget.engine != null ? RoomController.local(widget.engine) : RoomController(widget.roomId);
   int _seg = 0;
   bool _aiOn = false;
   Identity? _identity;
@@ -35,11 +38,23 @@ class _RoomScreenState extends State<RoomScreen> {
     super.initState();
     _c.init();
     _c.addListener(_onChange);
+    if (widget.autoStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _c.startMatch());
+    }
     IdentityStore.getOrCreate().then((i) => _identity = i);
     ApiClient.instance.config().then((c) => mounted ? setState(() => _aiOn = c.recapAI) : null).catchError((_) {});
   }
 
-  void _onChange() => mounted ? setState(() {}) : null;
+  int _lastGoals = 0;
+  void _onChange() {
+    if (!mounted) return;
+    final goals = _c.room?.pulse.where((p) => p.kind == 'goal').length ?? 0;
+    if (goals > _lastGoals) {
+      _lastGoals = goals;
+      HapticFeedback.heavyImpact();
+    }
+    setState(() {});
+  }
 
   @override
   void dispose() {

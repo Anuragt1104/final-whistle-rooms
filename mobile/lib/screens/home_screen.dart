@@ -6,6 +6,8 @@ import '../api/api_client.dart';
 import '../api/models.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
+import '../local/fixtures.dart';
+import '../local/live_engine.dart';
 import '../theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_nav.dart';
@@ -49,9 +51,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _refresh() async {
+    // Always have matches to show: use the server when reachable, fall back to
+    // the on-device fixture list so the app is never empty.
     try {
-      _fixtures = await _api.fixtures();
-    } catch (_) {}
+      final f = await _api.fixtures();
+      _fixtures = f.isNotEmpty ? f : localFixtures();
+    } catch (_) {
+      _fixtures = localFixtures();
+    }
     await _loadRooms();
     if (mounted) setState(() {});
   }
@@ -60,7 +67,15 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final r = await _api.listRooms();
       if (mounted) setState(() => _rooms = r);
-    } catch (_) {}
+    } catch (_) {
+      // no backend — solo "watch live" still works from local fixtures
+    }
+  }
+
+  /// Instantly watch a match live, fully on-device (no backend needed).
+  void _watchLive(Fixture f) {
+    final engine = LiveMatchEngine(f, draftMode: true, nextSwingMode: true, myName: _name.isEmpty ? 'You' : _name);
+    Navigator.push(context, fwrRoute(RoomScreen(roomId: 'local', engine: engine, autoStart: true)));
   }
 
   @override
@@ -78,11 +93,10 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _name = n);
   }
 
-  void _openRoom(String id) =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RoomScreen(roomId: id))).then((_) => _refresh());
+  void _openRoom(String id) => Navigator.push(context, fwrRoute(RoomScreen(roomId: id))).then((_) => _refresh());
 
   void _openCreate([String? fixtureId]) =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CreateScreen(fixtureId: fixtureId))).then((_) => _refresh());
+      Navigator.push(context, fwrRoute(CreateScreen(fixtureId: fixtureId))).then((_) => _refresh());
 
   Future<void> _joinByCode() async {
     setState(() => _joinErr = '');
@@ -155,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('LIVE NOW', style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
         ]),
         const SizedBox(height: 10),
-        if (hero != null) _heroRoom(hero) else _heroEmpty(),
+        if (hero != null) _heroRoom(hero) else _heroFixture(_featuredLiveFixture()),
         const SizedBox(height: 12),
         Row(children: [
           Expanded(
@@ -225,18 +239,50 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _heroEmpty() {
-    final fid = _featuredFixtureId();
-    return Container(
-      decoration: cardBox(),
-      padding: const EdgeInsets.all(18),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('NO ROOMS LIVE YET', style: display(20)),
-        const SizedBox(height: 6),
-        Text('Be the first to open the terrace. Host a room for a match and share the code with your group.', style: body(color: AppColors.mut, size: 13)),
-        const SizedBox(height: 14),
-        PrimaryButton('Host a room', icon: Icons.add, expand: true, onTap: () => _openCreate(fid)),
-      ]),
+  Fixture? _featuredLiveFixture() {
+    final live = _fixtures.where((f) => f.status == 'live');
+    if (live.isNotEmpty) return live.first;
+    final up = _fixtures.where((f) => f.status == 'scheduled');
+    if (up.isNotEmpty) return up.first;
+    return _fixtures.isNotEmpty ? _fixtures.first : null;
+  }
+
+  /// Hero when there are no multiplayer rooms yet — watch a match live, solo.
+  Widget _heroFixture(Fixture? f) {
+    if (f == null) {
+      return Container(decoration: cardBox(), padding: const EdgeInsets.all(18), child: Text('Loading matches…', style: body(color: AppColors.mut)));
+    }
+    return GestureDetector(
+      onTap: () => _watchLive(f),
+      child: Container(
+        decoration: cardBox(),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: [
+          TicketScoreboard(
+            home: f.home,
+            away: f.away,
+            league: f.stage,
+            score: null,
+            minute: f.status == 'live' ? 'LIVE' : relativeKickoff(f.kickoff),
+            pill: f.status == 'live' ? 'LIVE' : 'WATCH',
+            watching: null,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${f.home.name} vs ${f.away.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: display(16)),
+                  const SizedBox(height: 2),
+                  Text('Watch live with the room — pulse, predictions & recap', style: body(color: AppColors.mut, size: 12)),
+                ]),
+              ),
+              const SizedBox(width: 10),
+              PrimaryButton('Watch', icon: Icons.play_arrow_rounded, onTap: () => _watchLive(f)),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 
@@ -277,35 +323,44 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _fixtureRow(Fixture f) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.all(10),
-        child: Row(children: [
-          MiniScore(top: f.status == 'live' ? 'VS' : kickoffClock(f.kickoff), bottom: f.status == 'live' ? 'LIVE' : 'KO'),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Text('${f.home.flag} ', style: const TextStyle(fontSize: 15)),
-                Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
-                Text('  v  ', style: body(color: AppColors.mut)),
-                Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
-                Text(' ${f.away.flag}', style: const TextStyle(fontSize: 15)),
+      child: GestureDetector(
+        onTap: () => _watchLive(f),
+        child: Container(
+          decoration: cardBox(),
+          padding: const EdgeInsets.all(10),
+          child: Row(children: [
+            MiniScore(top: f.status == 'live' ? 'VS' : kickoffClock(f.kickoff), bottom: f.status == 'live' ? 'LIVE' : 'KO'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Text('${f.home.flag} ', style: const TextStyle(fontSize: 15)),
+                  Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
+                  Text('  v  ', style: body(color: AppColors.mut)),
+                  Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
+                  Text(' ${f.away.flag}', style: const TextStyle(fontSize: 15)),
+                ]),
+                const SizedBox(height: 2),
+                Text('Tap to watch live · ${relativeKickoff(f.kickoff)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
               ]),
-              const SizedBox(height: 2),
-              Text('${f.stage} · ${relativeKickoff(f.kickoff)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
-            ]),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () => _openCreate(f.id),
-            child: Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
-              child: const Icon(Icons.add, color: AppColors.ink, size: 20),
             ),
-          ),
-        ]),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => _openCreate(f.id),
+              child: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
+                child: const Icon(Icons.add, color: AppColors.ink, size: 20),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(11)),
+              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+            ),
+          ]),
+        ),
       ),
     );
   }

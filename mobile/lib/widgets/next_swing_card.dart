@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../api/models.dart';
 import '../theme.dart';
 
@@ -148,7 +149,12 @@ class _OptionButton extends StatelessWidget {
     return Opacity(
       opacity: disabled && !picked ? 0.55 : 1,
       child: GestureDetector(
-        onTap: disabled ? null : onTap,
+        onTap: disabled
+            ? null
+            : () {
+                HapticFeedback.selectionClick();
+                onTap();
+              },
         child: Container(
           decoration: BoxDecoration(
             color: picked ? AppColors.orange : AppColors.cardAlt,

@@ -22,13 +22,46 @@ class PulseFeed extends StatelessWidget {
       );
     }
     return Column(
-      children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _tile(c))).toList(),
+      children: cards.map((c) => _PulseEntry(key: ValueKey(c.id), card: c)).toList(),
+    );
+  }
+}
+
+/// Each card slides + fades in once when it first appears (keyed by id).
+class _PulseEntry extends StatefulWidget {
+  final PulseCard card;
+  const _PulseEntry({super.key, required this.card});
+  @override
+  State<_PulseEntry> createState() => _PulseEntryState();
+}
+
+class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 360))..forward();
+  late final Animation<double> _a = CurvedAnimation(parent: _c, curve: Curves.easeOutCubic);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _a,
+      child: SizeTransition(
+        sizeFactor: _a,
+        axisAlignment: -1,
+        child: SlideTransition(
+          position: Tween(begin: const Offset(0, 0.12), end: Offset.zero).animate(_a),
+          child: Padding(padding: const EdgeInsets.only(bottom: 10), child: _tile(widget.card)),
+        ),
+      ),
     );
   }
 
   Widget _tile(PulseCard c) {
     if (c.kind == 'goal') {
-      // ticket-stub GOAL banner
       return Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(14)),
@@ -38,8 +71,7 @@ class PulseFeed extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 1),
-              child: Text('${c.headline}  ${c.detail}',
-                  style: body(color: AppColors.cream, size: 13.5, weight: FontWeight.w600)),
+              child: Text('${c.headline}  ${c.detail}', style: body(color: AppColors.cream, size: 13.5, weight: FontWeight.w600)),
             ),
           ),
           Text("${c.minute}'", style: label(color: AppColors.mutInk, size: 10)),

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api/api_client.dart';
+import 'state/local_store.dart';
 import 'screens/home_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -13,18 +15,20 @@ Future<void> main() async {
     statusBarBrightness: Brightness.light,
   ));
   await ApiClient.instance.init();
-  runApp(const FinalWhistleApp());
+  final onboarded = await LocalStore.onboarded();
+  runApp(FinalWhistleApp(onboarded: onboarded));
 }
 
 class FinalWhistleApp extends StatelessWidget {
-  const FinalWhistleApp({super.key});
+  final bool onboarded;
+  const FinalWhistleApp({super.key, required this.onboarded});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Final Whistle Rooms',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
-      home: const HomeScreen(),
+      home: onboarded ? const HomeScreen() : const OnboardingScreen(),
     );
   }
 }

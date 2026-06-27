@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme.dart';
 
 class BottomNav extends StatelessWidget {
@@ -28,7 +29,10 @@ class BottomNav extends StatelessWidget {
   Widget _item(String key, IconData icon, String text) {
     final on = active == key;
     return GestureDetector(
-      onTap: () => onSelect(key),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onSelect(key);
+      },
       behavior: HitTestBehavior.opaque,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 22, color: on ? AppColors.orange : AppColors.mut),
@@ -41,7 +45,10 @@ class BottomNav extends StatelessWidget {
 
   Widget _create() {
     return GestureDetector(
-      onTap: onCreate,
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        onCreate();
+      },
       child: Container(
         width: 50,
         height: 44,

@@ -67,7 +67,7 @@ class Leaderboard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text('${m.points}', style: display(17)),
+                AnimatedCount(m.points, style: display(17)),
                 if (m.streak >= 2) Text('🔥${m.streak}', style: body(color: AppColors.gold, size: 10, weight: FontWeight.w700)),
               ]),
             ]),

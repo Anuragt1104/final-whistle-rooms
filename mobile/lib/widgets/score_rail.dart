@@ -24,28 +24,36 @@ class WinBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           child: SizedBox(
             height: 26,
-            child: Row(children: [
-              _seg(win.home, '${home.code} ${win.home}%', teamColor(home.code)),
-              _seg(win.draw, 'X ${win.draw}', const Color(0xFF6E665A)),
-              _seg(win.away, '${win.away}% ${away.code}', teamColor(away.code)),
-            ]),
+            child: LayoutBuilder(builder: (_, c) {
+              final w = c.maxWidth;
+              final hw = w * win.home / 100;
+              final aw = w * win.away / 100;
+              final dw = (w - hw - aw).clamp(0.0, w);
+              return Row(children: [
+                _seg(hw, '${home.code} ${win.home}%', teamColor(home.code)),
+                _seg(dw, 'X ${win.draw}', const Color(0xFF6E665A)),
+                _seg(aw, '${win.away}% ${away.code}', teamColor(away.code)),
+              ]);
+            }),
           ),
         ),
       ]),
     );
   }
 
-  Widget _seg(int w, String text, Color color) {
-    return Expanded(
-      flex: w.clamp(6, 100),
-      child: Container(
-        color: color,
-        alignment: Alignment.center,
-        child: Text(w >= 13 ? text : '',
-            maxLines: 1,
-            overflow: TextOverflow.clip,
-            style: const TextStyle(fontFamily: kBody, fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white)),
-      ),
+  Widget _seg(double width, String text, Color color) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutCubic,
+      width: width,
+      color: color,
+      alignment: Alignment.center,
+      child: width > 44
+          ? Text(text,
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: const TextStyle(fontFamily: kBody, fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white))
+          : const SizedBox(),
     );
   }
 }

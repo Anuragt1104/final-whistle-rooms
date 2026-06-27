@@ -4,6 +4,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Lightweight local persistence: display name, per-room membership, and the
 /// user's own Next Swing picks (the server holds the authoritative tally).
 class LocalStore {
+  static Future<bool> onboarded() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool('onboarded') ?? false;
+  }
+
+  static Future<void> setOnboarded() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('onboarded', true);
+  }
+
+  static Future<String> walletAddress() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString('wallet_address') ?? '';
+  }
+
+  static Future<void> setWalletAddress(String addr) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('wallet_address', addr);
+  }
+
   static Future<String> displayName() async {
     final p = await SharedPreferences.getInstance();
     return p.getString('display_name') ?? '';

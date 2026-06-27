@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme.dart';
 
 class Brand extends StatelessWidget {
@@ -67,6 +68,57 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
       );
 }
 
+/// Tactile press wrapper: scales down + haptic on tap.
+class Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final HapticFeedbackType haptic;
+  const Pressable({super.key, required this.child, this.onTap, this.haptic = HapticFeedbackType.light});
+  @override
+  State<Pressable> createState() => _PressableState();
+}
+
+enum HapticFeedbackType { light, medium, selection }
+
+class _PressableState extends State<Pressable> {
+  bool _down = false;
+  void _fire() {
+    switch (widget.haptic) {
+      case HapticFeedbackType.medium:
+        HapticFeedback.mediumImpact();
+        break;
+      case HapticFeedbackType.selection:
+        HapticFeedback.selectionClick();
+        break;
+      case HapticFeedbackType.light:
+        HapticFeedback.lightImpact();
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onTap != null;
+    return GestureDetector(
+      onTapDown: enabled ? (_) => setState(() => _down = true) : null,
+      onTapUp: enabled ? (_) => setState(() => _down = false) : null,
+      onTapCancel: enabled ? () => setState(() => _down = false) : null,
+      onTap: enabled
+          ? () {
+              _fire();
+              widget.onTap!();
+            }
+          : null,
+      child: AnimatedScale(
+        scale: _down ? 0.95 : 1,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
@@ -76,23 +128,23 @@ class PrimaryButton extends StatelessWidget {
   const PrimaryButton(this.label, {super.key, this.onTap, this.expand = false, this.busy = false, this.icon});
   @override
   Widget build(BuildContext context) {
-    final btn = Opacity(
-      opacity: onTap == null || busy ? 0.55 : 1,
-      child: Material(
-        color: AppColors.orange,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: busy ? null : onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-              Text(busy ? 'Working…' : label,
-                  style: const TextStyle(
-                      fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
-              if (icon != null) ...[const SizedBox(width: 6), Icon(icon, color: Colors.white, size: 16)],
-            ]),
+    final btn = Pressable(
+      onTap: busy ? null : onTap,
+      haptic: HapticFeedbackType.medium,
+      child: Opacity(
+        opacity: onTap == null || busy ? 0.55 : 1,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.orange,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: const [BoxShadow(color: Color(0x33E9531E), blurRadius: 14, offset: Offset(0, 6))],
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
+            Text(busy ? 'Working…' : label,
+                style: const TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+            if (icon != null) ...[const SizedBox(width: 6), Icon(icon, color: Colors.white, size: 16)],
+          ]),
         ),
       ),
     );
@@ -107,25 +159,33 @@ class GhostButton extends StatelessWidget {
   const GhostButton(this.label, {super.key, this.onTap, this.expand = false});
   @override
   Widget build(BuildContext context) {
-    final btn = Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-              color: AppColors.cardAlt,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.line)),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Text(label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: kBody, color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 14)),
-        ),
+    final btn = Pressable(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Text(label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontFamily: kBody, color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 14)),
       ),
     );
     return expand ? SizedBox(width: double.infinity, child: btn) : btn;
+  }
+}
+
+/// Animated integer that rolls to its new value — used for scores & points.
+class AnimatedCount extends StatelessWidget {
+  final int value;
+  final TextStyle style;
+  const AnimatedCount(this.value, {super.key, required this.style});
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: value.toDouble()),
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutCubic,
+      builder: (_, v, __) => Text('${v.round()}', style: style),
+    );
   }
 }
 
@@ -197,6 +257,25 @@ class InitialAvatar extends StatelessWidget {
           style: TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: size * 0.36)),
     );
   }
+}
+
+/// Smooth slide+fade page transition — makes navigation feel alive.
+Route<T> fwrRoute<T>(Widget page) {
+  return PageRouteBuilder<T>(
+    transitionDuration: const Duration(milliseconds: 320),
+    reverseTransitionDuration: const Duration(milliseconds: 240),
+    pageBuilder: (_, __, ___) => page,
+    transitionsBuilder: (_, anim, __, child) {
+      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
 }
 
 String relativeKickoff(String iso) {
