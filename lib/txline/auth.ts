@@ -16,9 +16,10 @@ import nacl from "tweetnacl";
 import { base58Decode } from "@/lib/util/base58";
 
 export function txlineBase(): string {
-  // Runtime calls go to the oracle host; default to mainnet.
+  // Runtime calls go to txline.txodds.com (mainnet) / txline-dev.txodds.com
+  // (devnet). The oracle.* hosts in some docs don't resolve in public DNS.
   return (
-    process.env.TXLINE_BASE_URL?.replace(/\/$/, "") ?? "https://oracle.txodds.com"
+    process.env.TXLINE_BASE_URL?.replace(/\/$/, "") ?? "https://txline.txodds.com"
   );
 }
 

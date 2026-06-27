@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "txline:activate": "node scripts/txline-activate.mjs"
   },
   "dependencies": {
     "@noble/hashes": "^1.5.0",
@@ -20,6 +21,8 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/spl-token": "^0.4.9",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",

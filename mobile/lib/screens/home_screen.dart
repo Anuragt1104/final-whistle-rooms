@@ -73,8 +73,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Instantly watch a match live, fully on-device (no backend needed).
-  void _watchLive(Fixture f) {
+  Future<void> _watchLive(Fixture f) async {
+    // When the backend serves real TxLINE data, host a backend room that
+    // follows the actual live match; otherwise play it fully on-device.
+    if (_config?.mode == 'live') {
+      try {
+        final id = await IdentityStore.getOrCreate();
+        final res = await _api.createRoom(
+          name: '${f.home.name} watch-along',
+          fixtureId: f.id,
+          draft: true,
+          nextSwing: true,
+          hostName: _name.isEmpty ? 'You' : _name,
+          hostWallet: id.pubkey,
+        );
+        await LocalStore.setMemberId(res.roomId, res.hostId);
+        await _api.start(res.roomId, res.hostId); // begin streaming the real feed
+        if (!mounted) return;
+        Navigator.push(context, fwrRoute(RoomScreen(roomId: res.roomId)));
+        return;
+      } catch (_) {
+        // backend hiccup — fall back to the on-device engine
+      }
+    }
     final engine = LiveMatchEngine(f, draftMode: true, nextSwingMode: true, myName: _name.isEmpty ? 'You' : _name);
+    if (!mounted) return;
     Navigator.push(context, fwrRoute(RoomScreen(roomId: 'local', engine: engine, autoStart: true)));
   }
 
