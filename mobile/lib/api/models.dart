@@ -42,6 +42,7 @@ class RoomSummary {
   final String id, code, name, status;
   final Fixture fixture;
   final int memberCount;
+  final ScoreView? score;
   RoomSummary({
     required this.id,
     required this.code,
@@ -49,6 +50,7 @@ class RoomSummary {
     required this.status,
     required this.fixture,
     required this.memberCount,
+    required this.score,
   });
   factory RoomSummary.fromJson(Map<String, dynamic> j) => RoomSummary(
         id: j['id'],
@@ -57,6 +59,7 @@ class RoomSummary {
         status: j['status'],
         fixture: Fixture.fromJson(j['fixture']),
         memberCount: j['memberCount'] ?? 0,
+        score: j['score'] == null ? null : ScoreView.fromJson(j['score']),
       );
 }
 

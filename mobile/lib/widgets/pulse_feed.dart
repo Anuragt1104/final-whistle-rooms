@@ -12,49 +12,68 @@ class PulseFeed extends StatelessWidget {
     final cards = pulse.reversed.toList();
     if (cards.isEmpty) {
       return Container(
-        decoration: cardDecoration(),
         padding: const EdgeInsets.all(18),
-        child: const Text(
-          'The pulse feed lights up the moment the match kicks off — goals, cards, corners and odds swings, translated into plain English.',
+        decoration: cardBox(),
+        child: Text(
+          'The terrace lights up the moment the match kicks off — goals, cards, corners and odds swings, called out in plain English.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.mut, fontSize: 13),
+          style: body(color: AppColors.mut, size: 13),
         ),
       );
     }
     return Column(
-      children: cards
-          .map((c) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _PulseTile(card: c),
-              ))
-          .toList(),
+      children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _tile(c))).toList(),
     );
   }
-}
 
-class _PulseTile extends StatelessWidget {
-  final PulseCard card;
-  const _PulseTile({required this.card});
-  @override
-  Widget build(BuildContext context) {
+  Widget _tile(PulseCard c) {
+    if (c.kind == 'goal') {
+      // ticket-stub GOAL banner
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(14)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('GOAL', style: display(20, color: AppColors.orangeBright)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Text('${c.headline}  ${c.detail}',
+                  style: body(color: AppColors.cream, size: 13.5, weight: FontWeight.w600)),
+            ),
+          ),
+          Text("${c.minute}'", style: label(color: AppColors.mutInk, size: 10)),
+        ]),
+      );
+    }
     return Container(
-      decoration: cardDecoration(leftAccent: accentColor(card.accent)),
-      padding: const EdgeInsets.all(12),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(card.emoji, style: const TextStyle(fontSize: 20)),
-        const SizedBox(width: 12),
+      decoration: cardBox(),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Container(
+          width: 5,
+          decoration: BoxDecoration(
+            color: accentColor(c.accent),
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), bottomLeft: Radius.circular(18)),
+          ),
+        ),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(c.emoji, style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(card.headline,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Expanded(child: Text(c.headline, style: body(weight: FontWeight.w800, size: 13.5))),
+                    Text("${c.minute}'", style: label(color: AppColors.mut, size: 10)),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(c.detail, style: body(color: AppColors.mut, size: 12.5)),
+                ]),
               ),
-              Text("${card.minute}'", style: const TextStyle(fontSize: 10, color: AppColors.mut)),
             ]),
-            const SizedBox(height: 2),
-            Text(card.detail, style: const TextStyle(fontSize: 12.5, color: AppColors.mut, height: 1.3)),
-          ]),
+          ),
         ),
       ]),
     );

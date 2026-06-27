@@ -107,6 +107,7 @@ class ApiClient {
     required bool nextSwing,
     required String hostName,
     String? hostWallet,
+    String visibility = 'public',
   }) async {
     final data = await _post('/api/rooms', {
       'name': name,
@@ -114,6 +115,7 @@ class ApiClient {
       'modes': {'draft': draft, 'nextSwing': nextSwing},
       'hostName': hostName,
       'hostWallet': ?hostWallet,
+      'visibility': visibility,
     });
     return (roomId: data['roomId'] as String, hostId: data['hostId'] as String);
   }

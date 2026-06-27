@@ -1,0 +1,15 @@
+{
+  "projectId": "cd313052-93b5-4e1a-be37-57c0e9a20df4",
+  "shape": "package",
+  "pkg": "final-whistle-rooms",
+  "globalName": "FWR",
+  "srcDir": "components",
+  "tsconfig": "tsconfig.dsbuild.json",
+  "cssEntry": ".design-sync/css/compiled.css",
+  "componentSrcMap": {
+    "HomeClient": null,
+    "CreateClient": null,
+    "RoomClient": null,
+    "TopBar": null
+  }
+}

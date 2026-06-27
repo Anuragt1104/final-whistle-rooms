@@ -2,87 +2,61 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import 'common.dart';
 
+/// Paper top bar. Either shows the Brand (home) or a back button + title.
 class FwrHeader extends StatelessWidget {
-  final bool small;
   final bool showBack;
-  final String? mode; // 'simulation' | 'live'
-  final String identityLabel;
-  final bool connected;
-  final VoidCallback onIdentityTap;
-  final VoidCallback? onSettings;
-
-  const FwrHeader({
-    super.key,
-    this.small = false,
-    this.showBack = false,
-    this.mode,
-    required this.identityLabel,
-    this.connected = false,
-    required this.onIdentityTap,
-    this.onSettings,
-  });
+  final String? title;
+  final Widget? trailing;
+  const FwrHeader({super.key, this.showBack = false, this.title, this.trailing});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.fromLTRB(12, MediaQuery.of(context).padding.top + 8, 12, 10),
-      decoration: const BoxDecoration(
-        color: Color(0xB8070B14),
-        border: Border(bottom: BorderSide(color: AppColors.line)),
-      ),
+      padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 10, 16, 10),
+      color: AppColors.paper,
       child: Row(children: [
-        if (showBack)
-          IconButton(
-            icon: const Icon(Icons.arrow_back, size: 20, color: AppColors.text),
-            onPressed: () => Navigator.of(context).maybePop(),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          ),
-        Brand(small: small),
-        const Spacer(),
-        if (mode != null)
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: AppChip(
-              mode == 'live' ? 'Live TxLINE' : 'Replay',
-              leading: LiveDot(size: 6, color: mode == 'live' ? AppColors.lime : AppColors.gold),
-            ),
-          ),
-        if (onSettings != null)
+        if (showBack) ...[
           GestureDetector(
-            onTap: onSettings,
-            child: const Padding(
-              padding: EdgeInsets.only(right: 6),
-              child: Icon(Icons.settings_outlined, size: 18, color: AppColors.mut),
+            onTap: () => Navigator.of(context).maybePop(),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(11)),
+              child: const Icon(Icons.chevron_left, color: AppColors.cream, size: 22),
             ),
           ),
-        AppChip(identityLabel, color: AppColors.text, leading: const Text('◎', style: TextStyle(fontSize: 12)), onTap: onIdentityTap),
+          const SizedBox(width: 12),
+        ],
+        if (title != null)
+          Text(title!.toUpperCase(), style: display(20, spacing: 0.5))
+        else
+          const Brand(),
+        const Spacer(),
+        if (trailing != null) trailing!,
       ]),
     );
   }
 }
 
-/// Simple dialog to set a display name and (re)create the Solana identity.
 Future<String?> showNameDialog(BuildContext context, {String initial = ''}) {
   final ctrl = TextEditingController(text: initial);
   return showDialog<String>(
     context: context,
     builder: (_) => AlertDialog(
-      backgroundColor: AppColors.pitch850,
-      title: const Text('Continue with Solana', style: TextStyle(fontSize: 17)),
+      backgroundColor: AppColors.card,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: Text('CONTINUE WITH SOLANA', style: display(18)),
       content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text(
-          'We create a secure on-device Solana identity for you — no wallet, no funds.',
-          style: TextStyle(color: AppColors.mut, fontSize: 13),
-        ),
+        Text('We create a secure on-device Solana identity for you — no wallet, no funds.',
+            style: body(color: AppColors.mut, size: 13)),
         const SizedBox(height: 12),
         TextField(controller: ctrl, autofocus: true, decoration: fwrInput('Display name e.g. Ana')),
       ]),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel', style: body(color: AppColors.mut))),
         TextButton(
           onPressed: () => Navigator.pop(context, ctrl.text.trim().isEmpty ? 'Fan' : ctrl.text.trim()),
-          child: const Text('Continue', style: TextStyle(color: AppColors.lime, fontWeight: FontWeight.w700)),
+          child: Text('Continue', style: body(color: AppColors.orange, weight: FontWeight.w800)),
         ),
       ],
     ),
@@ -94,24 +68,25 @@ Future<void> showServerSettings(BuildContext context, String current, void Funct
   return showDialog(
     context: context,
     builder: (_) => AlertDialog(
-      backgroundColor: AppColors.pitch850,
-      title: const Text('Server URL', style: TextStyle(fontSize: 17)),
+      backgroundColor: AppColors.card,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: Text('SERVER URL', style: display(18)),
       content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text(
+        Text(
           'Point the app at your Final Whistle Rooms backend.\n• iOS simulator: http://localhost:3000\n• Android emulator: http://10.0.2.2:3000\n• Real device: your computer\'s LAN IP or deployed URL',
-          style: TextStyle(color: AppColors.mut, fontSize: 12, height: 1.4),
+          style: body(color: AppColors.mut, size: 12),
         ),
         const SizedBox(height: 12),
         TextField(controller: ctrl, decoration: fwrInput('http://localhost:3000')),
       ]),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel', style: body(color: AppColors.mut))),
         TextButton(
           onPressed: () {
             onSave(ctrl.text.trim());
             Navigator.pop(context);
           },
-          child: const Text('Save', style: TextStyle(color: AppColors.lime, fontWeight: FontWeight.w700)),
+          child: Text('Save', style: body(color: AppColors.orange, weight: FontWeight.w800)),
         ),
       ],
     ),

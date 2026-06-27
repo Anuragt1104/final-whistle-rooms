@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api/models.dart';
 import '../theme.dart';
-import 'common.dart';
 
 class NextSwingCard extends StatelessWidget {
   final List<PromptView> prompts;
@@ -18,40 +17,39 @@ class NextSwingCard extends StatelessWidget {
         break;
       }
     }
-    active ??= prompts.where((p) => p.status == 'locked').isNotEmpty
-        ? prompts.firstWhere((p) => p.status == 'locked')
-        : null;
+    if (active == null) {
+      final locked = prompts.where((p) => p.status == 'locked');
+      if (locked.isNotEmpty) active = locked.first;
+    }
     final recent = prompts.where((p) => p.status == 'settled').take(3).toList();
 
     return Container(
-      decoration: cardDecoration(),
+      decoration: cardBox(),
       clipBehavior: Clip.antiAlias,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.line))),
-          child: const Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text('⚡ Next Swing', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-            Text('SKILL · POINTS ONLY',
-                style: TextStyle(fontSize: 9, letterSpacing: 1, color: AppColors.mut)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          color: AppColors.cardAlt,
+          child: Row(children: [
+            Text('⚡ NEXT SWING', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)),
+            const Spacer(),
+            Text('SKILL · POINTS ONLY', style: label(color: AppColors.mut, size: 9)),
           ]),
         ),
         if (active != null)
           _ActivePrompt(prompt: active, myPick: myPicks[active.id], onPick: onPick)
         else
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
             child: Text('No open call right now — the next prompt drops as the match develops.',
-                textAlign: TextAlign.center, style: TextStyle(color: AppColors.mut, fontSize: 13)),
+                textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 13)),
           ),
         if (recent.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.line))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('RECENT CALLS',
-                  style: TextStyle(fontSize: 9, letterSpacing: 1, color: AppColors.mut)),
+              const Divider(color: AppColors.line, height: 18),
+              Text('RECENT CALLS', style: label(color: AppColors.mut, size: 9)),
               const SizedBox(height: 4),
               ...recent.map((p) {
                 final win = p.options.where((o) => o.key == p.winningKey);
@@ -61,16 +59,12 @@ class NextSwingCard extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Row(children: [
-                    Expanded(
-                      child: Text(p.question,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: AppColors.mut)),
-                    ),
-                    Text(winLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    Expanded(child: Text(p.question, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 12))),
+                    Text(winLabel, style: body(size: 12, weight: FontWeight.w700)),
                     if (mine != null) ...[
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 5),
                       Text(correct ? '✓' : '✗',
-                          style: TextStyle(color: correct ? AppColors.lime : AppColors.away)),
+                          style: TextStyle(color: correct ? AppColors.orange : const Color(0xFFD8392B), fontWeight: FontWeight.w900)),
                     ],
                   ]),
                 );
@@ -93,17 +87,19 @@ class _ActivePrompt extends StatelessWidget {
     final locked = prompt.status == 'locked';
     final total = prompt.tally.values.fold<int>(0, (a, b) => a + b);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Expanded(
-            child: Text(prompt.question, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          Expanded(child: Text(prompt.question, style: display(18))),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(8)),
+            child: Text('+${prompt.basePoints}', style: label(color: AppColors.orangeBright, size: 11)),
           ),
-          AppChip('+${prompt.basePoints}', color: AppColors.gold),
         ]),
-        const SizedBox(height: 2),
+        const SizedBox(height: 3),
         Text(locked ? '🔒 Locked — awaiting result' : "Locks at ${prompt.locksAtMinute}'",
-            style: const TextStyle(fontSize: 11, color: AppColors.mut)),
+            style: body(color: AppColors.mut, size: 11.5)),
         const SizedBox(height: 12),
         Row(
           children: prompt.options.map((o) {
@@ -126,10 +122,7 @@ class _ActivePrompt extends StatelessWidget {
         ),
         if (myPick != null && !locked) ...[
           const SizedBox(height: 8),
-          const Center(
-            child: Text('Locked in. Streak rewards stack — keep calling them right. 🔥',
-                style: TextStyle(fontSize: 11, color: AppColors.lime)),
-          ),
+          Center(child: Text('Locked in. Streaks stack — keep calling them right. 🔥', style: body(color: AppColors.orange, size: 11.5, weight: FontWeight.w600))),
         ],
       ]),
     );
@@ -153,35 +146,36 @@ class _OptionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Opacity(
-      opacity: disabled && !picked ? 0.6 : 1,
+      opacity: disabled && !picked ? 0.55 : 1,
       child: GestureDetector(
         onTap: disabled ? null : onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: picked ? const Color(0x26C7F24D) : const Color(0x33000000),
+            color: picked ? AppColors.orange : AppColors.cardAlt,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: picked ? AppColors.lime : AppColors.line),
+            border: Border.all(color: picked ? AppColors.orange : AppColors.line),
           ),
           clipBehavior: Clip.antiAlias,
           child: Stack(children: [
-            Positioned.fill(
-              child: FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: (share / 100).clamp(0, 1),
-                child: Container(color: const Color(0x0DFFFFFF)),
+            if (!picked)
+              Positioned.fill(
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: (share / 100).clamp(0, 1),
+                  child: Container(color: const Color(0x14E9531E)),
+                ),
               ),
-            ),
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 4),
               child: Column(children: [
                 Text(label,
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    style: body(color: picked ? Colors.white : AppColors.ink, size: 13, weight: FontWeight.w800)),
                 if (hint != null)
-                  Text(hint!, style: const TextStyle(fontSize: 10, color: AppColors.mut)),
-                Text('$share% of room', style: const TextStyle(fontSize: 10, color: AppColors.mut)),
+                  Text(hint!, style: body(color: picked ? Colors.white70 : AppColors.mut, size: 10)),
+                Text('$share%', style: body(color: picked ? Colors.white70 : AppColors.mut, size: 10)),
               ]),
             ),
           ]),

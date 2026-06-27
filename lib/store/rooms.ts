@@ -74,6 +74,7 @@ interface RoomRuntime {
   name: string;
   fixture: Fixture;
   modes: RoomModes;
+  visibility: "public" | "invite";
   hostId: string;
   status: RoomStatus;
   createdAt: number;
@@ -135,6 +136,7 @@ export async function createRoom(input: {
   modes: RoomModes;
   hostName: string;
   hostWallet?: string;
+  visibility?: "public" | "invite";
 }): Promise<{ roomId: string; hostId: string } | { error: string }> {
   const fixture = await getSource().getFixture(input.fixtureId);
   if (!fixture) return { error: "Fixture not found" };
@@ -160,6 +162,7 @@ export async function createRoom(input: {
     name: input.name || `${fixture.home.name} watch party`,
     fixture,
     modes: input.modes,
+    visibility: input.visibility ?? "public",
     hostId,
     status: "lobby",
     createdAt: Date.now(),
@@ -631,10 +634,12 @@ export interface RoomSummary {
   memberCount: number;
   modes: RoomModes;
   createdAt: number;
+  score: ScoreView | null;
 }
 
 export function listRooms(): RoomSummary[] {
   return [...store.rooms.values()]
+    .filter((rt) => rt.visibility === "public")
     .map((rt) => ({
       id: rt.id,
       code: rt.code,
@@ -644,6 +649,16 @@ export function listRooms(): RoomSummary[] {
       memberCount: rt.members.size,
       modes: rt.modes,
       createdAt: rt.createdAt,
+      score: rt.score
+        ? {
+            minute: rt.score.minute,
+            phase: rt.score.phase,
+            goals: rt.score.goals,
+            yellow: rt.score.yellow,
+            red: rt.score.red,
+            corners: rt.score.corners,
+          }
+        : null,
     }))
     .sort((a, b) => b.createdAt - a.createdAt);
 }

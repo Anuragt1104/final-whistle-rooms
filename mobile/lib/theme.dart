@@ -1,63 +1,97 @@
 import 'package:flutter/material.dart';
 
-/// Design tokens mirrored from the web app for a consistent brand.
+/// "Terrace" design language — warm matchday paper, bold display type,
+/// ticket-stub scoreboards, vivid orange accent.
 class AppColors {
-  static const pitch950 = Color(0xFF070B14);
-  static const pitch900 = Color(0xFF0B1220);
-  static const pitch850 = Color(0xFF0F1828);
-  static const pitch800 = Color(0xFF141F33);
-  static const pitch700 = Color(0xFF1D2C45);
-  static const line = Color(0xFF243650);
-
-  static const lime = Color(0xFFC7F24D);
-  static const limeSoft = Color(0xFFD8FF6B);
-  static const home = Color(0xFF4AA3FF);
-  static const away = Color(0xFFFF6B6B);
-  static const gold = Color(0xFFFFD24A);
-  static const mut = Color(0xFF8AA0BD);
-  static const text = Color(0xFFEAF1FB);
+  static const paper = Color(0xFFE9E4D6); // page background (warm newsprint)
+  static const paperDeep = Color(0xFFE2DBC8);
+  static const card = Color(0xFFFAF6EC); // cream card
+  static const cardAlt = Color(0xFFF2ECDD);
+  static const ink = Color(0xFF17130E); // near-black ticket panel + text
+  static const inkSoft = Color(0xFF2C261D);
+  static const cream = Color(0xFFF5F0E3); // text on ink
+  static const orange = Color(0xFFE9531E); // primary accent / CTA
+  static const orangeBright = Color(0xFFF26A21); // scores
+  static const mut = Color(0xFF8B8273); // secondary on paper
+  static const mutInk = Color(0xFFB7AE9C); // secondary on ink
+  static const line = Color(0xFFDCD4C1); // card border on paper
+  static const lineInk = Color(0xFF342D22);
+  static const gold = Color(0xFFE0A33C);
 }
 
+const kDisplay = 'Anton';
+const kBody = 'Archivo';
+
 ThemeData buildTheme() {
-  final base = ThemeData.dark(useMaterial3: true);
+  final base = ThemeData.light(useMaterial3: true);
   return base.copyWith(
-    scaffoldBackgroundColor: AppColors.pitch950,
+    scaffoldBackgroundColor: AppColors.paper,
     colorScheme: base.colorScheme.copyWith(
-      primary: AppColors.lime,
-      secondary: AppColors.home,
-      surface: AppColors.pitch850,
+      primary: AppColors.orange,
+      secondary: AppColors.ink,
+      surface: AppColors.card,
+      brightness: Brightness.light,
     ),
     textTheme: base.textTheme.apply(
-      bodyColor: AppColors.text,
-      displayColor: AppColors.text,
-      fontFamily: 'SF Pro Text',
+      bodyColor: AppColors.ink,
+      displayColor: AppColors.ink,
+      fontFamily: kBody,
     ),
     splashFactory: InkRipple.splashFactory,
   );
 }
 
-/// Reusable card decoration.
-BoxDecoration cardDecoration({Color? borderColor, Color? leftAccent}) {
-  return BoxDecoration(
-    gradient: const LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [Color(0xE6141F33), Color(0xE60F1828)],
-    ),
-    borderRadius: BorderRadius.circular(16),
-    border: Border(
-      top: BorderSide(color: borderColor ?? AppColors.line),
-      right: BorderSide(color: borderColor ?? AppColors.line),
-      bottom: BorderSide(color: borderColor ?? AppColors.line),
-      left: leftAccent != null
-          ? BorderSide(color: leftAccent, width: 4)
-          : BorderSide(color: borderColor ?? AppColors.line),
-    ),
-  );
-}
-
-BoxDecoration chipDecoration({Color? border}) => BoxDecoration(
-      color: const Color(0xB30F1828),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: border ?? AppColors.line),
+/// Heavy condensed display text (Anton).
+TextStyle display(double size, {Color color = AppColors.ink, double spacing = 0}) => TextStyle(
+      fontFamily: kDisplay,
+      fontSize: size,
+      color: color,
+      height: 1.0,
+      letterSpacing: spacing,
     );
+
+/// Small uppercase label (Archivo, tracked).
+TextStyle label({Color color = AppColors.mut, double size = 11, FontWeight weight = FontWeight.w700}) =>
+    TextStyle(
+      fontFamily: kBody,
+      fontSize: size,
+      color: color,
+      fontWeight: weight,
+      letterSpacing: 1.4,
+    );
+
+TextStyle body({Color color = AppColors.ink, double size = 14, FontWeight weight = FontWeight.w500}) =>
+    TextStyle(fontFamily: kBody, fontSize: size, color: color, fontWeight: weight, height: 1.35);
+
+/// Cream card with warm border + soft shadow.
+BoxDecoration cardBox({Color? color, Color? border, double radius = 18}) => BoxDecoration(
+      color: color ?? AppColors.card,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: border ?? AppColors.line, width: 1),
+      boxShadow: const [
+        BoxShadow(color: Color(0x14000000), blurRadius: 14, offset: Offset(0, 6)),
+      ],
+    );
+
+/// Team identity colour for the badge circles (keyed by 3-letter code).
+const _teamColors = <String, int>{
+  'ARG': 0xFF5BA3D0, 'BRA': 0xFF2BB673, 'FRA': 0xFF1B3A8C, 'ESP': 0xFFD8392B,
+  'GER': 0xFF1A1A1A, 'ENG': 0xFFD8392B, 'POR': 0xFF1F7A3D, 'NED': 0xFFEB6A1E,
+  'BEL': 0xFFD8392B, 'CRO': 0xFFD8392B, 'URU': 0xFF5BA3D0, 'MEX': 0xFF1F7A3D,
+  'USA': 0xFF1B3A8C, 'JPN': 0xFFD8392B, 'MAR': 0xFFB4232A, 'SEN': 0xFF1F7A3D,
+  'DEN': 0xFFD8392B, 'SUI': 0xFFD8392B, 'SRB': 0xFF8C2832, 'POL': 0xFFD8392B,
+  'KOR': 0xFF1B3A8C, 'CAN': 0xFFD8392B, 'COL': 0xFFF2C300, 'NGA': 0xFF1F7A3D,
+  'ECU': 0xFFF2C300, 'GHA': 0xFF1A1A1A, 'CMR': 0xFF1F7A3D, 'AUS': 0xFFC2A000,
+};
+
+const _palette = [0xFFD8392B, 0xFF1B3A8C, 0xFF1F7A3D, 0xFFEB6A1E, 0xFF6A3FA0, 0xFF0E8C8C];
+
+Color teamColor(String code) {
+  final hit = _teamColors[code.toUpperCase()];
+  if (hit != null) return Color(hit);
+  var h = 0;
+  for (final c in code.codeUnits) {
+    h = (h * 31 + c) & 0x7fffffff;
+  }
+  return Color(_palette[h % _palette.length]);
+}
