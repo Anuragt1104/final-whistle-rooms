@@ -8,6 +8,7 @@ import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../local/fixtures.dart';
 import '../local/live_engine.dart';
+import '../solana/wallet_connect.dart';
 import '../theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_nav.dart';
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<RoomSummary> _rooms = [];
   Identity? _identity;
   String _name = '';
+  String _walletAddr = '';
   String _nav = 'rooms';
   final _codeCtrl = TextEditingController();
   String _joinErr = '';
@@ -44,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _boot() async {
     _identity = await IdentityStore.getOrCreate();
     _name = await LocalStore.displayName();
+    _walletAddr = await LocalStore.walletAddress();
     _api.config().then((c) => mounted ? setState(() => _config = c) : null).catchError((_) {});
     await _refresh();
     if (mounted) setState(() => _loading = false);
@@ -114,6 +117,27 @@ class _HomeScreenState extends State<HomeScreen> {
     await IdentityStore.sign('final-whistle-rooms:auth:$n:${_identity!.pubkey}');
     await LocalStore.setDisplayName(n);
     setState(() => _name = n);
+  }
+
+  Future<void> _connectWallet() async {
+    if (!await WalletConnect.isAvailable()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No Solana wallet app detected (Phantom/Solflare). Android only.')));
+      }
+      return;
+    }
+    try {
+      final res = await WalletConnect.connect();
+      if (res != null) {
+        await LocalStore.setWalletAddress(res.pubkey);
+        if (mounted) setState(() => _walletAddr = res.pubkey);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Wallet connection failed')));
+      }
+    }
   }
 
   void _openRoom(String id) => Navigator.push(context, fwrRoute(RoomScreen(roomId: id))).then((_) => _refresh());
@@ -454,7 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _refresh();
       })),
       _settingRow(Icons.bolt_outlined, 'Data source', _config?.mode == 'live' ? 'Live TxLINE' : 'Replay (TxLINE-shaped)', null),
-      _settingRow(Icons.verified_outlined, 'Identity', _identity == null ? '—' : _identity!.pubkey, null),
+      _settingRow(Icons.account_balance_wallet_outlined, 'Wallet', _walletAddr.isEmpty ? 'Tap to connect a Solana wallet' : _walletAddr, _connectWallet),
+      _settingRow(Icons.verified_outlined, 'On-device identity', _identity == null ? '—' : _identity!.pubkey, null),
       const SizedBox(height: 16),
       Center(child: Text('Final Whistle Rooms · skill-based, points only', style: body(color: AppColors.mut, size: 11))),
     ]);

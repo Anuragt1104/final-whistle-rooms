@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../local/fixtures.dart';
+import '../solana/wallet_connect.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../theme.dart';
@@ -222,18 +223,43 @@ class _LoginCardState extends State<_LoginCard> {
   final _walletCtrl = TextEditingController();
   bool _wallet = false;
   bool _busy = false;
+  bool _walletAvail = false;
+  bool _connecting = false;
+  String? _connected; // base58 pubkey from a real wallet
 
   @override
   void initState() {
     super.initState();
     LocalStore.displayName().then((n) => _nameCtrl.text = n);
+    WalletConnect.isAvailable().then((v) => mounted ? setState(() => _walletAvail = v) : null);
   }
+
+  Future<void> _connectWallet() async {
+    setState(() => _connecting = true);
+    try {
+      final res = await WalletConnect.connect();
+      if (res != null) {
+        setState(() => _connected = res.pubkey);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Wallet connection cancelled')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('No Solana wallet found — install Phantom/Solflare, or paste an address')));
+      }
+    } finally {
+      if (mounted) setState(() => _connecting = false);
+    }
+  }
+
+  String _short(String pk) => '${pk.substring(0, 4)}…${pk.substring(pk.length - 4)}';
 
   Future<void> _go() async {
     HapticFeedback.mediumImpact();
     setState(() => _busy = true);
     final name = _nameCtrl.text.trim().isEmpty ? 'Fan' : _nameCtrl.text.trim();
-    final w = _wallet ? _walletCtrl.text.trim() : null;
+    final w = _connected ?? (_wallet ? _walletCtrl.text.trim() : null);
     await widget.onDone(name, w);
   }
 
@@ -253,19 +279,37 @@ class _LoginCardState extends State<_LoginCard> {
         const SizedBox(height: 8),
         TextField(controller: _nameCtrl, autofocus: true, decoration: fwrInput('e.g. Ana')),
         const SizedBox(height: 16),
-        GestureDetector(
-          onTap: () => setState(() => _wallet = !_wallet),
-          child: Row(children: [
-            Icon(_wallet ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: _wallet ? AppColors.orange : AppColors.mut, size: 22),
-            const SizedBox(width: 8),
-            Text('I have a Solana wallet — connect address', style: body(size: 13.5, weight: FontWeight.w600)),
-          ]),
-        ),
-        if (_wallet) ...[
+        // Real wallet connect (Mobile Wallet Adapter) when a wallet app is detected
+        if (_connected != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(color: const Color(0x14E9531E), borderRadius: BorderRadius.circular(13), border: Border.all(color: AppColors.orange)),
+            child: Row(children: [
+              const Icon(Icons.check_circle, color: AppColors.orange, size: 20),
+              const SizedBox(width: 10),
+              Text('Wallet connected ◎ ${_short(_connected!)}', style: body(weight: FontWeight.w700, size: 13.5)),
+              const Spacer(),
+              GestureDetector(onTap: () => setState(() => _connected = null), child: Text('Change', style: body(color: AppColors.mut, size: 12))),
+            ]),
+          )
+        else if (_walletAvail)
+          GhostButton(_connecting ? 'Opening wallet…' : '◎ Connect Solana wallet', expand: true, onTap: _connecting ? null : _connectWallet)
+        else
+          GestureDetector(
+            onTap: () => setState(() => _wallet = !_wallet),
+            child: Row(children: [
+              Icon(_wallet ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: _wallet ? AppColors.orange : AppColors.mut, size: 22),
+              const SizedBox(width: 8),
+              Text('Have a Solana wallet? Paste your address', style: body(size: 13.5, weight: FontWeight.w600)),
+            ]),
+          ),
+        if (_connected == null && _wallet && !_walletAvail) ...[
           const SizedBox(height: 10),
           TextField(controller: _walletCtrl, decoration: fwrInput('Paste your Solana address')),
-          const SizedBox(height: 4),
-          Text('Used for your profile + leaderboard. Full wallet signing arrives with mainnet.', style: body(color: AppColors.mut, size: 11)),
+        ],
+        if (_connected == null && _walletAvail) ...[
+          const SizedBox(height: 8),
+          Center(child: Text('Detected a wallet app on your device', style: body(color: AppColors.mut, size: 11))),
         ],
         const SizedBox(height: 24),
         PrimaryButton(_busy ? 'Setting up…' : '◎ Continue with Solana', icon: Icons.arrow_forward_rounded, expand: true, busy: _busy, onTap: _go),

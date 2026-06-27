@@ -34,7 +34,7 @@ android {
 
     defaultConfig {
         applicationId = "com.alenkamedia.final_whistle"
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 23) // Mobile Wallet Adapter needs API 23+
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
