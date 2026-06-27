@@ -126,6 +126,24 @@ for the optional live-TxLINE, on-chain-anchor, and Claude-recap settings.
 
 ---
 
+## Mobile app (Flutter)
+
+A native **iOS + Android** client lives in [`mobile/`](mobile/). It's a thin
+Flutter front-end over this same backend — REST + the room **SSE** stream — so
+the live pulse, Next Swing predictions, leaderboard, recaps, and Solana proof
+all work natively on a phone. Verified running on an Android emulator against the
+live backend.
+
+```bash
+cd mobile
+flutter run                                     # Android emulator/device
+flutter run --dart-define=API_BASE=http://10.0.2.2:3000   # point at local backend
+```
+
+iOS needs full Xcode + CocoaPods (one-time) — see
+[`mobile/README.md`](mobile/README.md) for the complete Android **and** iOS
+(simulator + physical iPhone) run instructions.
+
 ## Architecture
 
 ```

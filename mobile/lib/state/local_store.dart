@@ -1,0 +1,42 @@
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Lightweight local persistence: display name, per-room membership, and the
+/// user's own Next Swing picks (the server holds the authoritative tally).
+class LocalStore {
+  static Future<String> displayName() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString('display_name') ?? '';
+  }
+
+  static Future<void> setDisplayName(String name) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('display_name', name);
+  }
+
+  static Future<String?> memberId(String roomId) async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString('member_$roomId');
+  }
+
+  static Future<void> setMemberId(String roomId, String memberId) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('member_$roomId', memberId);
+  }
+
+  static Future<Map<String, String>> picks(String roomId) async {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString('picks_$roomId');
+    if (raw == null) return {};
+    try {
+      return (jsonDecode(raw) as Map).map((k, v) => MapEntry(k as String, v as String));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> savePicks(String roomId, Map<String, String> picks) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('picks_$roomId', jsonEncode(picks));
+  }
+}

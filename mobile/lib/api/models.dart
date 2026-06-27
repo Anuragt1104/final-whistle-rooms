@@ -1,0 +1,335 @@
+// Dart mirrors of the backend's serialized RoomView (see lib/store/types.ts).
+
+class Team {
+  final String id, name, code, flag;
+  final int rating;
+  Team({required this.id, required this.name, required this.code, required this.flag, required this.rating});
+  factory Team.fromJson(Map<String, dynamic> j) => Team(
+        id: j['id'] ?? '',
+        name: j['name'] ?? '',
+        code: j['code'] ?? '',
+        flag: j['flag'] ?? '🏳️',
+        rating: (j['rating'] ?? 75) as int,
+      );
+}
+
+class Fixture {
+  final String id, competition, stage, kickoff, venue, status;
+  final Team home, away;
+  Fixture({
+    required this.id,
+    required this.competition,
+    required this.stage,
+    required this.kickoff,
+    required this.venue,
+    required this.status,
+    required this.home,
+    required this.away,
+  });
+  factory Fixture.fromJson(Map<String, dynamic> j) => Fixture(
+        id: j['id'] ?? '',
+        competition: j['competition'] ?? '',
+        stage: j['stage'] ?? '',
+        kickoff: j['kickoff'] ?? '',
+        venue: j['venue'] ?? '',
+        status: j['status'] ?? 'scheduled',
+        home: Team.fromJson(j['home']),
+        away: Team.fromJson(j['away']),
+      );
+}
+
+class RoomSummary {
+  final String id, code, name, status;
+  final Fixture fixture;
+  final int memberCount;
+  RoomSummary({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.status,
+    required this.fixture,
+    required this.memberCount,
+  });
+  factory RoomSummary.fromJson(Map<String, dynamic> j) => RoomSummary(
+        id: j['id'],
+        code: j['code'],
+        name: j['name'],
+        status: j['status'],
+        fixture: Fixture.fromJson(j['fixture']),
+        memberCount: j['memberCount'] ?? 0,
+      );
+}
+
+class StatPair {
+  final int home, away;
+  StatPair(this.home, this.away);
+  factory StatPair.fromJson(Map<String, dynamic>? j) =>
+      j == null ? StatPair(0, 0) : StatPair((j['home'] ?? 0) as int, (j['away'] ?? 0) as int);
+}
+
+class ScoreView {
+  final int minute, phase;
+  final StatPair goals, yellow, red, corners;
+  ScoreView({
+    required this.minute,
+    required this.phase,
+    required this.goals,
+    required this.yellow,
+    required this.red,
+    required this.corners,
+  });
+  factory ScoreView.fromJson(Map<String, dynamic> j) => ScoreView(
+        minute: (j['minute'] ?? 0) as int,
+        phase: (j['phase'] ?? 0) as int,
+        goals: StatPair.fromJson(j['goals']),
+        yellow: StatPair.fromJson(j['yellow']),
+        red: StatPair.fromJson(j['red']),
+        corners: StatPair.fromJson(j['corners']),
+      );
+}
+
+class WinChance {
+  final int home, draw, away;
+  WinChance(this.home, this.draw, this.away);
+  factory WinChance.fromJson(Map<String, dynamic>? j) => j == null
+      ? WinChance(33, 34, 33)
+      : WinChance((j['home'] ?? 33) as int, (j['draw'] ?? 34) as int, (j['away'] ?? 33) as int);
+}
+
+class MemberView {
+  final String id, name, avatar;
+  final String? side, walletShort;
+  final int points, streak, bestStreak, correct;
+  final bool isHost;
+  MemberView({
+    required this.id,
+    required this.name,
+    required this.avatar,
+    required this.side,
+    required this.walletShort,
+    required this.points,
+    required this.streak,
+    required this.bestStreak,
+    required this.correct,
+    required this.isHost,
+  });
+  factory MemberView.fromJson(Map<String, dynamic> j) => MemberView(
+        id: j['id'],
+        name: j['name'] ?? 'Fan',
+        avatar: j['avatar'] ?? '👤',
+        side: j['side'],
+        walletShort: j['walletShort'],
+        points: (j['points'] ?? 0) as int,
+        streak: (j['streak'] ?? 0) as int,
+        bestStreak: (j['bestStreak'] ?? 0) as int,
+        correct: (j['correct'] ?? 0) as int,
+        isHost: j['isHost'] ?? false,
+      );
+}
+
+class ChatView {
+  final String id, memberId, name, avatar, text, kind;
+  final int ts;
+  ChatView({
+    required this.id,
+    required this.memberId,
+    required this.name,
+    required this.avatar,
+    required this.text,
+    required this.kind,
+    required this.ts,
+  });
+  factory ChatView.fromJson(Map<String, dynamic> j) => ChatView(
+        id: j['id'],
+        memberId: j['memberId'] ?? '',
+        name: j['name'] ?? 'Fan',
+        avatar: j['avatar'] ?? '👤',
+        text: j['text'] ?? '',
+        kind: j['kind'] ?? 'chat',
+        ts: (j['ts'] ?? 0) as int,
+      );
+}
+
+class PulseCard {
+  final String id, kind, emoji, headline, detail, accent;
+  final int minute;
+  PulseCard({
+    required this.id,
+    required this.kind,
+    required this.emoji,
+    required this.headline,
+    required this.detail,
+    required this.accent,
+    required this.minute,
+  });
+  factory PulseCard.fromJson(Map<String, dynamic> j) => PulseCard(
+        id: j['id'],
+        kind: j['kind'] ?? '',
+        emoji: j['emoji'] ?? '•',
+        headline: j['headline'] ?? '',
+        detail: j['detail'] ?? '',
+        accent: j['accent'] ?? 'neutral',
+        minute: (j['minute'] ?? 0) as int,
+      );
+}
+
+class SwingOption {
+  final String key, label;
+  final String? hint;
+  SwingOption({required this.key, required this.label, this.hint});
+  factory SwingOption.fromJson(Map<String, dynamic> j) =>
+      SwingOption(key: j['key'], label: j['label'] ?? '', hint: j['hint']);
+}
+
+class PromptView {
+  final String id, question, status;
+  final String? winningKey;
+  final int basePoints, locksAtMinute, createdAt;
+  final List<SwingOption> options;
+  final Map<String, int> tally;
+  PromptView({
+    required this.id,
+    required this.question,
+    required this.status,
+    required this.winningKey,
+    required this.basePoints,
+    required this.locksAtMinute,
+    required this.createdAt,
+    required this.options,
+    required this.tally,
+  });
+  factory PromptView.fromJson(Map<String, dynamic> j) => PromptView(
+        id: j['id'],
+        question: j['question'] ?? '',
+        status: j['status'] ?? 'open',
+        winningKey: j['winningKey'],
+        basePoints: (j['basePoints'] ?? 0) as int,
+        locksAtMinute: (j['locksAtMinute'] ?? 0) as int,
+        createdAt: (j['createdAt'] ?? 0) as int,
+        options: ((j['options'] ?? []) as List).map((o) => SwingOption.fromJson(o)).toList(),
+        tally: ((j['tally'] ?? {}) as Map).map((k, v) => MapEntry(k as String, (v ?? 0) as int)),
+      );
+}
+
+class RecapView {
+  final String id, scope, text;
+  final String? topMember;
+  final int minute;
+  RecapView({
+    required this.id,
+    required this.scope,
+    required this.text,
+    required this.topMember,
+    required this.minute,
+  });
+  factory RecapView.fromJson(Map<String, dynamic> j) => RecapView(
+        id: j['id'],
+        scope: j['scope'] ?? 'full-time',
+        text: j['text'] ?? '',
+        topMember: j['topMember'],
+        minute: (j['minute'] ?? 0) as int,
+      );
+}
+
+class ProofInfo {
+  final int leafCount;
+  final String? root, anchorSignature;
+  final bool anchored;
+  final String cluster;
+  ProofInfo({
+    required this.leafCount,
+    required this.root,
+    required this.anchorSignature,
+    required this.anchored,
+    required this.cluster,
+  });
+  factory ProofInfo.fromJson(Map<String, dynamic> j) => ProofInfo(
+        leafCount: (j['leafCount'] ?? 0) as int,
+        root: j['root'],
+        anchorSignature: j['anchorSignature'],
+        anchored: j['anchored'] ?? false,
+        cluster: j['cluster'] ?? 'devnet',
+      );
+}
+
+class RoomModes {
+  final bool draft, nextSwing;
+  RoomModes(this.draft, this.nextSwing);
+  factory RoomModes.fromJson(Map<String, dynamic>? j) =>
+      j == null ? RoomModes(true, true) : RoomModes(j['draft'] ?? true, j['nextSwing'] ?? true);
+}
+
+class RoomView {
+  final String id, code, name, hostId, status;
+  final Fixture fixture;
+  final RoomModes modes;
+  final int momentum;
+  final WinChance win;
+  final ScoreView? score;
+  final List<MemberView> members;
+  final List<ChatView> chat;
+  final List<PulseCard> pulse;
+  final List<PromptView> prompts;
+  final List<RecapView> recaps;
+  final ProofInfo proof;
+
+  RoomView({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.hostId,
+    required this.status,
+    required this.fixture,
+    required this.modes,
+    required this.momentum,
+    required this.win,
+    required this.score,
+    required this.members,
+    required this.chat,
+    required this.pulse,
+    required this.prompts,
+    required this.recaps,
+    required this.proof,
+  });
+
+  factory RoomView.fromJson(Map<String, dynamic> j) => RoomView(
+        id: j['id'],
+        code: j['code'] ?? '',
+        name: j['name'] ?? '',
+        hostId: j['hostId'] ?? '',
+        status: j['status'] ?? 'lobby',
+        fixture: Fixture.fromJson(j['fixture']),
+        modes: RoomModes.fromJson(j['modes']),
+        momentum: (j['momentum'] ?? 0) as int,
+        win: WinChance.fromJson(j['win']),
+        score: j['score'] == null ? null : ScoreView.fromJson(j['score']),
+        members: ((j['members'] ?? []) as List).map((m) => MemberView.fromJson(m)).toList(),
+        chat: ((j['chat'] ?? []) as List).map((c) => ChatView.fromJson(c)).toList(),
+        pulse: ((j['pulse'] ?? []) as List).map((p) => PulseCard.fromJson(p)).toList(),
+        prompts: ((j['prompts'] ?? []) as List).map((p) => PromptView.fromJson(p)).toList(),
+        recaps: ((j['recaps'] ?? []) as List).map((r) => RecapView.fromJson(r)).toList(),
+        proof: ProofInfo.fromJson(j['proof'] ?? {}),
+      );
+}
+
+/// GamePhase (numeric) -> label, mirrored from the backend enum.
+String phaseLabel(int phase) {
+  switch (phase) {
+    case 0:
+      return 'Pre-match';
+    case 1:
+      return '1st half';
+    case 2:
+      return 'Half-time';
+    case 3:
+      return '2nd half';
+    case 4:
+      return 'Full-time';
+    case 8:
+      return 'Penalties';
+    case 9:
+      return 'Finished';
+    default:
+      return '—';
+  }
+}
