@@ -37,9 +37,11 @@ import {
 import nacl from "tweetnacl";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const idl = JSON.parse(readFileSync(path.join(root, "idl", "txoracle.json"), "utf8"));
-
 const NETWORK = process.env.NETWORK === "devnet" ? "devnet" : "mainnet";
+// devnet + mainnet are separate program deployments with separate TxL mints
+const idl = JSON.parse(
+  readFileSync(path.join(root, "idl", NETWORK === "devnet" ? "txoracle-devnet.json" : "txoracle.json"), "utf8"),
+);
 const RPC =
   process.env.SOLANA_RPC ||
   (NETWORK === "mainnet" ? "https://api.mainnet-beta.solana.com" : "https://api.devnet.solana.com");
@@ -131,7 +133,9 @@ async function main() {
   anchor.setProvider(provider);
   const program = new anchor.Program(idl, provider);
 
-  const TXLINE_MINT = new PublicKey(idl.constants.find((c) => c.name === "TXLINE_MINT").value);
+  const TXLINE_MINT = new PublicKey(
+    process.env.TXLINE_MINT_OVERRIDE || idl.constants.find((c) => c.name === "TXLINE_MINT").value,
+  );
   const [pricingMatrix] = PublicKey.findProgramAddressSync([Buffer.from("pricing_matrix")], program.programId);
   const [tokenTreasuryPda] = PublicKey.findProgramAddressSync([Buffer.from("token_treasury_v2")], program.programId);
   const tokenTreasuryVault = getAssociatedTokenAddressSync(TXLINE_MINT, tokenTreasuryPda, true, TOKEN_2022_PROGRAM_ID);

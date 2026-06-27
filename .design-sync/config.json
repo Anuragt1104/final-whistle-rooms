@@ -11,5 +11,10 @@
     "CreateClient": null,
     "RoomClient": null,
     "TopBar": null
+  },
+  "overrides": {
+    "Modal": { "cardMode": "single", "primaryStory": "IdentitySheet", "viewport": "460x440" },
+    "ScoreRail": { "cardMode": "column" },
+    "Leaderboard": { "cardMode": "column" }
   }
 }

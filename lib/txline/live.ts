@@ -114,53 +114,72 @@ function defaultMinuteFor(phase: GamePhase): number {
   }
 }
 
-interface SoccerScore {
-  Goals: number; YellowCards: number; RedCards: number; Corners: number;
-}
-interface SoccerTotalScore {
-  H1?: SoccerScore; H2?: SoccerScore; HT?: SoccerScore; Total?: SoccerScore;
-}
+// Real TxLINE Scores record (snapshot/stream). Totals live in the numeric
+// `Stats` map (1..8 = P1/P2 goals, yellow, red, corners); `Score` carries the
+// per-period named breakdown; `Clock.Seconds` is the live match clock.
+type Sc = { Goals?: number; YellowCards?: number; RedCards?: number; Corners?: number };
+type ScoreObj = { H1?: Sc; HT?: Sc; H2?: Sc; Total?: Sc };
 interface TxScores {
-  fixtureId: number;
-  seq?: number;
-  Ts?: number;
+  FixtureId?: number;
+  fixtureId?: number;
   GameState?: string;
-  Minute?: number;
-  scoreSoccer?: { Participant1?: SoccerTotalScore; Participant2?: SoccerTotalScore };
+  Seq?: number;
+  Ts?: number;
+  Participant1IsHome?: boolean;
+  Clock?: { Running?: boolean; Seconds?: number };
+  Score?: { Participant1?: ScoreObj; Participant2?: ScoreObj };
+  Stats?: Record<string, number>;
 }
 
-const ZERO: SoccerScore = { Goals: 0, YellowCards: 0, RedCards: 0, Corners: 0 };
-function pair(p1: SoccerScore | undefined, p2: SoccerScore | undefined, k: keyof SoccerScore): StatPair {
-  return { home: (p1 ?? ZERO)[k] ?? 0, away: (p2 ?? ZERO)[k] ?? 0 };
+function phaseFrom(gameState: string | undefined, running: boolean, minute: number): GamePhase {
+  const gs = (gameState ?? "").toLowerCase();
+  if (gs.includes("ht") || gs.includes("half")) return GamePhase.HalfTime;
+  if (gs === "ft" || gs.includes("finish") || gs.includes("full") || gs === "f") return GamePhase.FullTime;
+  if (gs.includes("pen")) return GamePhase.Penalties;
+  if (running) return minute < 45 ? GamePhase.FirstHalf : GamePhase.SecondHalf;
+  if (minute >= 90) return GamePhase.FullTime;
+  if (minute === 0) return GamePhase.PreMatch;
+  return GamePhase.HalfTime;
 }
 
 function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
-  const phase = mapPhase(s.GameState);
-  const p1 = s.scoreSoccer?.Participant1;
-  const p2 = s.scoreSoccer?.Participant2;
+  const fixtureId = String(s.FixtureId ?? s.fixtureId ?? "");
+  const p1Home = s.Participant1IsHome !== false;
+  const stats = s.Stats ?? {};
+  const hasStats = Object.keys(stats).length > 0;
+  const sc1 = s.Score?.Participant1;
+  const sc2 = s.Score?.Participant2;
+
+  // total pair from Stats keys (p1key,p2key), oriented to home/away
+  const st = (k: number) => Number(stats[String(k)] ?? 0);
+  const total = (p1k: number, p2k: number, named: keyof Sc): StatPair => {
+    const v1 = hasStats ? st(p1k) : (sc1?.Total?.[named] ?? 0);
+    const v2 = hasStats ? st(p2k) : (sc2?.Total?.[named] ?? 0);
+    return p1Home ? { home: v1, away: v2 } : { home: v2, away: v1 };
+  };
+  const per = (half: "H1" | "H2", k: keyof Sc): StatPair => {
+    const v1 = sc1?.[half]?.[k] ?? 0;
+    const v2 = sc2?.[half]?.[k] ?? 0;
+    return p1Home ? { home: v1, away: v2 } : { home: v2, away: v1 };
+  };
+
+  const running = s.Clock?.Running === true;
+  const minute = Math.min(130, Math.floor((s.Clock?.Seconds ?? 0) / 60));
+  const phase = phaseFrom(s.GameState, running, minute);
+
   return {
-    fixtureId: String(s.fixtureId),
+    fixtureId,
     seq,
     ts,
     phase,
-    minute: s.Minute ?? defaultMinuteFor(phase),
-    goals: pair(p1?.Total, p2?.Total, "Goals"),
-    yellow: pair(p1?.Total, p2?.Total, "YellowCards"),
-    red: pair(p1?.Total, p2?.Total, "RedCards"),
-    corners: pair(p1?.Total, p2?.Total, "Corners"),
+    minute,
+    goals: total(1, 2, "Goals"),
+    yellow: total(3, 4, "YellowCards"),
+    red: total(5, 6, "RedCards"),
+    corners: total(7, 8, "Corners"),
     periods: {
-      firstHalf: {
-        goals: pair(p1?.H1, p2?.H1, "Goals"),
-        yellow: pair(p1?.H1, p2?.H1, "YellowCards"),
-        red: pair(p1?.H1, p2?.H1, "RedCards"),
-        corners: pair(p1?.H1, p2?.H1, "Corners"),
-      },
-      secondHalf: {
-        goals: pair(p1?.H2, p2?.H2, "Goals"),
-        yellow: pair(p1?.H2, p2?.H2, "YellowCards"),
-        red: pair(p1?.H2, p2?.H2, "RedCards"),
-        corners: pair(p1?.H2, p2?.H2, "Corners"),
-      },
+      firstHalf: { goals: per("H1", "Goals"), yellow: per("H1", "YellowCards"), red: per("H1", "RedCards"), corners: per("H1", "Corners") },
+      secondHalf: { goals: per("H2", "Goals"), yellow: per("H2", "YellowCards"), red: per("H2", "RedCards"), corners: per("H2", "Corners") },
     },
   };
 }
@@ -170,26 +189,29 @@ interface TxOdds {
   MessageId: string;
   Ts: number;
   SuperOddsType: string;
-  GameState?: string;
-  MarketPeriod?: string;
+  InRunning?: boolean;
   PriceNames: string[];
   Prices: number[];
   Pct: string[];
 }
 
+// part1/draw/part2 (and 1/X/2) -> home/draw/away
 const ODDS_KEY_LABELS: Record<string, string> = {
-  "1": "home", X: "draw", "2": "away", "O": "over", "U": "under",
+  part1: "home", draw: "draw", part2: "away", "1": "home", X: "draw", "2": "away",
 };
 
 function mapOddsBatch(batch: TxOdds[], fixture: Fixture, seq: number, ts: string): OddsSnapshot {
   const markets: OddsMarket[] = [];
-  // Pick the freshest 1X2 (match result) line.
-  const x2 = batch.filter((o) => o.SuperOddsType === "1X2").sort((a, b) => b.Ts - a.Ts)[0];
+  // freshest 1X2 result line (e.g. "1X2_PARTICIPANT_RESULT"); prefer TxLINE's
+  // de-margined stable price when present.
+  const x2 = batch
+    .filter((o) => (o.SuperOddsType ?? "").toUpperCase().startsWith("1X2"))
+    .sort((a, b) => b.Ts - a.Ts)[0];
   if (x2) {
     const selections = x2.PriceNames.map((name, i) => {
       const key = ODDS_KEY_LABELS[name] ?? name.toLowerCase();
       const prob = parsePct(x2.Pct?.[i]);
-      const price = (x2.Prices?.[i] ?? 0) / 100;
+      const price = (x2.Prices?.[i] ?? 0) / 1000; // scaled int
       const label = key === "home" ? fixture.home.code : key === "away" ? fixture.away.code : "Draw";
       return { key, label, price: price || (prob > 0 ? 1 / prob : 0), prevPrice: price, impliedProb: prob };
     });
@@ -238,7 +260,7 @@ export class LiveSource implements TxLineSource {
     const data = await getJson<TxScores[]>(`/api/scores/snapshot/${fixture.id}`);
     const latest = data[data.length - 1];
     return latest
-      ? mapScores(latest, latest.seq ?? data.length, new Date(latest.Ts ?? Date.now()).toISOString())
+      ? mapScores(latest, latest.Seq ?? data.length, new Date(latest.Ts ?? Date.now()).toISOString())
       : emptyScore(fixture);
   }
 
@@ -308,6 +330,29 @@ export async function openLiveMatchFeed(
         }
       }
     }
+  }
+
+  // Hydrate immediately from snapshots — the free tier streams only ~every 60s,
+  // so without this the room would sit empty until the first SSE frame.
+  const jsonHeaders = { Authorization: `Bearer ${jwt}`, "X-Api-Token": token, Accept: "application/json" };
+  try {
+    const scRes = await fetch(`${txlineBase()}/api/scores/snapshot/${fixture.id}`, { headers: jsonHeaders, signal: controller.signal });
+    if (scRes.ok) {
+      const arr = (await scRes.json()) as TxScores[];
+      const latest = arr[arr.length - 1];
+      if (latest) handlers.onScore(mapScores(latest, ++scoreSeq, new Date(latest.Ts ?? Date.now()).toISOString()));
+    }
+  } catch (e) {
+    handlers.onError?.(e);
+  }
+  try {
+    const odRes = await fetch(`${txlineBase()}/api/odds/snapshot/${fixture.id}`, { headers: jsonHeaders, signal: controller.signal });
+    if (odRes.ok) {
+      oddsBuffer = (await odRes.json()) as TxOdds[];
+      handlers.onOdds(mapOddsBatch(oddsBuffer, fixture, oddsBuffer.length, new Date().toISOString()));
+    }
+  } catch (e) {
+    handlers.onError?.(e);
   }
 
   consume(`/api/scores/stream?fixtureId=${fixture.id}`, (json) => {
