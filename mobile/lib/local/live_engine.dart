@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
+import 'players.dart';
 
 /// A fully on-device live match — produces the same RoomView the UI renders,
 /// driven by a timer. This is what makes the app feel alive with zero backend:
@@ -12,8 +13,16 @@ class LiveMatchEngine extends ChangeNotifier {
   final Fixture fixture;
   final bool draftMode, nextSwingMode;
   final String myName;
+  final String reactionPack;
+  final bool voice, spoilerSafe;
 
-  LiveMatchEngine(this.fixture, {required this.draftMode, required this.nextSwingMode, required this.myName})
+  LiveMatchEngine(this.fixture,
+      {required this.draftMode,
+      required this.nextSwingMode,
+      required this.myName,
+      this.reactionPack = 'classic',
+      this.voice = false,
+      this.spoilerSafe = false})
       : _rng = Random(fixture.id.hashCode) {
     _members = [
       _M('me', myName.isEmpty ? 'You' : myName, isHost: true),
@@ -44,8 +53,14 @@ class LiveMatchEngine extends ChangeNotifier {
   final Map<String, PromptView> _prompts = {};
   final Map<String, _Resolver> _res = {};
   final List<RecapView> _recaps = [];
+  final List<_GoalRec> _goals = [];
   late List<_M> _members;
   final Map<String, String> myPicks = {};
+
+  // Man of the Match
+  List<MotmCandidate>? _motm;
+  int _motmTotal = 0;
+  String? _myMotmVote;
 
   Timer? _timer;
   int _phase = 0; // 0 pre,1 H1,2 HT,3 H2,4 FT
@@ -160,7 +175,10 @@ class LiveMatchEngine extends ChangeNotifier {
     }
     proofLeaves++;
     final team = side == 'home' ? fixture.home : fixture.away;
-    _addPulse('goal', '⚽', 'GOAL — ${team.name}!', '${fixture.home.code} $gH–$gA ${fixture.away.code}', side, m);
+    final sideCount = side == 'home' ? gH : gA;
+    final name = scorerName(fixture.id, side, sideCount - 1);
+    _goals.add(_GoalRec(name, m, side, team.code));
+    _addPulse('goal', '⚽', 'GOAL — ${team.name}!', 'the room erupts! ${fixture.home.code} $gH–$gA ${fixture.away.code}', side, m, scorer: name);
     for (final mem in _members) {
       if (mem.side == side) mem.points += 50;
     }
@@ -314,8 +332,8 @@ class LiveMatchEngine extends ChangeNotifier {
   String _lastEvent = '';
   String _lastSide = 'home';
 
-  void _addPulse(String kind, String emoji, String head, String detail, String accent, int minute) {
-    _pulse.add(PulseCard(id: _id('p'), kind: kind, emoji: emoji, headline: head, detail: detail, accent: accent, minute: minute));
+  void _addPulse(String kind, String emoji, String head, String detail, String accent, int minute, {String? scorer}) {
+    _pulse.add(PulseCard(id: _id('p'), kind: kind, emoji: emoji, headline: head, detail: detail, accent: accent, minute: minute, scorer: scorer));
     if (_pulse.length > 50) _pulse.removeAt(0);
     if (kind == 'goal') {
       _lastEvent = 'goal';
@@ -328,9 +346,17 @@ class LiveMatchEngine extends ChangeNotifier {
     }
   }
 
+  Map<String, int> _botReactions() {
+    final m = <String, int>{};
+    final e = packEmojis(reactionPack);
+    if (_rng.nextDouble() < 0.7) m[e[0]] = _rng.nextInt(28) + 3;
+    if (_rng.nextDouble() < 0.4) m[e[1]] = _rng.nextInt(12) + 1;
+    return m;
+  }
+
   void _botShout(String side) {
     final b = _members.firstWhere((x) => x.isBot, orElse: () => _members.first);
-    _chat.add(ChatView(id: _id('c'), memberId: b.id, name: b.name, avatar: '', text: _pick(_cheers), kind: 'chat', ts: _now()));
+    _chat.add(ChatView(id: _id('c'), memberId: b.id, name: b.name, avatar: '', text: _pick(_cheers), kind: 'chat', ts: _now(), reactions: _botReactions()));
     _trim();
   }
 
@@ -338,7 +364,7 @@ class LiveMatchEngine extends ChangeNotifier {
     if (_rng.nextDouble() < 0.08) {
       final bots = _members.where((x) => x.isBot).toList();
       final b = bots[_rng.nextInt(bots.length)];
-      _chat.add(ChatView(id: _id('c'), memberId: b.id, name: b.name, avatar: '', text: _pick(_cheers), kind: 'chat', ts: _now()));
+      _chat.add(ChatView(id: _id('c'), memberId: b.id, name: b.name, avatar: '', text: _pick(_cheers), kind: 'chat', ts: _now(), reactions: _botReactions()));
       _trim();
     }
   }
@@ -361,6 +387,55 @@ class LiveMatchEngine extends ChangeNotifier {
     }
     _addPulse('full-time', '🏁', 'Full-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}. Final whistle.', 'neutral', 90);
     _makeRecap('full-time', 90);
+    _buildMotm();
+  }
+
+  void _buildMotm() {
+    final lead = gH - gA;
+    final winSide = lead >= 0 ? 'home' : 'away';
+    final winCode = winSide == 'home' ? fixture.home.code : fixture.away.code;
+    final names = <String>[];
+    final codes = <String, String>{};
+    for (final g in _goals.where((g) => g.side == winSide)) {
+      if (!names.contains(g.name)) {
+        names.add(g.name);
+        codes[g.name] = g.teamCode;
+      }
+    }
+    for (final g in _goals) {
+      if (!names.contains(g.name)) {
+        names.add(g.name);
+        codes[g.name] = g.teamCode;
+      }
+    }
+    final pad = roster(fixture.id, winSide);
+    var pi = 0;
+    while (names.length < 3 && pi < pad.length) {
+      if (!names.contains(pad[pi])) {
+        names.add(pad[pi]);
+        codes[pad[pi]] = winCode;
+      }
+      pi++;
+    }
+    final top = names.take(3).toList();
+    final base = 900 + _rng.nextInt(1600);
+    final v0 = (base * (0.48 + _rng.nextDouble() * 0.16)).round();
+    final v1 = (base * 0.26).round();
+    var v2 = base - v0 - v1;
+    if (v2 < 0) v2 = (base * 0.08).round();
+    final votes = [v0, v1, v2];
+    _motmTotal = votes.take(top.length).reduce((a, b) => a + b);
+    _motm = [
+      for (var i = 0; i < top.length; i++) MotmCandidate(key: 'c$i', name: top[i], teamCode: codes[top[i]] ?? winCode, votes: votes[i]),
+    ];
+  }
+
+  void voteMotm(String key) {
+    if (_motm == null || _myMotmVote != null) return;
+    _motm = _motm!.map((c) => c.key == key ? MotmCandidate(key: c.key, name: c.name, teamCode: c.teamCode, votes: c.votes + 1) : c).toList();
+    _motmTotal++;
+    _myMotmVote = key;
+    notifyListeners();
   }
 
   void _makeRecap(String scope, int m) {
@@ -424,6 +499,10 @@ class LiveMatchEngine extends ChangeNotifier {
       prompts: promptList.take(8).toList(),
       recaps: [..._recaps],
       proof: ProofInfo(leafCount: proofLeaves, root: proofLeaves > 0 ? _fakeRoot() : null, anchorSignature: null, anchored: false, cluster: 'devnet'),
+      spoilerSafe: spoilerSafe,
+      voice: voice,
+      reactionPack: reactionPack,
+      motm: _motm == null ? null : MotmPoll(totalVotes: _motmTotal, candidates: _motm!, myVote: _myMotmVote),
     );
   }
 
@@ -449,6 +528,13 @@ class _M {
   String? side;
   int points = 0, streak = 0, best = 0, correct = 0;
   _M(this.id, this.name, {this.isHost = false, this.isBot = false});
+}
+
+class _GoalRec {
+  final String name;
+  final int minute;
+  final String side, teamCode;
+  _GoalRec(this.name, this.minute, this.side, this.teamCode);
 }
 
 enum _Resolver { firstEvent, nextCorner, nextGoal, oddsRise }

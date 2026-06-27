@@ -17,6 +17,7 @@ import '../widgets/leaderboard.dart';
 import '../widgets/chat_dock.dart';
 import '../widgets/recap_card.dart';
 import '../widgets/proof_sheet.dart';
+import '../widgets/motm_poll.dart';
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
@@ -31,6 +32,7 @@ class _RoomScreenState extends State<RoomScreen> {
   late final RoomController _c = widget.engine != null ? RoomController.local(widget.engine) : RoomController(widget.roomId);
   int _seg = 0;
   bool _aiOn = false;
+  bool _revealed = false; // spoiler-safe reveal
   Identity? _identity;
 
   @override
@@ -63,13 +65,17 @@ class _RoomScreenState extends State<RoomScreen> {
     super.dispose();
   }
 
+  bool _hidden(RoomView r) => r.spoilerSafe && !_revealed && r.status != 'finished';
+
   String? _scoreText(RoomView r) {
+    if (_hidden(r)) return null;
     final s = r.score;
     if (s == null || r.status == 'lobby') return null;
     return '${s.goals.home} - ${s.goals.away}';
   }
 
   String _minuteText(RoomView r) {
+    if (_hidden(r)) return '🙈 HIDDEN';
     final s = r.score;
     if (r.status == 'finished' || (s != null && s.phase == 4)) return 'FT';
     if (s == null) return r.status == 'lobby' ? 'LOBBY' : '';
@@ -78,8 +84,10 @@ class _RoomScreenState extends State<RoomScreen> {
     return "${s.minute}'";
   }
 
-  List<String> _scorers(RoomView r) =>
-      r.pulse.where((c) => c.kind == 'goal').map((c) => "${c.accent == 'home' ? r.fixture.home.code : r.fixture.away.code} ${c.minute}'").toList();
+  List<String> _scorers(RoomView r) => r.pulse
+      .where((c) => c.kind == 'goal')
+      .map((c) => "${c.scorer ?? (c.accent == 'home' ? r.fixture.home.code : r.fixture.away.code)} ${c.minute}'")
+      .toList();
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +147,8 @@ class _RoomScreenState extends State<RoomScreen> {
               _segmentBar(),
               const SizedBox(height: 12),
               if (_seg == 0) ...[
+                _presenceRow(room),
+                const SizedBox(height: 12),
                 if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
                 if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
                 if (room.score != null) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
@@ -148,7 +158,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 const SizedBox(height: 16),
                 Row(children: [Text('THE TERRACE', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)), const Spacer(), Text('${room.chat.where((c) => c.kind != "system").length} shouts', style: body(color: AppColors.mut, size: 11))]),
                 const SizedBox(height: 8),
-                ChatFeed(chat: room.chat),
+                ChatFeed(chat: room.chat, hostId: room.hostId),
               ] else ...[
                 Leaderboard(room: room, meId: _c.memberId),
                 if (room.recaps.isNotEmpty) const SizedBox(height: 12),
@@ -156,7 +166,7 @@ class _RoomScreenState extends State<RoomScreen> {
               ],
             ]),
           ),
-          ChatComposer(onSend: _c.sendChat, onReact: _c.react, disabled: !_c.joined),
+          ChatComposer(onSend: _c.sendChat, onReact: _c.react, disabled: !_c.joined, emojis: packEmojis(room.reactionPack)),
         ]),
         if (!_c.joined) _JoinGate(room: room, onJoin: _join),
       ]),
@@ -164,26 +174,73 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   Widget _controls(RoomView room) {
+    final extras = <Widget>[];
+    if (room.voice) {
+      extras.add(AppChip('🎙 Voice room on', color: AppColors.orange, bg: const Color(0x14E9531E)));
+    }
+    if (_hidden(room)) {
+      extras.add(AppChip('🙈 Tap to reveal score', color: AppColors.ink, onTap: () => setState(() => _revealed = true)));
+    }
     return Container(
       decoration: cardBox(),
       padding: const EdgeInsets.all(12),
-      child: Row(children: [
-        GestureDetector(
-          onTap: () {
-            Clipboard.setData(ClipboardData(text: 'Join my World Cup room — code ${room.code}'));
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invite copied')));
-          },
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('INVITE CODE', style: label(color: AppColors.mut, size: 9)),
-            Text(room.code, style: display(20, color: AppColors.orange, spacing: 2)),
-          ]),
-        ),
-        const Spacer(),
-        AppChip(room.proof.anchored ? '🛡 ⛓ on-chain' : '🛡 Verified · ${room.proof.leafCount}', color: AppColors.ink, onTap: () => showProofSheet(context, widget.roomId, _c.isHost)),
-        if (_c.isHost && room.status == 'lobby') ...[
-          const SizedBox(width: 8),
-          PrimaryButton('Start', icon: Icons.play_arrow_rounded, onTap: _c.startMatch),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: 'Join my World Cup room — code ${room.code}'));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invite copied')));
+            },
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('INVITE CODE', style: label(color: AppColors.mut, size: 9)),
+              Text(room.code, style: display(20, color: AppColors.orange, spacing: 2)),
+            ]),
+          ),
+          const Spacer(),
+          AppChip(room.proof.anchored ? '🛡 ⛓ on-chain' : '🛡 Verified · ${room.proof.leafCount}', color: AppColors.ink, onTap: () => showProofSheet(context, widget.roomId, _c.isHost)),
+          if (_c.isHost && room.status == 'lobby') ...[
+            const SizedBox(width: 8),
+            PrimaryButton('Start', icon: Icons.play_arrow_rounded, onTap: _c.startMatch),
+          ],
+        ]),
+        if (extras.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: extras),
         ],
+      ]),
+    );
+  }
+
+  Widget _presenceRow(RoomView room) {
+    final shown = room.members.take(4).toList();
+    final hostName = room.members.where((m) => m.isHost).isNotEmpty ? room.members.firstWhere((m) => m.isHost).name : 'Host';
+    final others = room.members.length - 1;
+    return Container(
+      decoration: cardBox(),
+      padding: const EdgeInsets.all(10),
+      child: Row(children: [
+        SizedBox(
+          width: 18.0 * shown.length + 14,
+          height: 32,
+          child: Stack(
+            children: [
+              for (var i = 0; i < shown.length; i++)
+                Positioned(left: i * 18.0, child: Container(decoration: const BoxDecoration(color: AppColors.card, shape: BoxShape.circle), padding: const EdgeInsets.all(1.5), child: InitialAvatar(name: shown[i].name, size: 29))),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            others > 0 ? '$hostName & $others ${others == 1 ? "fan" : "fans"}' : '$hostName',
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w700, size: 13),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(99)),
+          child: Text('★ HOST', style: label(color: AppColors.cream, size: 9)),
+        ),
       ]),
     );
   }
@@ -298,6 +355,7 @@ class _RoomScreenState extends State<RoomScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           child: Column(children: [
+            if (room.motm != null) ...[MotmPollCard(poll: room.motm!, onVote: (k) => _c.voteMotm(k)), const SizedBox(height: 14)],
             if (recap != null) ...[RecapCard(recap: recap, aiOn: _aiOn), const SizedBox(height: 14)],
             Leaderboard(room: room, meId: _c.memberId),
             const SizedBox(height: 14),
@@ -310,15 +368,12 @@ class _RoomScreenState extends State<RoomScreen> {
             ]),
             const SizedBox(height: 16),
             Row(children: [
-              Expanded(child: GhostButton('Back to rooms', onTap: () => Navigator.of(context).maybePop())),
+              Expanded(child: GhostButton('★ Rate match', onTap: _rateMatch)),
               const SizedBox(width: 10),
-              Expanded(
-                child: PrimaryButton('Share', icon: Icons.ios_share_rounded, onTap: () {
-                  Clipboard.setData(ClipboardData(text: '${room.fixture.home.code} ${s?.goals.home ?? 0}-${s?.goals.away ?? 0} ${room.fixture.away.code} — full-time in our Final Whistle room!'));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Result copied')));
-                }),
-              ),
+              Expanded(child: PrimaryButton('Highlights', icon: Icons.play_arrow_rounded, onTap: () => _showHighlights(room))),
             ]),
+            const SizedBox(height: 10),
+            GhostButton('Back to rooms', expand: true, onTap: () => Navigator.of(context).maybePop()),
           ]),
         ),
       ]),
@@ -334,6 +389,83 @@ class _RoomScreenState extends State<RoomScreen> {
           Text(value, style: display(22)),
           const SizedBox(height: 2),
           Text(label_.toUpperCase(), textAlign: TextAlign.center, style: label(color: AppColors.mut, size: 8.5)),
+        ]),
+      ),
+    );
+  }
+
+  void _rateMatch() {
+    showDialog(
+      context: context,
+      builder: (_) {
+        int rating = 0;
+        return StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            backgroundColor: AppColors.card,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: Text('RATE THE MATCH', style: display(18)),
+            content: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(5, (i) {
+                return IconButton(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    setLocal(() => rating = i + 1);
+                  },
+                  icon: Icon(i < rating ? Icons.star_rounded : Icons.star_border_rounded, color: AppColors.orange, size: 32),
+                );
+              }),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(rating > 0 ? 'Thanks — rated $rating★' : 'Maybe next time')));
+                },
+                child: Text('Done', style: body(color: AppColors.orange, weight: FontWeight.w800)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showHighlights(RoomView room) {
+    const kinds = ['goal', 'red', 'half-time', 'full-time', 'chaos', 'corner-storm'];
+    final events = room.pulse.where((p) => kinds.contains(p.kind)).toList();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
+          const SizedBox(height: 14),
+          Text('HIGHLIGHTS', style: display(20)),
+          const SizedBox(height: 12),
+          if (events.isEmpty)
+            Text('No standout moments this match.', style: body(color: AppColors.mut))
+          else
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: events
+                    .map((e) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            SizedBox(width: 40, child: Text("${e.minute}'", style: display(15, color: AppColors.orange))),
+                            Text(e.emoji, style: const TextStyle(fontSize: 16)),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(e.scorer != null ? '${e.scorer} scores — ${e.detail}' : e.headline, style: body(size: 13.5, weight: FontWeight.w600))),
+                          ]),
+                        ))
+                    .toList(),
+              ),
+            ),
         ]),
       ),
     );

@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../api/models.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
+import '../local/live_engine.dart';
 import '../theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/common.dart';
@@ -26,6 +27,8 @@ class _CreateScreenState extends State<CreateScreen> {
   final _nameCtrl = TextEditingController();
   bool _draft = true, _nextSwing = true, _busy = false;
   String _visibility = 'public';
+  String _reactionPack = 'classic';
+  bool _voice = true, _spoiler = false;
   String _err = '';
 
   @override
@@ -114,29 +117,38 @@ class _CreateScreenState extends State<CreateScreen> {
       setState(() => _err = 'Pick a match first');
       return;
     }
+    final fx = _fixtureById(_fixtureId);
+    if (fx == null) {
+      setState(() => _err = 'Match not found');
+      return;
+    }
     setState(() => _busy = true);
+    final identity = await IdentityStore.getOrCreate();
+    await IdentityStore.sign('final-whistle-rooms:auth:$name:${identity.pubkey}');
+    await LocalStore.setDisplayName(name);
+    final roomName = _roomCtrl.text.trim().isEmpty ? '${fx.home.name} watch-along' : _roomCtrl.text.trim();
     try {
-      final identity = await IdentityStore.getOrCreate();
-      await IdentityStore.sign('final-whistle-rooms:auth:$name:${identity.pubkey}');
-      await LocalStore.setDisplayName(name);
-      final fx = _fixtureById(_fixtureId);
       final res = await _api.createRoom(
-        name: _roomCtrl.text.trim().isEmpty ? '${fx?.home.name ?? "World Cup"} watch-along' : _roomCtrl.text.trim(),
+        name: roomName,
         fixtureId: _fixtureId!,
         draft: _draft,
         nextSwing: _nextSwing,
         hostName: name,
         hostWallet: identity.pubkey,
         visibility: _visibility,
+        reactionPack: _reactionPack,
+        voice: _voice,
+        spoilerSafe: _spoiler,
       );
       await LocalStore.setMemberId(res.roomId, res.hostId);
       if (!mounted) return;
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RoomScreen(roomId: res.roomId)));
-    } catch (e) {
-      setState(() {
-        _err = e.toString();
-        _busy = false;
-      });
+      Navigator.pushReplacement(context, fwrRoute(RoomScreen(roomId: res.roomId)));
+    } catch (_) {
+      // No backend reachable — host a local room (always works).
+      if (!mounted) return;
+      final engine = LiveMatchEngine(fx,
+          draftMode: _draft, nextSwingMode: _nextSwing, myName: name, reactionPack: _reactionPack, voice: _voice, spoilerSafe: _spoiler);
+      Navigator.pushReplacement(context, fwrRoute(RoomScreen(roomId: 'local', engine: engine)));
     }
   }
 
@@ -174,6 +186,13 @@ class _CreateScreenState extends State<CreateScreen> {
               _modeRow('🏆', 'Tournament Draft', 'Draft a side, earn points as they perform', _draft, () => setState(() => _draft = !_draft)),
               const SizedBox(height: 8),
               _modeRow('⚡', 'Next Swing', 'Live micro-predictions on goals, corners & odds', _nextSwing, () => setState(() => _nextSwing = !_nextSwing)),
+              const SizedBox(height: 18),
+              const SectionLabel('Reaction pack'),
+              Row(children: reactionPacks.keys.map((k) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: _packCard(k)))).toList()),
+              const SizedBox(height: 18),
+              _modeRow('🎙️', 'Voice chat', 'Talk live with the room', _voice, () => setState(() => _voice = !_voice)),
+              const SizedBox(height: 8),
+              _modeRow('🙈', 'Spoiler-safe', 'Mute scores until they catch up', _spoiler, () => setState(() => _spoiler = !_spoiler)),
               if (_err.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err, style: body(color: const Color(0xFFD8392B)))),
               const SizedBox(height: 20),
               PrimaryButton('Go live', icon: Icons.play_arrow_rounded, expand: true, busy: _busy, onTap: _create),
@@ -219,6 +238,19 @@ class _CreateScreenState extends State<CreateScreen> {
           border: Border.all(color: active ? AppColors.orange : AppColors.line),
         ),
         child: Text(text, style: body(color: active ? Colors.white : AppColors.ink, weight: FontWeight.w800, size: 13.5)),
+      ),
+    );
+  }
+
+  Widget _packCard(String k) {
+    final on = _reactionPack == k;
+    return GestureDetector(
+      onTap: () => setState(() => _reactionPack = k),
+      child: Container(
+        decoration: cardBox(border: on ? AppColors.orange : AppColors.line),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+        alignment: Alignment.center,
+        child: Text(packEmojis(k).take(3).join('  '), style: const TextStyle(fontSize: 19)),
       ),
     );
   }

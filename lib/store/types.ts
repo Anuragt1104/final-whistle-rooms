@@ -88,5 +88,8 @@ export interface RoomView {
     anchorSignature?: string;
     cluster: string;
   };
+  spoilerSafe: boolean;
+  voice: boolean;
+  reactionPack: string;
   createdAt: number;
 }

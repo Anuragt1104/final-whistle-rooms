@@ -69,10 +69,14 @@ class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderState
           Text('GOAL', style: display(20, color: AppColors.orangeBright)),
           const SizedBox(width: 12),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: Text('${c.headline}  ${c.detail}', style: body(color: AppColors.cream, size: 13.5, weight: FontWeight.w600)),
-            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                c.scorer != null ? "${c.scorer}  ${c.minute}'" : c.headline,
+                style: body(color: AppColors.cream, size: 14, weight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(c.detail, style: body(color: AppColors.mutInk, size: 12.5, weight: FontWeight.w500)),
+            ]),
           ),
           Text("${c.minute}'", style: label(color: AppColors.mutInk, size: 10)),
         ]),

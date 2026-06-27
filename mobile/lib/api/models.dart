@@ -133,6 +133,7 @@ class MemberView {
 class ChatView {
   final String id, memberId, name, avatar, text, kind;
   final int ts;
+  final Map<String, int> reactions; // emoji -> count
   ChatView({
     required this.id,
     required this.memberId,
@@ -141,6 +142,7 @@ class ChatView {
     required this.text,
     required this.kind,
     required this.ts,
+    this.reactions = const {},
   });
   factory ChatView.fromJson(Map<String, dynamic> j) => ChatView(
         id: j['id'],
@@ -150,12 +152,34 @@ class ChatView {
         text: j['text'] ?? '',
         kind: j['kind'] ?? 'chat',
         ts: (j['ts'] ?? 0) as int,
+        reactions: ((j['reactions'] ?? {}) as Map).map((k, v) => MapEntry(k as String, (v ?? 0) as int)),
+      );
+}
+
+class MotmCandidate {
+  final String key, name, teamCode;
+  final int votes;
+  MotmCandidate({required this.key, required this.name, required this.teamCode, required this.votes});
+  factory MotmCandidate.fromJson(Map<String, dynamic> j) =>
+      MotmCandidate(key: j['key'], name: j['name'] ?? '', teamCode: j['teamCode'] ?? '', votes: (j['votes'] ?? 0) as int);
+}
+
+class MotmPoll {
+  final int totalVotes;
+  final List<MotmCandidate> candidates;
+  final String? myVote;
+  MotmPoll({required this.totalVotes, required this.candidates, this.myVote});
+  factory MotmPoll.fromJson(Map<String, dynamic> j) => MotmPoll(
+        totalVotes: (j['totalVotes'] ?? 0) as int,
+        myVote: j['myVote'],
+        candidates: ((j['candidates'] ?? []) as List).map((c) => MotmCandidate.fromJson(c)).toList(),
       );
 }
 
 class PulseCard {
   final String id, kind, emoji, headline, detail, accent;
   final int minute;
+  final String? scorer; // player name for goal cards (local engine)
   PulseCard({
     required this.id,
     required this.kind,
@@ -164,6 +188,7 @@ class PulseCard {
     required this.detail,
     required this.accent,
     required this.minute,
+    this.scorer,
   });
   factory PulseCard.fromJson(Map<String, dynamic> j) => PulseCard(
         id: j['id'],
@@ -173,6 +198,7 @@ class PulseCard {
         detail: j['detail'] ?? '',
         accent: j['accent'] ?? 'neutral',
         minute: (j['minute'] ?? 0) as int,
+        scorer: j['scorer'],
       );
 }
 
@@ -275,6 +301,10 @@ class RoomView {
   final List<PromptView> prompts;
   final List<RecapView> recaps;
   final ProofInfo proof;
+  final bool spoilerSafe;
+  final bool voice;
+  final String reactionPack;
+  final MotmPoll? motm;
 
   RoomView({
     required this.id,
@@ -293,6 +323,10 @@ class RoomView {
     required this.prompts,
     required this.recaps,
     required this.proof,
+    this.spoilerSafe = false,
+    this.voice = false,
+    this.reactionPack = 'classic',
+    this.motm,
   });
 
   factory RoomView.fromJson(Map<String, dynamic> j) => RoomView(
@@ -312,8 +346,20 @@ class RoomView {
         prompts: ((j['prompts'] ?? []) as List).map((p) => PromptView.fromJson(p)).toList(),
         recaps: ((j['recaps'] ?? []) as List).map((r) => RecapView.fromJson(r)).toList(),
         proof: ProofInfo.fromJson(j['proof'] ?? {}),
+        spoilerSafe: j['spoilerSafe'] ?? false,
+        voice: j['voice'] ?? false,
+        reactionPack: j['reactionPack'] ?? 'classic',
+        motm: j['motm'] == null ? null : MotmPoll.fromJson(j['motm']),
       );
 }
+
+/// Reaction packs (chosen at create). Pack key -> emoji list.
+const Map<String, List<String>> reactionPacks = {
+  'classic': ['🔥', '⚽', '😱', '👏', '🎉', '😤'],
+  'party': ['🎟️', '🍺', '🎉', '🥳', '🙌', '🎊'],
+  'drama': ['😂', '❤️', '😱', '😭', '🤯', '💔'],
+};
+List<String> packEmojis(String pack) => reactionPacks[pack] ?? reactionPacks['classic']!;
 
 /// GamePhase (numeric) -> label, mirrored from the backend enum.
 String phaseLabel(int phase) {

@@ -108,6 +108,9 @@ class ApiClient {
     required String hostName,
     String? hostWallet,
     String visibility = 'public',
+    String reactionPack = 'classic',
+    bool voice = false,
+    bool spoilerSafe = false,
   }) async {
     final data = await _post('/api/rooms', {
       'name': name,
@@ -116,6 +119,9 @@ class ApiClient {
       'hostName': hostName,
       'hostWallet': ?hostWallet,
       'visibility': visibility,
+      'reactionPack': reactionPack,
+      'voice': voice,
+      'spoilerSafe': spoilerSafe,
     });
     return (roomId: data['roomId'] as String, hostId: data['hostId'] as String);
   }

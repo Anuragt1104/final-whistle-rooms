@@ -123,6 +123,10 @@ class RoomController extends ChangeNotifier {
     if (memberId != null) await api.chat(roomId, memberId!, emoji, kind: 'reaction');
   }
 
+  void voteMotm(String key) {
+    if (isLocal) engine!.voteMotm(key);
+  }
+
   @override
   void dispose() {
     _sse?.close();

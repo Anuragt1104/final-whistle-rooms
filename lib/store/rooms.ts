@@ -75,6 +75,9 @@ interface RoomRuntime {
   fixture: Fixture;
   modes: RoomModes;
   visibility: "public" | "invite";
+  reactionPack: string;
+  voice: boolean;
+  spoilerSafe: boolean;
   hostId: string;
   status: RoomStatus;
   createdAt: number;
@@ -137,6 +140,9 @@ export async function createRoom(input: {
   hostName: string;
   hostWallet?: string;
   visibility?: "public" | "invite";
+  reactionPack?: string;
+  voice?: boolean;
+  spoilerSafe?: boolean;
 }): Promise<{ roomId: string; hostId: string } | { error: string }> {
   const fixture = await getSource().getFixture(input.fixtureId);
   if (!fixture) return { error: "Fixture not found" };
@@ -163,6 +169,9 @@ export async function createRoom(input: {
     fixture,
     modes: input.modes,
     visibility: input.visibility ?? "public",
+    reactionPack: input.reactionPack ?? "classic",
+    voice: input.voice ?? false,
+    spoilerSafe: input.spoilerSafe ?? false,
     hostId,
     status: "lobby",
     createdAt: Date.now(),
@@ -621,6 +630,9 @@ export function buildView(rt: RoomRuntime): RoomView {
       anchorSignature: rt.anchorSignature,
       cluster: process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet",
     },
+    spoilerSafe: rt.spoilerSafe,
+    voice: rt.voice,
+    reactionPack: rt.reactionPack,
     createdAt: rt.createdAt,
   };
 }

@@ -9,7 +9,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const { name, fixtureId, modes, hostName, hostWallet, visibility } = body ?? {};
+  const { name, fixtureId, modes, hostName, hostWallet, visibility, reactionPack, voice, spoilerSafe } = body ?? {};
   if (!fixtureId) return NextResponse.json({ error: "fixtureId required" }, { status: 400 });
   const result = await createRoom({
     name: String(name ?? ""),
@@ -21,6 +21,9 @@ export async function POST(req: Request) {
     hostName: String(hostName ?? "Host"),
     hostWallet: hostWallet ? String(hostWallet) : undefined,
     visibility: visibility === "invite" ? "invite" : "public",
+    reactionPack: typeof reactionPack === "string" ? reactionPack : "classic",
+    voice: voice === true,
+    spoilerSafe: spoilerSafe === true,
   });
   if ("error" in result) return NextResponse.json(result, { status: 400 });
   return NextResponse.json(result);
