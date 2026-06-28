@@ -77,8 +77,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Instantly watch a match live, fully on-device (no backend needed).
+  /// Watch a match live. Reuses the canonical room for that fixture if one
+  /// already exists — so repeated taps never spawn duplicate rooms, and
+  /// everyone watching the same match lands in the same room.
   Future<void> _watchLive(Fixture f) async {
+    final existing = _rooms.where((r) => r.fixture.id == f.id).toList();
+    if (existing.isNotEmpty) {
+      _openRoom(existing.first.id);
+      return;
+    }
     // When the backend serves real TxLINE data, host a backend room that
     // follows the actual live match; otherwise play it fully on-device.
     if (_config?.mode == 'live') {
@@ -203,10 +210,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---- ROOMS (Browse) ----
   Widget _roomsTab() {
-    final liveRooms = _rooms.where((r) => r.status == 'live').toList();
-    final hero = liveRooms.isNotEmpty ? liveRooms.first : (_rooms.isNotEmpty ? _rooms.first : null);
-    final moreRooms = _rooms.where((r) => hero == null || r.id != hero.id).toList();
-    final upcoming = _fixtures.where((f) => f.status == 'scheduled').take(6).toList();
+    final liveFixtures = _fixtures.where((f) => f.status == 'live').toList();
+    final upcoming = _fixtures.where((f) => f.status == 'scheduled').take(8).toList();
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -215,17 +220,24 @@ class _HomeScreenState extends State<HomeScreen> {
         Row(children: [
           const LiveDot(),
           const SizedBox(width: 6),
-          Text('LIVE NOW', style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
+          Text(liveFixtures.isEmpty ? 'LIVE NOW' : 'LIVE NOW · ${liveFixtures.length} ${liveFixtures.length == 1 ? "match" : "matches"}',
+              style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
         ]),
         const SizedBox(height: 10),
-        if (hero != null) _heroRoom(hero) else _heroFixture(_featuredLiveFixture()),
-        const SizedBox(height: 12),
+        // every live match shown clearly as its own card
+        if (_loading)
+          _skeleton()
+        else if (liveFixtures.isEmpty)
+          _heroFixture(_featuredLiveFixture())
+        else
+          ...liveFixtures.map((f) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _liveMatchCard(f))),
+        const SizedBox(height: 4),
         Row(children: [
           Expanded(
             child: TextField(
               controller: _codeCtrl,
               textCapitalization: TextCapitalization.characters,
-              decoration: fwrInput('Have a code? e.g. K7M2QX'),
+              decoration: fwrInput('Have a private code? e.g. K7M2QX'),
               onSubmitted: (_) => _joinByCode(),
             ),
           ),
@@ -234,11 +246,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         if (_joinErr.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 6), child: Text(_joinErr, style: body(color: const Color(0xFFD8392B), size: 12))),
-        if (moreRooms.isNotEmpty) ...[
-          const SizedBox(height: 22),
-          const SectionLabel('More rooms live'),
-          ...moreRooms.map(_roomRow),
-        ],
         const SizedBox(height: 22),
         const SectionLabel('Kicking off soon'),
         if (_loading)
@@ -253,35 +260,45 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _heroRoom(RoomSummary r) {
+  /// A live match as a rich card — real score, minute, watcher count, Watch CTA.
+  Widget _liveMatchCard(Fixture f) {
+    RoomSummary? room;
+    for (final r in _rooms) {
+      if (r.fixture.id == f.id) {
+        room = r;
+        break;
+      }
+    }
     return Pressable(
       haptic: HapticFeedbackType.medium,
-      onTap: () => _openRoom(r.id),
+      onTap: () => _watchLive(f),
       child: Container(
         decoration: cardBox(),
         clipBehavior: Clip.antiAlias,
         child: Column(children: [
           TicketScoreboard(
-            home: r.fixture.home,
-            away: r.fixture.away,
-            league: r.fixture.stage,
-            score: _scoreText(r.score, r.status),
-            minute: _minuteText(r.score, r.status),
-            pill: r.status == 'live' ? 'LIVE' : (r.status == 'finished' ? 'FULL TIME' : 'LOBBY'),
-            watching: r.memberCount,
+            home: f.home,
+            away: f.away,
+            league: f.stage,
+            score: f.score != null ? '${f.score!.home} - ${f.score!.away}' : null,
+            minute: f.score != null ? "${f.score!.minute}'" : 'LIVE',
+            pill: 'LIVE',
+            watching: room?.memberCount,
+            onTeamTap: (t) => showTeamSheet(context, t),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
             child: Row(children: [
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: display(17)),
+                  Text('${f.home.name} vs ${f.away.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: display(16)),
                   const SizedBox(height: 2),
-                  Text('${r.memberCount} ${r.memberCount == 1 ? "fan" : "fans"} watching', style: body(color: AppColors.mut, size: 12)),
+                  Text(room != null ? '${room.memberCount} watching · join the room' : 'Watch live — pulse, predictions & chat',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 12)),
                 ]),
               ),
               const SizedBox(width: 10),
-              PrimaryButton('Join', icon: Icons.play_arrow_rounded, onTap: () => _openRoom(r.id)),
+              PrimaryButton(room != null ? 'Join' : 'Watch', icon: Icons.play_arrow_rounded, onTap: () => _watchLive(f)),
             ]),
           ),
         ]),
@@ -337,40 +354,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _roomRow(RoomSummary r) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Pressable(
-        onTap: () => _openRoom(r.id),
-        child: Container(
-          decoration: cardBox(),
-          padding: const EdgeInsets.all(10),
-          child: Row(children: [
-            MiniScore(top: _scoreText(r.score, r.status) ?? 'VS', bottom: _miniBottom(r.score, r.status)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w800, size: 14)),
-                const SizedBox(height: 2),
-                Text('${r.fixture.home.code} v ${r.fixture.away.code} · ${r.fixture.stage}', maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
-              ]),
-            ),
-            const SizedBox(width: 8),
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Row(children: [
-                const Icon(Icons.visibility_outlined, size: 13, color: AppColors.mut),
-                const SizedBox(width: 3),
-                Text(compactNum(r.memberCount), style: label(color: AppColors.mut, size: 10)),
-              ]),
-              const SizedBox(height: 6),
-              const Icon(Icons.chevron_right, color: AppColors.mut, size: 18),
-            ]),
-          ]),
-        ),
-      ),
-    );
-  }
-
   Widget _fixtureRow(Fixture f) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -385,13 +368,13 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  GestureDetector(onTap: () => showTeamSheet(context, f.home), child: InlineFlag(team: f.home, size: 20)),
+                  GestureDetector(onTap: () => showTeamSheet(context, f.home), child: InlineFlag(team: f.home, size: 28)),
                   const SizedBox(width: 6),
                   Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
                   Text('  v  ', style: body(color: AppColors.mut)),
                   Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
                   const SizedBox(width: 6),
-                  GestureDetector(onTap: () => showTeamSheet(context, f.away), child: InlineFlag(team: f.away, size: 20)),
+                  GestureDetector(onTap: () => showTeamSheet(context, f.away), child: InlineFlag(team: f.away, size: 28)),
                 ]),
                 const SizedBox(height: 2),
                 Text(_fxSubtitle(f), maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
@@ -526,28 +509,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _skeleton() => Padding(padding: const EdgeInsets.only(bottom: 10), child: Container(height: 70, decoration: cardBox()));
-
-  // ---- helpers ----
-  String? _scoreText(ScoreView? s, String status) {
-    if (s == null || status == 'lobby') return null;
-    return '${s.goals.home}-${s.goals.away}';
-  }
-
-  String _minuteText(ScoreView? s, String status) {
-    if (status == 'finished' || (s != null && s.phase == 4)) return 'FT';
-    if (s == null) return status == 'lobby' ? 'LOBBY' : '';
-    if (s.phase == 2) return 'HT';
-    if (s.phase == 0) return 'SOON';
-    return "${s.minute}'";
-  }
-
-  String _miniBottom(ScoreView? s, String status) {
-    if (status == 'finished') return 'FT';
-    if (status == 'lobby') return 'LOBBY';
-    if (s == null) return 'LIVE';
-    if (s.phase == 2) return 'HT';
-    return "${s.minute}'";
-  }
 
   // Fixtures board (live/final scores from TxLINE)
   String _fxTop(Fixture f) =>

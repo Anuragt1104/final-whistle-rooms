@@ -198,7 +198,7 @@ class TicketScoreboard extends StatelessWidget {
 
   Widget _side(Team t) {
     final col = Column(children: [
-      TeamBadge(team: t, size: 48),
+      TeamBadge(team: t, size: 58),
       const SizedBox(height: 8),
       Text(t.name.toUpperCase(),
           maxLines: 1,

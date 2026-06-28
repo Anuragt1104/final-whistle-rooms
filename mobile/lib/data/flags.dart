@@ -59,7 +59,7 @@ class CircleFlag extends StatelessWidget {
   final Team team;
   final double size;
   final bool ring;
-  const CircleFlag({super.key, required this.team, this.size = 44, this.ring = true});
+  const CircleFlag({super.key, required this.team, this.size = 54, this.ring = true});
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +118,7 @@ class _ColorBadge extends StatelessWidget {
 class InlineFlag extends StatelessWidget {
   final Team team;
   final double size;
-  const InlineFlag({super.key, required this.team, this.size = 18});
+  const InlineFlag({super.key, required this.team, this.size = 26});
   @override
   Widget build(BuildContext context) {
     final iso = isoForTeam(team);

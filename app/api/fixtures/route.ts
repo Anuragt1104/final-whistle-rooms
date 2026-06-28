@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSource, sourceMode } from "@/lib/txline/source";
-import type { Fixture, ScoreSnapshot } from "@/lib/txline/types";
+import { GamePhase, isLivePhase, type Fixture, type ScoreSnapshot } from "@/lib/txline/types";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +31,13 @@ export async function GET() {
               try {
                 const s = await getScore(f);
                 f.score = { home: s.goals.home, away: s.goals.away, minute: s.minute };
+                // refine status from the AUTHORITATIVE game phase, not the
+                // 2.5h kickoff heuristic — so an ended match stops reading "LIVE"
+                if (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished || s.phase === GamePhase.Abandoned) {
+                  f.status = "finished";
+                } else if (isLivePhase(s.phase) || s.phase === GamePhase.HalfTime) {
+                  f.status = "live";
+                }
               } catch {
                 /* leave this one unscored — best effort */
               }

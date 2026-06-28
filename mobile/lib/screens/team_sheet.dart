@@ -3,7 +3,6 @@ import '../api/models.dart';
 import '../data/flags.dart';
 import '../data/sportsdb.dart';
 import '../theme.dart';
-import '../widgets/ticket.dart';
 
 /// Bottom-sheet team profile — official badge, info and squad with player
 /// photos (TheSportsDB). Falls back to the flag + a note if a lookup misses.

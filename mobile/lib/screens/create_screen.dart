@@ -84,13 +84,13 @@ class _CreateScreenState extends State<CreateScreen> {
                             child: Row(children: [
                               Expanded(
                                 child: Row(children: [
-                                  InlineFlag(team: f.home, size: 20),
+                                  InlineFlag(team: f.home, size: 28),
                                   const SizedBox(width: 6),
                                   Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
                                   Text('  v  ', style: body(color: AppColors.mut)),
                                   Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
                                   const SizedBox(width: 6),
-                                  InlineFlag(team: f.away, size: 20),
+                                  InlineFlag(team: f.away, size: 28),
                                 ]),
                               ),
                               Text(f.status == 'live' ? 'LIVE' : relativeKickoff(f.kickoff), style: label(color: AppColors.mut, size: 10)),

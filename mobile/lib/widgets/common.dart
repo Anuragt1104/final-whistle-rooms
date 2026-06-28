@@ -8,11 +8,13 @@ class Brand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
-      ClipRRect(
-        borderRadius: BorderRadius.circular(small ? 8 : 9),
-        child: Image.asset('assets/icon/icon.png', width: small ? 30 : 36, height: small ? 30 : 36, fit: BoxFit.cover),
+      // small ticket-stub mark in brand orange
+      Container(
+        width: small ? 7 : 9,
+        height: small ? 26 : 34,
+        margin: EdgeInsets.only(right: small ? 8 : 10),
+        decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(3)),
       ),
-      SizedBox(width: small ? 8 : 10),
       Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
         Text('FINAL WHISTLE', style: display(small ? 17 : 21, spacing: 0.5)),
         Text('ROOMS', style: label(color: AppColors.orange, size: small ? 8 : 9.5)),

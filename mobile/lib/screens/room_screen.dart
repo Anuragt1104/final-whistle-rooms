@@ -379,7 +379,7 @@ class _RoomScreenState extends State<RoomScreen> {
               decoration: cardBox(),
               padding: const EdgeInsets.symmetric(vertical: 14),
               child: Column(children: [
-                TeamBadge(team: t, size: 42),
+                TeamBadge(team: t, size: 50),
                 const SizedBox(height: 8),
                 Text(t.name, textAlign: TextAlign.center, style: body(weight: FontWeight.w800, size: 13)),
               ]),

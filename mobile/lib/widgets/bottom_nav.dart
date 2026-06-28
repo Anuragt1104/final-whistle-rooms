@@ -16,12 +16,15 @@ class BottomNav extends StatelessWidget {
         color: AppColors.card,
         border: Border(top: BorderSide(color: AppColors.line)),
       ),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-        _item('rooms', Icons.confirmation_num_outlined, 'Rooms'),
-        _item('fixtures', Icons.grid_view_rounded, 'Fixtures'),
-        _create(),
-        _item('inbox', Icons.notifications_none_rounded, 'Inbox'),
-        _item('you', Icons.person_outline_rounded, 'You'),
+      // equal-width slots so the centre "+" sits exactly in the middle.
+      // Align(heightFactor: 1) centres horizontally WITHOUT expanding to the
+      // navbar's unbounded height (plain Center would blow up vertically).
+      child: Row(children: [
+        Expanded(child: Align(heightFactor: 1, child: _item('rooms', Icons.confirmation_num_outlined, 'Rooms'))),
+        Expanded(child: Align(heightFactor: 1, child: _item('fixtures', Icons.grid_view_rounded, 'Fixtures'))),
+        Expanded(child: Align(heightFactor: 1, child: _create())),
+        Expanded(child: Align(heightFactor: 1, child: _item('inbox', Icons.notifications_none_rounded, 'Inbox'))),
+        Expanded(child: Align(heightFactor: 1, child: _item('you', Icons.person_outline_rounded, 'You'))),
       ]),
     );
   }
