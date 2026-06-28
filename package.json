@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Final Whistle Rooms — a verified private live watch-room for World Cup fans, powered by TxLINE on Solana.",
+  "packageManager": "pnpm@10.6.3",
   "scripts": {
     "dev": "next dev",
     "dev:demo": "SIM_SECONDS_PER_MATCH_MINUTE=3 next dev -p 3318",
@@ -15,7 +16,7 @@
   "dependencies": {
     "@noble/hashes": "^1.5.0",
     "@solana/web3.js": "^1.95.4",
-    "next": "15.1.6",
+    "next": "15.1.12",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "tweetnacl": "^1.0.3"

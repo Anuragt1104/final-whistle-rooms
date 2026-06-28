@@ -4,7 +4,10 @@
 # Fly.io, a VM, or any Docker host.
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
-RUN corepack enable
+# Pin pnpm to the version that generated the lockfile (10.x). corepack's default
+# latest (pnpm 11) needs a newer Node than this image and crashes on install.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@10.6.3 --activate
 
 # deps first (better layer caching)
 COPY package.json pnpm-lock.yaml* ./
