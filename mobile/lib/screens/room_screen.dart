@@ -38,6 +38,15 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _revealed = false; // spoiler-safe reveal
   Identity? _identity;
   final ScrollController _scroll = ScrollController();
+  bool _showComposer = false; // revealed only when scrolled to the chat
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final p = _scroll.position;
+    // near the bottom (where the terrace chat lives), or content too short to scroll
+    final near = p.maxScrollExtent <= 4 || p.pixels >= p.maxScrollExtent - 90;
+    if (near != _showComposer) setState(() => _showComposer = near);
+  }
 
   void _scrollToChat() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -53,6 +62,12 @@ class _RoomScreenState extends State<RoomScreen> {
     super.initState();
     _c.init();
     _c.addListener(_onChange);
+    _scroll.addListener(_onScroll);
+    // re-evaluate composer visibility once content has laid out (covers short
+    // rooms that don't scroll)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onScroll();
+    });
     if (widget.autoStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _c.startMatch());
     }
@@ -128,6 +143,17 @@ class _RoomScreenState extends State<RoomScreen> {
     return "${s.minute}'";
   }
 
+  /// Pill text reflects the actual MATCH state, not just the room status — a
+  /// not-yet-kicked-off match must not read "LIVE".
+  String _pillText(RoomView r) {
+    if (r.status == 'finished') return 'FULL TIME';
+    if (r.status == 'lobby') return 'LOBBY';
+    final s = r.score;
+    if (s == null || s.phase == 0) return 'KO SOON';
+    if (s.phase == 4 || s.phase == 9) return 'FULL TIME';
+    return 'LIVE';
+  }
+
   List<String> _scorers(RoomView r) => r.pulse
       .where((c) => c.kind == 'goal')
       .map((c) => "${c.scorer ?? (c.accent == 'home' ? r.fixture.home.code : r.fixture.away.code)} ${c.minute}'")
@@ -178,9 +204,10 @@ class _RoomScreenState extends State<RoomScreen> {
               score: _scoreText(room),
               minute: _minuteText(room),
               clockSeconds: room.score?.clockSeconds,
-              clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room),
+              clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room) && (room.score?.phase ?? 0) != 0,
               onTeamTap: (t) => showTeamSheet(context, t),
-              pill: room.status == 'live' ? 'LIVE' : 'LOBBY',
+              pill: _pillText(room),
+              pillColor: _pillText(room) == 'LIVE' ? AppColors.orange : AppColors.inkSoft,
               watching: room.members.length,
               onBack: () => Navigator.of(context).maybePop(),
               topRadius: 0,
@@ -188,7 +215,7 @@ class _RoomScreenState extends State<RoomScreen> {
             ),
           ),
           Expanded(
-            child: ListView(controller: _scroll, padding: const EdgeInsets.fromLTRB(16, 12, 16, 16), children: [
+            child: ListView(controller: _scroll, padding: EdgeInsets.fromLTRB(16, 12, 16, _seg == 0 ? 88 : 16), children: [
               _controls(room),
               const SizedBox(height: 12),
               _segmentBar(),
@@ -218,20 +245,30 @@ class _RoomScreenState extends State<RoomScreen> {
               ],
             ]),
           ),
-          // composer only on the Terrace tab (chat lives there); on Standings
-          // it's hidden so it doesn't sit over the leaderboard.
-          if (_seg == 0)
-            ChatComposer(
-              onSend: (t) {
-                _c.sendChat(t);
-                _scrollToChat(); // jump to the terrace so you see it land
-              },
-              onTap: _scrollToChat, // tapping the field scrolls the chat into view
-              onReact: _c.react,
-              disabled: !_c.joined,
-              emojis: packEmojis(room.reactionPack),
-            ),
         ]),
+        // The "Shout it out" composer is hidden until you scroll to the terrace
+        // chat, then slides up from the bottom (Terrace tab only).
+        if (_seg == 0)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedSlide(
+              offset: _showComposer ? Offset.zero : const Offset(0, 1.25),
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+              child: ChatComposer(
+                onSend: (t) {
+                  _c.sendChat(t);
+                  _scrollToChat(); // jump to the terrace so you see it land
+                },
+                onTap: _scrollToChat,
+                onReact: _c.react,
+                disabled: !_c.joined,
+                emojis: packEmojis(room.reactionPack),
+              ),
+            ),
+          ),
         if (!_c.joined) _JoinGate(room: room, onJoin: _join),
       ]),
     );

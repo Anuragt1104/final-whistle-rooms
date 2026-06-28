@@ -155,6 +155,12 @@ function phaseFrom(gameState: string | undefined, running: boolean, minute: numb
   if (gs.includes("ht") || gs.includes("half")) return GamePhase.HalfTime;
   if (gs === "ft" || gs.includes("finish") || gs.includes("full") || gs === "f") return GamePhase.FullTime;
   if (gs.includes("pen")) return GamePhase.Penalties;
+  // The demo feed replays completed matches with GameState "scheduled"/"ns" but
+  // a clock running past 90'. Only a genuine in-play code (h1/h2/et…) is LIVE;
+  // a "scheduled" match whose clock has clearly advanced has already played out.
+  if (gs === "scheduled" || gs === "ns" || gs === "" || gs === "a" || gs === "i") {
+    return minute >= 50 ? GamePhase.FullTime : GamePhase.PreMatch;
+  }
   if (running) return minute < 45 ? GamePhase.FirstHalf : GamePhase.SecondHalf;
   if (minute >= 90) return GamePhase.FullTime;
   if (minute === 0) return GamePhase.PreMatch;
