@@ -115,7 +115,8 @@ class ChatComposer extends StatefulWidget {
   final void Function(String emoji) onReact;
   final bool disabled;
   final List<String> emojis;
-  const ChatComposer({super.key, required this.onSend, required this.onReact, required this.disabled, required this.emojis});
+  final VoidCallback? onTap;
+  const ChatComposer({super.key, required this.onSend, required this.onReact, required this.disabled, required this.emojis, this.onTap});
   @override
   State<ChatComposer> createState() => _ChatComposerState();
 }
@@ -179,6 +180,7 @@ class _ChatComposerState extends State<ChatComposer> {
               enabled: !widget.disabled,
               style: body(size: 14),
               decoration: fwrInput(widget.disabled ? 'Join the room to chat' : 'Shout it out…'),
+              onTap: widget.onTap,
               onSubmitted: (_) => _send(),
             ),
           ),

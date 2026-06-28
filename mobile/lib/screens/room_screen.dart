@@ -218,15 +218,19 @@ class _RoomScreenState extends State<RoomScreen> {
               ],
             ]),
           ),
-          ChatComposer(
-            onSend: (t) {
-              _c.sendChat(t);
-              if (_seg == 0) _scrollToChat(); // jump to the terrace so you see it land
-            },
-            onReact: _c.react,
-            disabled: !_c.joined,
-            emojis: packEmojis(room.reactionPack),
-          ),
+          // composer only on the Terrace tab (chat lives there); on Standings
+          // it's hidden so it doesn't sit over the leaderboard.
+          if (_seg == 0)
+            ChatComposer(
+              onSend: (t) {
+                _c.sendChat(t);
+                _scrollToChat(); // jump to the terrace so you see it land
+              },
+              onTap: _scrollToChat, // tapping the field scrolls the chat into view
+              onReact: _c.react,
+              disabled: !_c.joined,
+              emojis: packEmojis(room.reactionPack),
+            ),
         ]),
         if (!_c.joined) _JoinGate(room: room, onJoin: _join),
       ]),

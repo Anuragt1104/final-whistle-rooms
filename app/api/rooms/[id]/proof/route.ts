@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getProofData, getRoomRuntime, setAnchor } from "@/lib/store/rooms";
 import { buildMerkleTree, verifyMerkleProof } from "@/lib/util/merkle";
 import { anchorConfigured, anchorRoot, explorerTxUrl } from "@/lib/solana/anchor";
+import { sourceMode } from "@/lib/txline/source";
+import { getMatchProof } from "@/lib/txline/live";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +34,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     };
   }
 
+  // real TxLINE oracle attestation for this fixture's live data (live mode only)
+  const txline = sourceMode() === "live" ? await getMatchProof(rt.fixture.id).catch(() => null) : null;
+
   return NextResponse.json({
     root: tree.root,
     leafCount: data.leaves.length,
     leaves: data.leaves.slice(-12),
     sample,
+    txline,
+    fixtureId: rt.fixture.id,
     anchored: rt.anchored,
     anchorSignature: rt.anchorSignature,
     anchorAvailable: anchorConfigured(),

@@ -263,6 +263,56 @@ async function getJson<T>(path: string): Promise<T> {
   return JSON.parse(body) as T;
 }
 
+/** TxLINE's own Merkle attestation for a fixture's live stats — proves the data
+ *  in this room comes verbatim from the TxLINE oracle (not our own commitment). */
+export interface TxlineProof {
+  root: string; // hex of the eventStat Merkle root
+  fixtureId: string;
+  seq: number;
+  statKey: number;
+  value: number;
+  updateCount: number;
+  proofDepth: number;
+  ts: number;
+  minTs: number;
+  maxTs: number;
+}
+
+const toHex = (arr: number[] | undefined) => (arr ?? []).map((b) => (b & 0xff).toString(16).padStart(2, "0")).join("");
+
+export async function getMatchProof(fixtureId: string): Promise<TxlineProof | null> {
+  try {
+    const snap = await getJson<Array<{ Seq?: number; Stats?: Record<string, number> }>>(
+      `/api/scores/snapshot/${fixtureId}`,
+    );
+    const latest = Array.isArray(snap) ? snap[snap.length - 1] : snap;
+    if (!latest) return null;
+    const seq = latest.Seq ?? 0;
+    const statKey = Number(Object.keys(latest.Stats ?? {})[0] ?? 1001);
+    const v = await getJson<{
+      ts?: number;
+      statToProve?: { key?: number; value?: number };
+      eventStatRoot?: number[];
+      statProof?: unknown[];
+      summary?: { updateStats?: { updateCount?: number; minTimestamp?: number; maxTimestamp?: number } };
+    }>(`/api/scores/stat-validation?fixtureId=${fixtureId}&seq=${seq}&statKey=${statKey}`);
+    return {
+      root: toHex(v.eventStatRoot),
+      fixtureId,
+      seq,
+      statKey: v.statToProve?.key ?? statKey,
+      value: v.statToProve?.value ?? 0,
+      updateCount: v.summary?.updateStats?.updateCount ?? 0,
+      proofDepth: Array.isArray(v.statProof) ? v.statProof.length : 0,
+      ts: v.ts ?? Date.now(),
+      minTs: v.summary?.updateStats?.minTimestamp ?? 0,
+      maxTs: v.summary?.updateStats?.maxTimestamp ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class LiveSource implements TxLineSource {
   readonly mode = "live" as const;
 

@@ -10,6 +10,7 @@ import '../state/local_store.dart';
 import '../local/fixtures.dart';
 import '../local/live_engine.dart';
 import '../solana/wallet_connect.dart';
+import '../solana/rpc.dart';
 import '../theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_nav.dart';
@@ -33,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Identity? _identity;
   String _name = '';
   String _walletAddr = '';
+  double? _solBalance;
   String _nav = 'rooms';
   final _codeCtrl = TextEditingController();
   String _joinErr = '';
@@ -52,7 +54,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _api.config().then((c) => mounted ? setState(() => _config = c) : null).catchError((_) {});
     await _refresh();
     if (mounted) setState(() => _loading = false);
+    _loadBalance();
     _poll = Timer.periodic(const Duration(seconds: 5), (_) => _loadRooms());
+  }
+
+  Future<void> _loadBalance() async {
+    final addr = _walletAddr.isNotEmpty ? _walletAddr : (_identity?.pubkey ?? '');
+    final bal = await SolanaRpc.balance(addr, cluster: _config?.cluster ?? 'mainnet-beta');
+    if (mounted) setState(() => _solBalance = bal);
   }
 
   Future<void> _refresh() async {
@@ -141,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (res != null) {
         await LocalStore.setWalletAddress(res.pubkey);
         if (mounted) setState(() => _walletAddr = res.pubkey);
+        _loadBalance();
       }
     } catch (_) {
       if (mounted) {
@@ -451,37 +461,82 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---- YOU ----
   Widget _youTab() {
+    final connected = _walletAddr.isNotEmpty;
+    final activeAddr = connected ? _walletAddr : (_identity?.pubkey ?? '');
+    final cluster = _config?.cluster ?? 'mainnet-beta';
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
       Text('YOU', style: display(26)),
       const SizedBox(height: 16),
+      // profile hero — ink card with avatar, name, sign-in method
       Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.all(16),
-        child: Row(children: [
-          InitialAvatar(name: _name.isEmpty ? 'You' : _name, size: 54),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_name.isEmpty ? 'Set your name' : _name, style: display(20)),
-              const SizedBox(height: 2),
-              Text(_identity == null ? '' : '◎ ${_identity!.short}', style: body(color: AppColors.mut, size: 12)),
-            ]),
-          ),
-          GhostButton('Edit', onTap: _connect),
+        decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(18)),
+        padding: const EdgeInsets.all(18),
+        child: Column(children: [
+          Row(children: [
+            InitialAvatar(name: _name.isEmpty ? 'You' : _name, size: 60),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_name.isEmpty ? 'Set your name' : _name, style: display(24, color: AppColors.cream)),
+                const SizedBox(height: 3),
+                Row(children: [
+                  Icon(connected ? Icons.account_balance_wallet_rounded : Icons.verified_user_rounded, size: 13, color: AppColors.orangeBright),
+                  const SizedBox(width: 5),
+                  Text(connected ? 'Solana wallet' : 'On-device Solana ID', style: label(color: AppColors.mutInk, size: 9.5)),
+                ]),
+              ]),
+            ),
+            GhostButton('Edit', onTap: _connect),
+          ]),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(child: _profileStat('◎ ${_solBalance == null ? '—' : _solBalance!.toStringAsFixed(3)}', 'SOL BALANCE')),
+            Container(width: 1, height: 34, color: AppColors.lineInk),
+            Expanded(child: _profileStat(cluster == 'mainnet-beta' ? 'MAINNET' : 'DEVNET', 'NETWORK')),
+            Container(width: 1, height: 34, color: AppColors.lineInk),
+            Expanded(child: _profileStat(_config?.mode == 'live' ? 'LIVE' : 'REPLAY', 'TXLINE FEED')),
+          ]),
         ]),
       ),
       const SizedBox(height: 12),
+      // wallet card
+      Container(
+        decoration: cardBox(),
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.account_balance_wallet_outlined, color: AppColors.ink, size: 18),
+            const SizedBox(width: 8),
+            Text(connected ? 'CONNECTED WALLET' : 'YOUR WALLET', style: label(color: AppColors.ink, size: 10.5, weight: FontWeight.w800)),
+            const Spacer(),
+            if (!connected)
+              GhostButton('Connect', onTap: _connectWallet),
+          ]),
+          const SizedBox(height: 8),
+          SelectableText(activeAddr.isEmpty ? '—' : activeAddr, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.orange)),
+          const SizedBox(height: 6),
+          Text(connected
+              ? 'Your Phantom/Solflare wallet — used to sign in and prove room membership.'
+              : 'A secure Solana keypair was created on this device. Connect Phantom/Solflare to use your own wallet.',
+              style: body(color: AppColors.mut, size: 11.5)),
+        ]),
+      ),
+      const SizedBox(height: 12),
+      _settingRow(Icons.bolt_outlined, 'Data source', _config?.mode == 'live' ? 'Live TxLINE (mainnet oracle)' : 'Replay (TxLINE-shaped)', null),
       _settingRow(Icons.dns_outlined, 'Server', _api.baseUrl, () => showServerSettings(context, _api.baseUrl, (u) async {
         await _api.setBaseUrl(u);
         _refresh();
       })),
-      _settingRow(Icons.bolt_outlined, 'Data source', _config?.mode == 'live' ? 'Live TxLINE' : 'Replay (TxLINE-shaped)', null),
-      _settingRow(Icons.account_balance_wallet_outlined, 'Wallet', _walletAddr.isEmpty ? 'Tap to connect a Solana wallet' : _walletAddr, _connectWallet),
-      _settingRow(Icons.verified_outlined, 'On-device identity', _identity == null ? '—' : _identity!.pubkey, null),
       const SizedBox(height: 16),
       Center(child: Text('Final Whistle Rooms · skill-based, points only', style: body(color: AppColors.mut, size: 11))),
     ]);
   }
+
+  Widget _profileStat(String value, String label_) => Column(children: [
+        Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: display(17, color: AppColors.orangeBright)),
+        const SizedBox(height: 2),
+        Text(label_, style: label(color: AppColors.mutInk, size: 8)),
+      ]);
 
   Widget _settingRow(IconData icon, String title, String value, VoidCallback? onTap) {
     return Padding(

@@ -62,10 +62,10 @@ class _ProofSheetState extends State<_ProofSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
           const SizedBox(height: 14),
-          Text('VERIFIED BY TXLINE ON SOLANA', style: display(18)),
+          Text('VERIFIED BY TXLINE', style: display(18)),
           const SizedBox(height: 8),
           Text(
-            'Every match event the terrace reacted to is hashed into a Merkle tree. The root is a tamper-evident fingerprint of the verified TxLINE data — the same model TxLINE uses, as a fan-facing trust feature.',
+            'This match\'s live data is attested by the TxLINE oracle — every stat is committed to TxLINE\'s on-chain Merkle tree, fetched live from /api/scores/stat-validation. Not our number: TxLINE\'s.',
             style: body(color: AppColors.mut, size: 13),
           ),
           const SizedBox(height: 14),
@@ -74,6 +74,10 @@ class _ProofSheetState extends State<_ProofSheet> {
           else if (error != null)
             Text(error!, style: body(color: const Color(0xFFD8392B)))
           else ...[
+            _txlineBlock(),
+            const SizedBox(height: 14),
+            Text('ROOM ACTIVITY COMMITMENT', style: label(color: AppColors.ink, size: 11, weight: FontWeight.w800)),
+            const SizedBox(height: 8),
             _field('Events anchored (Merkle leaves)', '${proof!['leafCount']}'),
             const SizedBox(height: 10),
             _field('Merkle root (SHA-256)', proof!['root'] ?? '', mono: true, accent: AppColors.orange),
@@ -94,14 +98,46 @@ class _ProofSheetState extends State<_ProofSheet> {
             ],
             const SizedBox(height: 12),
             _anchorBlock(),
-            const SizedBox(height: 12),
-            Text(
-              "In production this maps to TxLINE's proof endpoints — /api/scores/stat-validation and /api/odds/validation — so any score or odds the room reacted to can be independently verified on Solana.",
-              style: body(color: AppColors.mut, size: 11.5),
-            ),
           ],
         ]),
       ),
+    );
+  }
+
+  Widget _txlineBlock() {
+    final tx = proof?['txline'] as Map<String, dynamic>?;
+    if (tx == null) {
+      return _box(child: Text('TxLINE oracle attestation appears once the live feed is streaming this match.', style: body(color: AppColors.mut, size: 12)));
+    }
+    final root = (tx['root'] ?? '') as String;
+    final shortRoot = root.length > 28 ? '${root.substring(0, 18)}…${root.substring(root.length - 8)}' : root;
+    Widget stat(String k, Object? v) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$v', style: display(18, color: AppColors.orangeBright)),
+          Text(k.toUpperCase(), style: label(color: AppColors.mutInk, size: 8)),
+        ]);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.verified_rounded, color: AppColors.orangeBright, size: 18),
+          const SizedBox(width: 6),
+          Text('TXLINE ORACLE PROOF', style: label(color: AppColors.cream, size: 10.5, weight: FontWeight.w800)),
+        ]),
+        const SizedBox(height: 10),
+        Text('EVENTSTAT MERKLE ROOT', style: label(color: AppColors.mutInk, size: 8.5)),
+        const SizedBox(height: 3),
+        SelectableText(shortRoot, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.orangeBright)),
+        const SizedBox(height: 12),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          stat('Seq', tx['seq']),
+          stat('Stat updates', tx['updateCount']),
+          stat('Proof depth', tx['proofDepth']),
+        ]),
+        const SizedBox(height: 10),
+        Text('✓ Live stats committed to TxLINE’s on-chain tree · fixture ${tx['fixtureId']}',
+            style: body(color: AppColors.orangeBright, size: 11.5, weight: FontWeight.w700)),
+      ]),
     );
   }
 

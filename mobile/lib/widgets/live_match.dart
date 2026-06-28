@@ -83,49 +83,61 @@ class MatchStatsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: cardBox(),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text('MATCH STATS', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)),
+          Text('MATCH STATS', style: label(color: AppColors.ink, size: 12, weight: FontWeight.w800)),
           const Spacer(),
-          Text('LIVE', style: label(color: AppColors.orange, size: 9.5, weight: FontWeight.w800)),
-          const SizedBox(width: 5),
-          const LiveDot(),
+          // tiny team key
+          _key(home.code, teamColor(home.code)),
+          const SizedBox(width: 10),
+          _key(away.code, teamColor(away.code)),
         ]),
-        const SizedBox(height: 12),
-        _row('⚽', 'Goals', score.goals.home, score.goals.away, big: true),
-        _row('🚩', 'Corners', score.corners.home, score.corners.away),
-        _row('🟨', 'Yellow cards', score.yellow.home, score.yellow.away),
-        if (score.red.home + score.red.away > 0) _row('🟥', 'Red cards', score.red.home, score.red.away),
+        const SizedBox(height: 16),
+        _row(const Icon(Icons.sports_soccer, size: 15, color: AppColors.ink), 'Goals', score.goals.home, score.goals.away, big: true),
+        _row(const Icon(Icons.flag_rounded, size: 15, color: AppColors.ink), 'Corners', score.corners.home, score.corners.away),
+        _row(_card(const Color(0xFFF5C518)), 'Yellow cards', score.yellow.home, score.yellow.away),
+        if (score.red.home + score.red.away > 0) _row(_card(const Color(0xFFD8392B)), 'Red cards', score.red.home, score.red.away),
       ]),
     );
   }
 
-  Widget _row(String emoji, String label_, int h, int a, {bool big = false}) {
+  Widget _key(String code, Color c) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(code, style: label(color: AppColors.mut, size: 9.5, weight: FontWeight.w700)),
+      ]);
+
+  Widget _card(Color c) => Container(
+        width: 11, height: 15,
+        decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2.5)),
+      );
+
+  Widget _row(Widget icon, String label_, int h, int a, {bool big = false}) {
     final hc = teamColor(home.code);
     final ac = teamColor(away.code);
     final total = (h + a) == 0 ? 1 : (h + a);
     final numStyle = TextStyle(
-        fontFamily: kDisplay, fontSize: big ? 22 : 18, color: AppColors.ink, letterSpacing: 0.5);
+        fontFamily: kDisplay, fontSize: big ? 23 : 19, color: AppColors.ink, letterSpacing: 0.5);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(children: [
         Row(children: [
-          SizedBox(width: 34, child: AnimatedCount(h, style: numStyle)),
+          SizedBox(width: 36, child: AnimatedCount(h, style: numStyle)),
           Expanded(
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(emoji, style: const TextStyle(fontSize: 12)),
-              const SizedBox(width: 6),
+              icon,
+              const SizedBox(width: 7),
               Text(label_.toUpperCase(),
-                  style: label(color: AppColors.mut, size: 10, weight: FontWeight.w700)),
+                  style: label(color: AppColors.mut, size: 10.5, weight: FontWeight.w700)),
             ]),
           ),
           SizedBox(
-            width: 34,
+            width: 36,
             child: Align(alignment: Alignment.centerRight, child: AnimatedCount(a, style: numStyle)),
           ),
         ]),
-        const SizedBox(height: 6),
+        const SizedBox(height: 7),
         LayoutBuilder(builder: (_, box) {
           final hw = box.maxWidth * h / total;
           return ClipRRect(
@@ -135,10 +147,10 @@ class MatchStatsPanel extends StatelessWidget {
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.easeOutCubic,
                 width: hw,
-                height: 7,
+                height: 8,
                 color: hc,
               ),
-              Expanded(child: Container(height: 7, color: ac.withValues(alpha: 0.85))),
+              Expanded(child: Container(height: 8, color: ac.withValues(alpha: 0.85))),
             ]),
           );
         }),
