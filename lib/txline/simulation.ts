@@ -199,6 +199,7 @@ export class MatchSimulation {
       minute,
       clockSeconds: minute * 60,
       running: phase === GamePhase.FirstHalf || phase === GamePhase.SecondHalf,
+      updatedAt: Date.now(),
       goals: this.countAt(minute, "goal"),
       yellow: this.countAt(minute, "yellow"),
       red: this.countAt(minute, "red"),

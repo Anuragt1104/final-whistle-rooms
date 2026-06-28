@@ -31,12 +31,17 @@ export async function GET() {
               try {
                 const s = await getScore(f);
                 f.score = { home: s.goals.home, away: s.goals.away, minute: s.minute };
-                // refine status from the AUTHORITATIVE game phase, not the
-                // 2.5h kickoff heuristic — so an ended match stops reading "LIVE"
+                const ageMs = Date.now() - (s.updatedAt || 0);
+                const fresh = ageMs < 10 * 60_000; // updated within 10 min = actively live
+                // refine status from the AUTHORITATIVE clock + freshness, not the
+                // 2.5h kickoff heuristic — so frozen replays stop reading "LIVE"
                 if (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished || s.phase === GamePhase.Abandoned) {
                   f.status = "finished";
-                } else if (isLivePhase(s.phase) || s.phase === GamePhase.HalfTime) {
+                } else if ((isLivePhase(s.phase) || s.phase === GamePhase.HalfTime) && fresh) {
                   f.status = "live";
+                } else if (s.minute > 0 && !fresh) {
+                  // had a clock but the feed went silent — it's over, not live
+                  f.status = "finished";
                 }
               } catch {
                 /* leave this one unscored — best effort */

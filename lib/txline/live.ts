@@ -153,18 +153,29 @@ function noteFrom(gameState?: string): string | undefined {
 function phaseFrom(gameState: string | undefined, running: boolean, minute: number): GamePhase {
   const gs = (gameState ?? "").toLowerCase();
   if (gs.includes("ht") || gs.includes("half")) return GamePhase.HalfTime;
-  if (gs === "ft" || gs.includes("finish") || gs.includes("full") || gs === "f") return GamePhase.FullTime;
+  if (gs === "ft" || gs.includes("finish") || gs.includes("full") || gs === "f" || gs === "fet" || gs === "fpe") return GamePhase.FullTime;
   if (gs.includes("pen")) return GamePhase.Penalties;
-  // The demo feed replays completed matches with GameState "scheduled"/"ns" but
-  // a clock running past 90'. Only a genuine in-play code (h1/h2/et…) is LIVE;
-  // a "scheduled" match whose clock has clearly advanced has already played out.
-  if (gs === "scheduled" || gs === "ns" || gs === "" || gs === "a" || gs === "i") {
-    return minute >= 50 ? GamePhase.FullTime : GamePhase.PreMatch;
+  // The demo feed labels EVERYTHING "scheduled" — even a match running at 42'.
+  // So the GameState string is useless for live/finished; trust the clock.
+  if (running && minute >= 1) {
+    if (minute < 46) return GamePhase.FirstHalf;
+    if (minute <= 118) return GamePhase.SecondHalf;
+    return GamePhase.FullTime;
   }
-  if (running) return minute < 45 ? GamePhase.FirstHalf : GamePhase.SecondHalf;
-  if (minute >= 90) return GamePhase.FullTime;
-  if (minute === 0) return GamePhase.PreMatch;
-  return GamePhase.HalfTime;
+  if (minute <= 0) return GamePhase.PreMatch; // not started (clock at 0)
+  if (minute >= 90) return GamePhase.FullTime; // stopped past full time
+  return GamePhase.HalfTime; // stopped mid-match = paused
+}
+
+/** Pick the genuinely-latest scores record. The snapshot array is NOT
+ *  time-ordered — the last element is often an old min-0 "reset" record — so we
+ *  must select by the highest Ts (then Seq). This is the single most important
+ *  fix for live accuracy. */
+function newestRecord(arr: TxScores[]): TxScores | undefined {
+  if (!Array.isArray(arr) || arr.length === 0) return undefined;
+  return arr.reduce((best, r) =>
+    (r.Ts ?? 0) > (best.Ts ?? 0) || ((r.Ts ?? 0) === (best.Ts ?? 0) && (r.Seq ?? 0) > (best.Seq ?? 0)) ? r : best,
+  );
 }
 
 function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
@@ -201,6 +212,7 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
     minute,
     clockSeconds,
     running,
+    updatedAt: s.Ts ?? Date.now(),
     statusNote: noteFrom(s.GameState),
     goals: total(1, 2, "Goals"),
     yellow: total(3, 4, "YellowCards"),
@@ -288,10 +300,8 @@ const toHex = (arr: number[] | undefined) => (arr ?? []).map((b) => (b & 0xff).t
 
 export async function getMatchProof(fixtureId: string): Promise<TxlineProof | null> {
   try {
-    const snap = await getJson<Array<{ Seq?: number; Stats?: Record<string, number> }>>(
-      `/api/scores/snapshot/${fixtureId}`,
-    );
-    const latest = Array.isArray(snap) ? snap[snap.length - 1] : snap;
+    const snap = await getJson<TxScores[]>(`/api/scores/snapshot/${fixtureId}`);
+    const latest = newestRecord(snap);
     if (!latest) return null;
     const seq = latest.Seq ?? 0;
     const statKey = Number(Object.keys(latest.Stats ?? {})[0] ?? 1001);
@@ -337,7 +347,7 @@ export class LiveSource implements TxLineSource {
 
   async getScoreSnapshot(fixture: Fixture): Promise<ScoreSnapshot> {
     const data = await getJson<TxScores[]>(`/api/scores/snapshot/${fixture.id}`);
-    const latest = data[data.length - 1];
+    const latest = newestRecord(data);
     return latest
       ? mapScores(latest, latest.Seq ?? data.length, new Date(latest.Ts ?? Date.now()).toISOString())
       : emptyScore(fixture);
@@ -359,6 +369,7 @@ function emptyScore(fixture: Fixture): ScoreSnapshot {
     minute: 0,
     clockSeconds: 0,
     running: false,
+    updatedAt: 0,
     goals: { ...z }, yellow: { ...z }, red: { ...z }, corners: { ...z },
     periods: {
       firstHalf: { goals: { ...z }, yellow: { ...z }, red: { ...z }, corners: { ...z } },
@@ -386,6 +397,7 @@ export async function openLiveMatchFeed(
   };
 
   let scoreSeq = 0;
+  let lastScoreTs = 0; // ignore stream frames older than what we've shown
   let oddsBuffer: TxOdds[] = [];
 
   async function consume(path: string, onData: (json: unknown) => void) {
@@ -420,8 +432,11 @@ export async function openLiveMatchFeed(
     const scRes = await fetch(`${txlineBase()}/api/scores/snapshot/${fixture.id}`, { headers: jsonHeaders, signal: controller.signal });
     if (scRes.ok) {
       const arr = (await scRes.json()) as TxScores[];
-      const latest = arr[arr.length - 1];
-      if (latest) handlers.onScore(mapScores(latest, ++scoreSeq, new Date(latest.Ts ?? Date.now()).toISOString()));
+      const latest = newestRecord(arr);
+      if (latest) {
+        lastScoreTs = latest.Ts ?? 0;
+        handlers.onScore(mapScores(latest, ++scoreSeq, new Date(latest.Ts ?? Date.now()).toISOString()));
+      }
     }
   } catch (e) {
     handlers.onError?.(e);
@@ -438,7 +453,10 @@ export async function openLiveMatchFeed(
 
   consume(`/api/scores/stream?fixtureId=${fixture.id}`, (json) => {
     const s = json as TxScores;
-    handlers.onScore(mapScores(s, ++scoreSeq, new Date(s.Ts ?? Date.now()).toISOString()));
+    const ts = s.Ts ?? Date.now();
+    if (ts < lastScoreTs) return; // drop stale/out-of-order frames
+    lastScoreTs = ts;
+    handlers.onScore(mapScores(s, ++scoreSeq, new Date(ts).toISOString()));
   }).catch((e) => handlers.onError?.(e));
 
   consume(`/api/odds/stream?fixtureId=${fixture.id}`, (json) => {

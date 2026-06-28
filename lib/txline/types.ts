@@ -120,6 +120,9 @@ export interface ScoreSnapshot {
   clockSeconds: number;
   /** Whether the ball is in play right now (clock should tick on the client). */
   running: boolean;
+  /** Wall-clock ms of the source record — used to tell live (fresh) from a
+   *  frozen/stale demo replay. */
+  updatedAt: number;
   goals: StatPair;
   yellow: StatPair;
   red: StatPair;
