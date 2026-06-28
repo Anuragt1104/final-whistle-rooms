@@ -39,7 +39,11 @@ export async function GET() {
                   f.status = "finished";
                 } else if ((isLivePhase(s.phase) || s.phase === GamePhase.HalfTime) && fresh) {
                   f.status = "live";
-                } else if (s.minute > 0 && !fresh) {
+                } else if (s.phase === GamePhase.PreMatch || s.minute <= 0) {
+                  // clock at 0 = NOT in play. Scheduled if kickoff is still
+                  // ahead, otherwise it's a finished/reset replay — never "live".
+                  f.status = new Date(f.kickoff).getTime() > Date.now() ? "scheduled" : "finished";
+                } else if (!fresh) {
                   // had a clock but the feed went silent — it's over, not live
                   f.status = "finished";
                 }
