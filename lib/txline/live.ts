@@ -202,7 +202,16 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
   const running = s.Clock?.Running === true;
   const clockSeconds = Math.min(130 * 60, Math.max(0, Math.round(s.Clock?.Seconds ?? 0)));
   const minute = Math.floor(clockSeconds / 60);
-  const phase = phaseFrom(s.GameState, running, minute);
+  const goals = total(1, 2, "Goals");
+  const yellow = total(3, 4, "YellowCards");
+  const red = total(5, 6, "RedCards");
+  const corners = total(7, 8, "Corners");
+  let phase = phaseFrom(s.GameState, running, minute);
+  // The demo resets ended matches to clock 0 but KEEPS the stat totals. So a
+  // clock-0 record that already carries goals/cards/corners is a FINISHED match,
+  // not a genuine pre-match — otherwise its room reads "KO SOON".
+  const played = goals.home + goals.away + corners.home + corners.away + yellow.home + yellow.away + red.home + red.away > 0;
+  if (phase === GamePhase.PreMatch && played) phase = GamePhase.FullTime;
 
   return {
     fixtureId,
@@ -214,10 +223,10 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
     running,
     updatedAt: s.Ts ?? Date.now(),
     statusNote: noteFrom(s.GameState),
-    goals: total(1, 2, "Goals"),
-    yellow: total(3, 4, "YellowCards"),
-    red: total(5, 6, "RedCards"),
-    corners: total(7, 8, "Corners"),
+    goals,
+    yellow,
+    red,
+    corners,
     periods: {
       firstHalf: { goals: per("H1", "Goals"), yellow: per("H1", "YellowCards"), red: per("H1", "RedCards"), corners: per("H1", "Corners") },
       secondHalf: { goals: per("H2", "Goals"), yellow: per("H2", "YellowCards"), red: per("H2", "RedCards"), corners: per("H2", "Corners") },

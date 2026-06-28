@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_loading)
           _skeleton()
         else if (liveFixtures.isEmpty)
-          _heroFixture(_featuredLiveFixture())
+          _noLiveCard(upcoming.isNotEmpty ? upcoming.first : null)
         else
           ...liveFixtures.map((f) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _liveMatchCard(f))),
         const SizedBox(height: 4),
@@ -266,6 +266,28 @@ class _HomeScreenState extends State<HomeScreen> {
           ...upcoming.map(_fixtureRow),
         const SizedBox(height: 16),
         Center(child: Text('Powered by TxLINE · sign-in with Solana · points only, no cash staking', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11))),
+      ]),
+    );
+  }
+
+  /// Honest empty state when nothing is in play — never a future match dressed
+  /// up as "LIVE".
+  Widget _noLiveCard(Fixture? next) {
+    return Container(
+      decoration: cardBox(),
+      padding: const EdgeInsets.all(22),
+      child: Column(children: [
+        const Icon(Icons.sports_soccer, color: AppColors.mut, size: 30),
+        const SizedBox(height: 10),
+        Text('No matches live right now', style: display(18)),
+        const SizedBox(height: 4),
+        Text(
+          next != null
+              ? 'Next up · ${next.home.name} vs ${next.away.name} · ${relativeKickoff(next.kickoff)}'
+              : 'Check back at kick-off — live matches show here.',
+          textAlign: TextAlign.center,
+          style: body(color: AppColors.mut, size: 12.5),
+        ),
       ]),
     );
   }
@@ -316,53 +338,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Fixture? _featuredLiveFixture() {
-    final live = _fixtures.where((f) => f.status == 'live');
-    if (live.isNotEmpty) return live.first;
-    final up = _fixtures.where((f) => f.status == 'scheduled');
-    if (up.isNotEmpty) return up.first;
-    return _fixtures.isNotEmpty ? _fixtures.first : null;
-  }
-
-  /// Hero when there are no multiplayer rooms yet — watch a match live, solo.
-  Widget _heroFixture(Fixture? f) {
-    if (f == null) {
-      return Container(decoration: cardBox(), padding: const EdgeInsets.all(18), child: Text('Loading matches…', style: body(color: AppColors.mut)));
-    }
-    return Pressable(
-      haptic: HapticFeedbackType.medium,
-      onTap: () => _watchLive(f),
-      child: Container(
-        decoration: cardBox(),
-        clipBehavior: Clip.antiAlias,
-        child: Column(children: [
-          TicketScoreboard(
-            home: f.home,
-            away: f.away,
-            league: f.stage,
-            score: null,
-            minute: f.status == 'live' ? 'LIVE' : relativeKickoff(f.kickoff),
-            pill: f.status == 'live' ? 'LIVE' : 'WATCH',
-            watching: null,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-            child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${f.home.name} vs ${f.away.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: display(16)),
-                  const SizedBox(height: 2),
-                  Text('Watch live with the room — pulse, predictions & recap', style: body(color: AppColors.mut, size: 12)),
-                ]),
-              ),
-              const SizedBox(width: 10),
-              PrimaryButton('Watch', icon: Icons.play_arrow_rounded, onTap: () => _watchLive(f)),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
 
   Widget _fixtureRow(Fixture f) {
     return Padding(
