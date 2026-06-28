@@ -118,6 +118,8 @@ export interface ScoreSnapshot {
   yellow: StatPair;
   red: StatPair;
   corners: StatPair;
+  /** Humanized live status (e.g. "Cooling break", "Interruption"), if any. */
+  statusNote?: string;
   /** Period-specific breakdowns keyed by StatType. */
   periods: {
     firstHalf: { goals: StatPair; yellow: StatPair; red: StatPair; corners: StatPair };

@@ -131,6 +131,25 @@ interface TxScores {
   Stats?: Record<string, number>;
 }
 
+// TxLINE SoccerFixtureStatus codes that aren't plain play — surfaced to fans.
+const STATUS_NOTES: Record<string, string> = {
+  C: "Cooling break",
+  TXCC: "Cooling break",
+  TXCS: "Cooling break",
+  I: "Interruption",
+  HT: "Half-time",
+  HTET: "Extra-time half-time",
+  WET: "Extra time soon",
+  WPE: "Penalties soon",
+  PE: "Penalties",
+  P: "Penalty",
+  A: "Abandoned",
+};
+function noteFrom(gameState?: string): string | undefined {
+  if (!gameState) return undefined;
+  return STATUS_NOTES[gameState] ?? STATUS_NOTES[gameState.toUpperCase()];
+}
+
 function phaseFrom(gameState: string | undefined, running: boolean, minute: number): GamePhase {
   const gs = (gameState ?? "").toLowerCase();
   if (gs.includes("ht") || gs.includes("half")) return GamePhase.HalfTime;
@@ -173,6 +192,7 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
     ts,
     phase,
     minute,
+    statusNote: noteFrom(s.GameState),
     goals: total(1, 2, "Goals"),
     yellow: total(3, 4, "YellowCards"),
     red: total(5, 6, "RedCards"),

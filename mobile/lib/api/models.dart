@@ -72,10 +72,12 @@ class StatPair {
 
 class ScoreView {
   final int minute, phase;
+  final String? statusNote;
   final StatPair goals, yellow, red, corners;
   ScoreView({
     required this.minute,
     required this.phase,
+    this.statusNote,
     required this.goals,
     required this.yellow,
     required this.red,
@@ -84,6 +86,7 @@ class ScoreView {
   factory ScoreView.fromJson(Map<String, dynamic> j) => ScoreView(
         minute: (j['minute'] ?? 0) as int,
         phase: (j['phase'] ?? 0) as int,
+        statusNote: j['statusNote'],
         goals: StatPair.fromJson(j['goals']),
         yellow: StatPair.fromJson(j['yellow']),
         red: StatPair.fromJson(j['red']),

@@ -16,7 +16,8 @@ class FwrHeader extends StatelessWidget {
       color: AppColors.paper,
       child: Row(children: [
         if (showBack) ...[
-          GestureDetector(
+          Pressable(
+            haptic: HapticFeedbackType.selection,
             onTap: () => Navigator.of(context).maybePop(),
             child: Container(
               width: 34,

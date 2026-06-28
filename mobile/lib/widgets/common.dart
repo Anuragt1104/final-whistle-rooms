@@ -7,10 +7,16 @@ class Brand extends StatelessWidget {
   const Brand({super.key, this.small = false});
   @override
   Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-      Text('FINAL WHISTLE', style: display(small ? 18 : 22, spacing: 0.5)),
-      const SizedBox(height: 1),
-      Text('ROOMS', style: label(color: AppColors.orange, size: small ? 8 : 9.5)),
+    return Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(small ? 8 : 9),
+        child: Image.asset('assets/icon/icon.png', width: small ? 30 : 36, height: small ? 30 : 36, fit: BoxFit.cover),
+      ),
+      SizedBox(width: small ? 8 : 10),
+      Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Text('FINAL WHISTLE', style: display(small ? 17 : 21, spacing: 0.5)),
+        Text('ROOMS', style: label(color: AppColors.orange, size: small ? 8 : 9.5)),
+      ]),
     ]);
   }
 }
@@ -80,8 +86,8 @@ class Pressable extends StatefulWidget {
 
 enum HapticFeedbackType { light, medium, selection }
 
-class _PressableState extends State<Pressable> {
-  bool _down = false;
+class _PressableState extends State<Pressable> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 140), value: 1);
   void _fire() {
     switch (widget.haptic) {
       case HapticFeedbackType.medium:
@@ -97,24 +103,28 @@ class _PressableState extends State<Pressable> {
   }
 
   @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _down() => _c.animateTo(0.9, duration: const Duration(milliseconds: 90), curve: Curves.easeOut);
+  void _up() => _c.animateTo(1, duration: const Duration(milliseconds: 420), curve: Curves.elasticOut);
+
+  @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null;
     return GestureDetector(
-      onTapDown: enabled ? (_) => setState(() => _down = true) : null,
-      onTapUp: enabled ? (_) => setState(() => _down = false) : null,
-      onTapCancel: enabled ? () => setState(() => _down = false) : null,
+      onTapDown: enabled ? (_) => _down() : null,
+      onTapUp: enabled ? (_) => _up() : null,
+      onTapCancel: enabled ? _up : null,
       onTap: enabled
           ? () {
               _fire();
               widget.onTap!();
             }
           : null,
-      child: AnimatedScale(
-        scale: _down ? 0.95 : 1,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeOut,
-        child: widget.child,
-      ),
+      child: ScaleTransition(scale: _c, child: widget.child),
     );
   }
 }

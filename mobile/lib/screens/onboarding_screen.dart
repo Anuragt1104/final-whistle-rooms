@@ -269,7 +269,10 @@ class _LoginCardState extends State<_LoginCard> {
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const SizedBox(height: 20),
-        Container(width: 56, height: 56, decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(16)), alignment: Alignment.center, child: const Text('⚽', style: TextStyle(fontSize: 28))),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Image.asset('assets/icon/icon.png', width: 60, height: 60, fit: BoxFit.cover),
+        ),
         const SizedBox(height: 18),
         Text('JOIN THE\nTERRACE', style: display(36, spacing: 0.5)),
         const SizedBox(height: 8),

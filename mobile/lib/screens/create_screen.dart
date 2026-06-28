@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
+import '../data/flags.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../local/live_engine.dart';
@@ -83,11 +84,13 @@ class _CreateScreenState extends State<CreateScreen> {
                             child: Row(children: [
                               Expanded(
                                 child: Row(children: [
-                                  Text('${f.home.flag} ', style: const TextStyle(fontSize: 15)),
+                                  InlineFlag(team: f.home, size: 20),
+                                  const SizedBox(width: 6),
                                   Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
                                   Text('  v  ', style: body(color: AppColors.mut)),
                                   Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
-                                  Text(' ${f.away.flag}', style: const TextStyle(fontSize: 15)),
+                                  const SizedBox(width: 6),
+                                  InlineFlag(team: f.away, size: 20),
                                 ]),
                               ),
                               Text(f.status == 'live' ? 'LIVE' : relativeKickoff(f.kickoff), style: label(color: AppColors.mut, size: 10)),

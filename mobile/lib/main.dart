@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'api/api_client.dart';
 import 'state/local_store.dart';
+import 'state/notifications.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'theme.dart';
@@ -15,6 +16,7 @@ Future<void> main() async {
     statusBarBrightness: Brightness.light,
   ));
   await ApiClient.instance.init();
+  Notifications.init(); // request permission + set up the match-events channel
   final onboarded = await LocalStore.onboarded();
   runApp(FinalWhistleApp(onboarded: onboarded));
 }

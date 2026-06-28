@@ -10,16 +10,20 @@ services:
     autoDeploy: true
     envVars:
       - key: TXLINE_MODE
-        value: simulation            # set to "live" once you hold a TxLINE API token
-      - key: SIM_SECONDS_PER_MATCH_MINUTE
-        value: "2"
+        value: live                  # real mainnet TxLINE World Cup feed
+      - key: TXLINE_BASE_URL
+        value: https://txline.txodds.com   # mainnet TxLINE host
+      - key: TXLINE_COMPETITION_ID
+        value: "72"                  # FIFA World Cup competition id
       - key: NEXT_PUBLIC_SOLANA_CLUSTER
         value: mainnet-beta          # mainnet identity/anchor display
       - key: NEXT_PUBLIC_SOLANA_RPC
         value: https://api.mainnet-beta.solana.com
-      # Optional — paste these to enable the real paths:
-      # - key: TXLINE_API_TOKEN          (live TxLINE data)
-      #   sync: false
+      # SECRET — Render prompts you to paste this during Blueprint setup.
+      # Copy the value from your local .env.local (the TXLINE_API_TOKEN=... line).
+      - key: TXLINE_API_TOKEN
+        sync: false
+      # Optional extras:
       # - key: SOLANA_ANCHOR_SECRET_KEY  (anchor room proofs on-chain)
       #   sync: false
       # - key: ANTHROPIC_API_KEY         (Claude-written recaps)

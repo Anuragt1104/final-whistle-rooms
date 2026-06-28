@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../api/models.dart';
+import '../data/flags.dart';
 import '../theme.dart';
+import 'common.dart';
 
 /// Torn-ticket bottom edge (rounded top corners + sawtooth bottom).
 class TicketClipper extends CustomClipper<Path> {
@@ -33,33 +35,13 @@ class TicketClipper extends CustomClipper<Path> {
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 
+/// Real country flag (circular) with a colored-badge fallback for unknown nations.
 class TeamBadge extends StatelessWidget {
   final Team team;
   final double size;
   const TeamBadge({super.key, required this.team, this.size = 46});
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: teamColor(team.code),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 1.5),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        team.code,
-        style: TextStyle(
-          fontFamily: kBody,
-          fontWeight: FontWeight.w800,
-          fontSize: size * 0.3,
-          color: Colors.white,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => CircleFlag(team: team, size: size);
 }
 
 class TicketScoreboard extends StatelessWidget {
@@ -103,7 +85,8 @@ class TicketScoreboard extends StatelessWidget {
         child: Column(children: [
           Row(children: [
             if (onBack != null)
-              GestureDetector(
+              Pressable(
+                haptic: HapticFeedbackType.selection,
                 onTap: onBack,
                 child: Container(
                   width: 30,
@@ -148,8 +131,17 @@ class TicketScoreboard extends StatelessWidget {
           Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Expanded(child: _side(home)),
             Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(score ?? 'VS',
-                  style: display(score != null ? 46 : 30, color: AppColors.orangeBright, spacing: 1)),
+              // score pops with an elastic bounce whenever it changes (a goal!)
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 420),
+                transitionBuilder: (child, anim) => ScaleTransition(
+                  scale: CurvedAnimation(parent: anim, curve: Curves.elasticOut),
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Text(score ?? 'VS',
+                    key: ValueKey(score ?? 'VS'),
+                    style: display(score != null ? 46 : 30, color: AppColors.orangeBright, spacing: 1)),
+              ),
               if (minute != null) ...[
                 const SizedBox(height: 4),
                 Container(

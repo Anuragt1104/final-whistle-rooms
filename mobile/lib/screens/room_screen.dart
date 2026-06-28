@@ -6,6 +6,7 @@ import '../api/models.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../state/room_controller.dart';
+import '../state/notifications.dart';
 import '../local/live_engine.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -48,12 +49,29 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   int _lastGoals = 0;
+  int _lastReds = 0;
   void _onChange() {
     if (!mounted) return;
-    final goals = _c.room?.pulse.where((p) => p.kind == 'goal').length ?? 0;
-    if (goals > _lastGoals) {
-      _lastGoals = goals;
+    final room = _c.room;
+    final goalCards = room?.pulse.where((p) => p.kind == 'goal').toList() ?? const [];
+    final redCards = room?.pulse.where((p) => p.kind == 'red').toList() ?? const [];
+    if (goalCards.length > _lastGoals) {
+      _lastGoals = goalCards.length;
       HapticFeedback.heavyImpact();
+      // notify only for real (live TxLINE) rooms, not the on-device sim
+      if (!_c.isLocal && room != null && room.score != null) {
+        final g = goalCards.last;
+        Notifications.show(
+          '⚽ GOAL${g.scorer != null ? " — ${g.scorer}" : ""}',
+          '${room.fixture.home.code} ${room.score!.goals.home}–${room.score!.goals.away} ${room.fixture.away.code} · ${room.name}',
+        );
+      }
+    }
+    if (redCards.length > _lastReds) {
+      _lastReds = redCards.length;
+      if (!_c.isLocal && room != null) {
+        Notifications.show('🟥 Red card', redCards.last.headline);
+      }
     }
     setState(() {});
   }
@@ -149,6 +167,7 @@ class _RoomScreenState extends State<RoomScreen> {
               if (_seg == 0) ...[
                 _presenceRow(room),
                 const SizedBox(height: 12),
+                if (room.score?.statusNote != null) ...[_statusBanner(room.score!.statusNote!), const SizedBox(height: 12)],
                 if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
                 if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
                 if (room.score != null) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
@@ -242,6 +261,34 @@ class _RoomScreenState extends State<RoomScreen> {
           child: Text('★ HOST', style: label(color: AppColors.cream, size: 9)),
         ),
       ]),
+    );
+  }
+
+  Widget _statusBanner(String note) {
+    final emoji = note.contains('Cooling')
+        ? '💧'
+        : note.contains('Half')
+            ? '⏸️'
+            : note.contains('Interrup')
+                ? '⚠️'
+                : note.contains('Penal')
+                    ? '🥅'
+                    : '⏱️';
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.9, end: 1),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Container(
+        decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(14)),
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          Text(emoji, style: const TextStyle(fontSize: 22)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(note.toUpperCase(), style: display(18, color: AppColors.cream))),
+          const LiveDot(color: AppColors.orange),
+        ]),
+      ),
     );
   }
 

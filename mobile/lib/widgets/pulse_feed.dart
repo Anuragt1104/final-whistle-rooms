@@ -47,15 +47,13 @@ class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderState
 
   @override
   Widget build(BuildContext context) {
+    // NOTE: no SizeTransition here — it measures children with unbounded height,
+    // which breaks Columns/stretch rows in the tiles. Fade + slide are paint-only.
     return FadeTransition(
       opacity: _a,
-      child: SizeTransition(
-        sizeFactor: _a,
-        axisAlignment: -1,
-        child: SlideTransition(
-          position: Tween(begin: const Offset(0, 0.12), end: Offset.zero).animate(_a),
-          child: Padding(padding: const EdgeInsets.only(bottom: 10), child: _tile(widget.card)),
-        ),
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.12), end: Offset.zero).animate(_a),
+        child: Padding(padding: const EdgeInsets.only(bottom: 10), child: _tile(widget.card)),
       ),
     );
   }
@@ -69,7 +67,7 @@ class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderState
           Text('GOAL', style: display(20, color: AppColors.orangeBright)),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(
                 c.scorer != null ? "${c.scorer}  ${c.minute}'" : c.headline,
                 style: body(color: AppColors.cream, size: 14, weight: FontWeight.w800),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../theme.dart';
+import 'common.dart';
 
 class BottomNav extends StatelessWidget {
   final String active; // rooms | fixtures | inbox | you
@@ -28,14 +28,17 @@ class BottomNav extends StatelessWidget {
 
   Widget _item(String key, IconData icon, String text) {
     final on = active == key;
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onSelect(key);
-      },
-      behavior: HitTestBehavior.opaque,
+    return Pressable(
+      haptic: HapticFeedbackType.selection,
+      onTap: () => onSelect(key),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 22, color: on ? AppColors.orange : AppColors.mut),
+        // active icon springs up a touch
+        AnimatedScale(
+          scale: on ? 1.18 : 1,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.elasticOut,
+          child: Icon(icon, size: 22, color: on ? AppColors.orange : AppColors.mut),
+        ),
         const SizedBox(height: 3),
         Text(text.toUpperCase(),
             style: label(color: on ? AppColors.orange : AppColors.mut, size: 8.5, weight: FontWeight.w700)),
@@ -44,11 +47,9 @@ class BottomNav extends StatelessWidget {
   }
 
   Widget _create() {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        onCreate();
-      },
+    return Pressable(
+      haptic: HapticFeedbackType.medium,
+      onTap: onCreate,
       child: Container(
         width: 50,
         height: 44,

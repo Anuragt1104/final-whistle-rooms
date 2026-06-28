@@ -597,6 +597,7 @@ export function buildView(rt: RoomRuntime): RoomView {
     ? {
         minute: rt.score.minute,
         phase: rt.score.phase,
+        statusNote: rt.score.statusNote,
         goals: rt.score.goals,
         yellow: rt.score.yellow,
         red: rt.score.red,

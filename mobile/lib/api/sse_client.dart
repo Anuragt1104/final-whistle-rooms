@@ -31,7 +31,7 @@ class RoomSseClient {
         req.headers['Cache-Control'] = 'no-cache';
         final resp = await _client!.send(req);
         if (resp.statusCode >= 400) throw Exception('SSE ${resp.statusCode}');
-        _connected.add(true);
+        if (!_closed && !_connected.isClosed) _connected.add(true);
 
         var buffer = '';
         await for (final chunk in resp.stream.transform(utf8.decoder)) {
@@ -47,13 +47,14 @@ class RoomSseClient {
       } catch (_) {
         // fall through to reconnect
       }
-      _connected.add(false);
       if (_closed) break;
+      if (!_connected.isClosed) _connected.add(false);
       await Future.delayed(const Duration(milliseconds: 1500));
     }
   }
 
   void _handleFrame(String frame) {
+    if (_closed || _controller.isClosed) return;
     for (final line in frame.split('\n')) {
       if (!line.startsWith('data:')) continue;
       final payload = line.substring(5).trim();

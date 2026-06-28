@@ -38,6 +38,7 @@ dependencies:
   shared_preferences: ^2.5.5
   cryptography: ^2.9.0
   solana_mobile_client: ^0.1.2
+  flutter_local_notifications: ^22.0.1
 
 dev_dependencies:
   flutter_test:
@@ -49,6 +50,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -61,6 +63,9 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  assets:
+    - assets/icon/icon.png
+
   fonts:
     - family: Anton
       fonts:
@@ -68,6 +73,14 @@ flutter:
     - family: Archivo
       fonts:
         - asset: assets/fonts/Archivo-Regular.ttf
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#E9531E"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  remove_alpha_ios: true
 
   # To add assets to your application, add an assets section, like this:
   # assets:
