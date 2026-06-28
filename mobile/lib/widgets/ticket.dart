@@ -56,6 +56,7 @@ class TicketScoreboard extends StatelessWidget {
   final Color pillColor;
   final int? watching;
   final VoidCallback? onBack;
+  final void Function(Team team)? onTeamTap; // tap a badge -> team/squad sheet
   final List<String> scorers; // optional under score
   final bool tall;
   final double topRadius;
@@ -70,6 +71,7 @@ class TicketScoreboard extends StatelessWidget {
     this.minute,
     this.clockSeconds,
     this.clockRunning = false,
+    this.onTeamTap,
     this.pill,
     this.pillColor = AppColors.orange,
     this.watching,
@@ -195,14 +197,18 @@ class TicketScoreboard extends StatelessWidget {
   }
 
   Widget _side(Team t) {
-    return Column(children: [
+    final col = Column(children: [
       TeamBadge(team: t, size: 48),
       const SizedBox(height: 8),
       Text(t.name.toUpperCase(),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: display(15, color: AppColors.cream, spacing: 0.4)),
+      if (onTeamTap != null)
+        Text('squad ›', style: label(color: AppColors.mutInk, size: 8)),
     ]);
+    if (onTeamTap == null) return col;
+    return Pressable(haptic: HapticFeedbackType.selection, onTap: () => onTeamTap!(t), child: col);
   }
 
   static String _compact(int n) {

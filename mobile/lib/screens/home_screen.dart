@@ -17,6 +17,7 @@ import '../widgets/common.dart';
 import '../widgets/ticket.dart';
 import 'create_screen.dart';
 import 'room_screen.dart';
+import 'team_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -384,13 +385,13 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  InlineFlag(team: f.home, size: 20),
+                  GestureDetector(onTap: () => showTeamSheet(context, f.home), child: InlineFlag(team: f.home, size: 20)),
                   const SizedBox(width: 6),
                   Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
                   Text('  v  ', style: body(color: AppColors.mut)),
                   Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
                   const SizedBox(width: 6),
-                  InlineFlag(team: f.away, size: 20),
+                  GestureDetector(onTap: () => showTeamSheet(context, f.away), child: InlineFlag(team: f.away, size: 20)),
                 ]),
                 const SizedBox(height: 2),
                 Text(_fxSubtitle(f), maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),

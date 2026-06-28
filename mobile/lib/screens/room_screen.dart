@@ -9,6 +9,7 @@ import '../state/room_controller.dart';
 import '../state/notifications.dart';
 import '../local/live_engine.dart';
 import '../theme.dart';
+import 'team_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/ticket.dart';
 import '../widgets/live_match.dart';
@@ -178,6 +179,7 @@ class _RoomScreenState extends State<RoomScreen> {
               minute: _minuteText(room),
               clockSeconds: room.score?.clockSeconds,
               clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room),
+              onTeamTap: (t) => showTeamSheet(context, t),
               pill: room.status == 'live' ? 'LIVE' : 'LOBBY',
               watching: room.members.length,
               onBack: () => Navigator.of(context).maybePop(),
