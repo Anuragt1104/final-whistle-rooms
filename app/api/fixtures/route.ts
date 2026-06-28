@@ -1,11 +1,45 @@
 import { NextResponse } from "next/server";
-import { getSource } from "@/lib/txline/source";
+import { getSource, sourceMode } from "@/lib/txline/source";
+import type { Fixture, ScoreSnapshot } from "@/lib/txline/types";
 
 export const dynamic = "force-dynamic";
 
+// Enriching every live/finished fixture with its score means a TxLINE call per
+// match, so cache the whole board briefly — the schedule doesn't need to be
+// fresher than this and it keeps /api/fixtures snappy under polling.
+const TTL_MS = 20_000;
+let cache: { at: number; fixtures: Fixture[] } | null = null;
+
 export async function GET() {
   try {
-    const fixtures = await getSource().listFixtures();
+    if (cache && Date.now() - cache.at < TTL_MS) {
+      return NextResponse.json({ fixtures: cache.fixtures });
+    }
+    const source = getSource();
+    const fixtures = await source.listFixtures();
+
+    // attach live/final scores so the Fixtures tab is a real results board
+    if (sourceMode() === "live") {
+      const getScore = (source as unknown as {
+        getScoreSnapshot?: (f: Fixture) => Promise<ScoreSnapshot>;
+      }).getScoreSnapshot?.bind(source);
+      if (getScore) {
+        await Promise.all(
+          fixtures
+            .filter((f) => f.status !== "scheduled")
+            .map(async (f) => {
+              try {
+                const s = await getScore(f);
+                f.score = { home: s.goals.home, away: s.goals.away, minute: s.minute };
+              } catch {
+                /* leave this one unscored — best effort */
+              }
+            }),
+        );
+      }
+    }
+
+    cache = { at: Date.now(), fixtures };
     return NextResponse.json({ fixtures });
   } catch (e) {
     return NextResponse.json({ error: String(e), fixtures: [] }, { status: 500 });

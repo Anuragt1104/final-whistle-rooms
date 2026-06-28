@@ -77,6 +77,8 @@ export interface Fixture {
   kickoff: string;
   venue: string;
   status: FixtureStatus;
+  /** Live/final score for the schedule board (live + finished only). */
+  score?: { home: number; away: number; minute: number };
 }
 
 /**

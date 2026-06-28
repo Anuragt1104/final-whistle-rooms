@@ -13,9 +13,17 @@ class Team {
       );
 }
 
+class FixtureScore {
+  final int home, away, minute;
+  FixtureScore(this.home, this.away, this.minute);
+  factory FixtureScore.fromJson(Map<String, dynamic> j) =>
+      FixtureScore((j['home'] ?? 0) as int, (j['away'] ?? 0) as int, (j['minute'] ?? 0) as int);
+}
+
 class Fixture {
   final String id, competition, stage, kickoff, venue, status;
   final Team home, away;
+  final FixtureScore? score; // live/final score (live + finished only)
   Fixture({
     required this.id,
     required this.competition,
@@ -25,6 +33,7 @@ class Fixture {
     required this.status,
     required this.home,
     required this.away,
+    this.score,
   });
   factory Fixture.fromJson(Map<String, dynamic> j) => Fixture(
         id: j['id'] ?? '',
@@ -35,6 +44,7 @@ class Fixture {
         status: j['status'] ?? 'scheduled',
         home: Team.fromJson(j['home']),
         away: Team.fromJson(j['away']),
+        score: j['score'] != null ? FixtureScore.fromJson(Map<String, dynamic>.from(j['score'])) : null,
       );
 }
 

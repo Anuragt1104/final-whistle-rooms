@@ -379,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: cardBox(),
           padding: const EdgeInsets.all(10),
           child: Row(children: [
-            MiniScore(top: f.status == 'live' ? 'VS' : kickoffClock(f.kickoff), bottom: f.status == 'live' ? 'LIVE' : 'KO'),
+            MiniScore(top: _fxTop(f), bottom: _fxBottom(f)),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -393,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   InlineFlag(team: f.away, size: 20),
                 ]),
                 const SizedBox(height: 2),
-                Text('Tap to watch live · ${relativeKickoff(f.kickoff)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
+                Text(_fxSubtitle(f), maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
               ]),
             ),
             const SizedBox(width: 8),
@@ -546,5 +546,20 @@ class _HomeScreenState extends State<HomeScreen> {
     if (s == null) return 'LIVE';
     if (s.phase == 2) return 'HT';
     return "${s.minute}'";
+  }
+
+  // Fixtures board (live/final scores from TxLINE)
+  String _fxTop(Fixture f) =>
+      f.score != null ? '${f.score!.home}-${f.score!.away}' : (f.status == 'live' ? 'VS' : kickoffClock(f.kickoff));
+  String _fxBottom(Fixture f) {
+    if (f.status == 'finished') return 'FT';
+    if (f.status == 'live') return f.score != null ? "${f.score!.minute}'" : 'LIVE';
+    return 'KO';
+  }
+
+  String _fxSubtitle(Fixture f) {
+    if (f.status == 'finished') return 'Full time · tap to open the room';
+    if (f.status == 'live') return 'LIVE now · tap to watch';
+    return 'Tap to watch live · ${relativeKickoff(f.kickoff)}';
   }
 }
