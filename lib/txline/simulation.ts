@@ -190,12 +190,15 @@ export class MatchSimulation {
   }
 
   scoreSnapshot(minute: number, seq: number, ts: string): ScoreSnapshot {
+    const phase = this.phaseAt(minute);
     return {
       fixtureId: this.fixture.id,
       seq,
       ts,
-      phase: this.phaseAt(minute),
+      phase,
       minute,
+      clockSeconds: minute * 60,
+      running: phase === GamePhase.FirstHalf || phase === GamePhase.SecondHalf,
       goals: this.countAt(minute, "goal"),
       yellow: this.countAt(minute, "yellow"),
       red: this.countAt(minute, "red"),

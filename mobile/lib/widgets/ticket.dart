@@ -3,6 +3,7 @@ import '../api/models.dart';
 import '../data/flags.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'live_match.dart';
 
 /// Torn-ticket bottom edge (rounded top corners + sawtooth bottom).
 class TicketClipper extends CustomClipper<Path> {
@@ -47,7 +48,9 @@ class TeamBadge extends StatelessWidget {
 class TicketScoreboard extends StatelessWidget {
   final Team home, away;
   final String? score; // "2 - 1" ; null => VS
-  final String? minute; // "67'" under score
+  final String? minute; // "67'" under score (fallback when no live clock)
+  final int? clockSeconds; // live match clock — ticks every second when running
+  final bool clockRunning;
   final String league;
   final String? pill; // "LIVE" / "FULL TIME"
   final Color pillColor;
@@ -65,6 +68,8 @@ class TicketScoreboard extends StatelessWidget {
     required this.league,
     this.score,
     this.minute,
+    this.clockSeconds,
+    this.clockRunning = false,
     this.pill,
     this.pillColor = AppColors.orange,
     this.watching,
@@ -142,7 +147,26 @@ class TicketScoreboard extends StatelessWidget {
                     key: ValueKey(score ?? 'VS'),
                     style: display(score != null ? 46 : 30, color: AppColors.orangeBright, spacing: 1)),
               ),
-              if (minute != null) ...[
+              if (clockRunning && clockSeconds != null) ...[
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+                  decoration: BoxDecoration(
+                      color: AppColors.orange, borderRadius: BorderRadius.circular(99)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Container(
+                      width: 5, height: 5,
+                      margin: const EdgeInsets.only(right: 5),
+                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                    ),
+                    LiveClock(
+                      clockSeconds: clockSeconds!,
+                      running: clockRunning,
+                      style: label(color: Colors.white, size: 11, weight: FontWeight.w800),
+                    ),
+                  ]),
+                ),
+              ] else if (minute != null) ...[
                 const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

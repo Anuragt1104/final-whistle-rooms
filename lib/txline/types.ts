@@ -114,6 +114,10 @@ export interface ScoreSnapshot {
   phase: GamePhase;
   /** Match clock in minutes (0..90+, includes added time as e.g. 45, 90, 120). */
   minute: number;
+  /** Match clock in whole seconds (the authoritative tick anchor for the UI). */
+  clockSeconds: number;
+  /** Whether the ball is in play right now (clock should tick on the client). */
+  running: boolean;
   goals: StatPair;
   yellow: StatPair;
   red: StatPair;

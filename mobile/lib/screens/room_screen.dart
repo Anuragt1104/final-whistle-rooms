@@ -11,6 +11,7 @@ import '../local/live_engine.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/ticket.dart';
+import '../widgets/live_match.dart';
 import '../widgets/score_rail.dart';
 import '../widgets/pulse_feed.dart';
 import '../widgets/next_swing_card.dart';
@@ -151,6 +152,8 @@ class _RoomScreenState extends State<RoomScreen> {
               league: room.fixture.stage,
               score: _scoreText(room),
               minute: _minuteText(room),
+              clockSeconds: room.score?.clockSeconds,
+              clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room),
               pill: room.status == 'live' ? 'LIVE' : 'LOBBY',
               watching: room.members.length,
               onBack: () => Navigator.of(context).maybePop(),
@@ -170,7 +173,11 @@ class _RoomScreenState extends State<RoomScreen> {
                 if (room.score?.statusNote != null) ...[_statusBanner(room.score!.statusNote!), const SizedBox(height: 12)],
                 if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
                 if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
-                if (room.score != null) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
+                if (room.score != null && !_hidden(room)) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
+                if (room.score != null && room.status != 'lobby' && !_hidden(room)) ...[
+                  MatchStatsPanel(score: room.score!, home: room.fixture.home, away: room.fixture.away),
+                  const SizedBox(height: 12),
+                ],
                 if (showSwing) ...[NextSwingCard(prompts: room.prompts, myPicks: _c.myPicks, onPick: _c.predict), const SizedBox(height: 12)],
                 if (latestRecap != null) ...[RecapCard(recap: latestRecap, aiOn: _aiOn), const SizedBox(height: 12)],
                 PulseFeed(pulse: room.pulse),
@@ -296,9 +303,11 @@ class _RoomScreenState extends State<RoomScreen> {
     Widget seg(String text, int i) {
       final on = _seg == i;
       return Expanded(
-        child: GestureDetector(
+        child: Pressable(
+          haptic: HapticFeedbackType.selection,
           onTap: () => setState(() => _seg = i),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(vertical: 10),
             alignment: Alignment.center,
             decoration: BoxDecoration(color: on ? AppColors.ink : Colors.transparent, borderRadius: BorderRadius.circular(10)),
@@ -329,7 +338,8 @@ class _RoomScreenState extends State<RoomScreen> {
 
   Widget _sidePicker(RoomView room) {
     Widget card(String side, Team t) => Expanded(
-          child: GestureDetector(
+          child: Pressable(
+            haptic: HapticFeedbackType.medium,
             onTap: () => _c.pickSide(side),
             child: Container(
               decoration: cardBox(),

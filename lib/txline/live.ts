@@ -183,7 +183,8 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
   };
 
   const running = s.Clock?.Running === true;
-  const minute = Math.min(130, Math.floor((s.Clock?.Seconds ?? 0) / 60));
+  const clockSeconds = Math.min(130 * 60, Math.max(0, Math.round(s.Clock?.Seconds ?? 0)));
+  const minute = Math.floor(clockSeconds / 60);
   const phase = phaseFrom(s.GameState, running, minute);
 
   return {
@@ -192,6 +193,8 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
     ts,
     phase,
     minute,
+    clockSeconds,
+    running,
     statusNote: noteFrom(s.GameState),
     goals: total(1, 2, "Goals"),
     yellow: total(3, 4, "YellowCards"),
@@ -298,6 +301,8 @@ function emptyScore(fixture: Fixture): ScoreSnapshot {
     ts: new Date().toISOString(),
     phase: GamePhase.PreMatch,
     minute: 0,
+    clockSeconds: 0,
+    running: false,
     goals: { ...z }, yellow: { ...z }, red: { ...z }, corners: { ...z },
     periods: {
       firstHalf: { goals: { ...z }, yellow: { ...z }, red: { ...z }, corners: { ...z } },

@@ -48,6 +48,8 @@ export interface PromptView {
 
 export interface ScoreView {
   minute: number;
+  clockSeconds: number;
+  running: boolean;
   phase: GamePhase;
   statusNote?: string;
   goals: { home: number; away: number };

@@ -253,7 +253,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _heroRoom(RoomSummary r) {
-    return GestureDetector(
+    return Pressable(
+      haptic: HapticFeedbackType.medium,
       onTap: () => _openRoom(r.id),
       child: Container(
         decoration: cardBox(),
@@ -300,7 +301,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (f == null) {
       return Container(decoration: cardBox(), padding: const EdgeInsets.all(18), child: Text('Loading matches…', style: body(color: AppColors.mut)));
     }
-    return GestureDetector(
+    return Pressable(
+      haptic: HapticFeedbackType.medium,
       onTap: () => _watchLive(f),
       child: Container(
         decoration: cardBox(),
@@ -337,7 +339,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _roomRow(RoomSummary r) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
+      child: Pressable(
         onTap: () => _openRoom(r.id),
         child: Container(
           decoration: cardBox(),
@@ -371,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _fixtureRow(Fixture f) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
+      child: Pressable(
         onTap: () => _watchLive(f),
         child: Container(
           decoration: cardBox(),
@@ -395,7 +397,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ]),
             ),
             const SizedBox(width: 8),
-            GestureDetector(
+            Pressable(
+              haptic: HapticFeedbackType.selection,
               onTap: () => _openCreate(f.id),
               child: Container(
                 width: 36, height: 36,
@@ -404,10 +407,18 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(width: 6),
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(11)),
-              child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+            Pressable(
+              haptic: HapticFeedbackType.medium,
+              onTap: () => _watchLive(f),
+              child: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppColors.orange,
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: const [BoxShadow(color: Color(0x33E9531E), blurRadius: 8, offset: Offset(0, 3))],
+                ),
+                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+              ),
             ),
           ]),
         ),

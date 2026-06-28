@@ -480,7 +480,7 @@ class LiveMatchEngine extends ChangeNotifier {
     final phaseInt = _phase == 1 ? 1 : (_phase == 2 ? 2 : (_phase == 3 ? 3 : (_phase == 4 ? 4 : 0)));
     final score = status == 'lobby'
         ? null
-        : ScoreView(minute: _minuteF.floor(), phase: phaseInt, goals: StatPair(gH, gA), yellow: StatPair(yH, yA), red: StatPair(rH, rA), corners: StatPair(cH, cA));
+        : ScoreView(minute: _minuteF.floor(), clockSeconds: (_minuteF * 60).floor(), running: phaseInt == 1 || phaseInt == 3, phase: phaseInt, goals: StatPair(gH, gA), yellow: StatPair(yH, yA), red: StatPair(rH, rA), corners: StatPair(cH, cA));
     final promptList = _prompts.values.toList()..sort((a, b) => b.createdAt - a.createdAt);
     return RoomView(
       id: 'local',

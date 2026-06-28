@@ -596,6 +596,8 @@ export function buildView(rt: RoomRuntime): RoomView {
   const score: ScoreView | null = rt.score
     ? {
         minute: rt.score.minute,
+        clockSeconds: rt.score.clockSeconds,
+        running: rt.score.running,
         phase: rt.score.phase,
         statusNote: rt.score.statusNote,
         goals: rt.score.goals,
@@ -665,6 +667,8 @@ export function listRooms(): RoomSummary[] {
       score: rt.score
         ? {
             minute: rt.score.minute,
+            clockSeconds: rt.score.clockSeconds,
+            running: rt.score.running,
             phase: rt.score.phase,
             goals: rt.score.goals,
             yellow: rt.score.yellow,
