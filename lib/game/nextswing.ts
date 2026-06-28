@@ -5,7 +5,7 @@
  * betting window, lock, then settle automatically as the match unfolds — so the
  * same logic works on simulated and live data.
  */
-import type { MatchEvent, OddsSnapshot, ScoreSnapshot } from "@/lib/txline/types";
+import type { MatchEvent, OddsSnapshot, ScoreSnapshot, StatPair } from "@/lib/txline/types";
 import type { WinChance } from "@/lib/engine/pulse";
 
 export interface SwingOption {
@@ -41,6 +41,9 @@ export interface SwingPrompt {
   status: SwingStatus;
   winningKey?: string;
   createdAt: number;
+  /** Stat totals captured the moment the prompt locked — lets us resolve from
+   *  deltas at a deadline even if no per-tick event fired. */
+  lockState?: { goals: StatPair; corners: StatPair; cards: StatPair };
 }
 
 let counter = 0;
@@ -188,6 +191,50 @@ export function tryResolve(
       }
       return null;
     }
+  }
+}
+
+/** Snapshot the stat totals at lock time (cards = yellow + red per side). */
+export function lockSnapshot(score: ScoreSnapshot): NonNullable<SwingPrompt["lockState"]> {
+  return {
+    goals: { ...score.goals },
+    corners: { ...score.corners },
+    cards: { home: score.yellow.home + score.red.home, away: score.yellow.away + score.red.away },
+  };
+}
+
+/**
+ * Deterministically settle a prompt at its deadline (no per-tick event needed)
+ * using the delta since it locked. Returns a winning key, or "__void__" when
+ * nothing relevant happened so the prompt still closes out (no points, no
+ * streak penalty — handled in settlePrompt).
+ */
+export function forceResolve(prompt: SwingPrompt, score: ScoreSnapshot, win: WinChance): string {
+  const r = prompt.resolver;
+  const ls = prompt.lockState;
+  const dGoalsH = ls ? score.goals.home - ls.goals.home : score.goals.home;
+  const dGoalsA = ls ? score.goals.away - ls.goals.away : score.goals.away;
+  const dCornH = ls ? score.corners.home - ls.corners.home : 0;
+  const dCornA = ls ? score.corners.away - ls.corners.away : 0;
+  const dCards = ls ? score.yellow.home + score.red.home + score.yellow.away + score.red.away - ls.cards.home - ls.cards.away : 0;
+  switch (r.kind) {
+    case "next-event":
+      if (dGoalsH + dGoalsA > 0) return r.map.goal ?? "__void__";
+      if (dCards > 0) return r.map.card ?? "__void__";
+      return "__void__";
+    case "next-corner-side":
+      if (dCornH > dCornA) return "home";
+      if (dCornA > dCornH) return "away";
+      return "__void__";
+    case "next-goal-before":
+      if (dGoalsH > dGoalsA) return "home";
+      if (dGoalsA > dGoalsH) return "away";
+      if (dGoalsH + dGoalsA === 0) return "none";
+      return "__void__";
+    case "half-level":
+      return score.goals.home === score.goals.away ? "yes" : "no";
+    case "odds-move":
+      return win.home > r.baseline ? "yes" : "no";
   }
 }
 

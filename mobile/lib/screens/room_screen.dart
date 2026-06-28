@@ -36,6 +36,16 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _aiOn = false;
   bool _revealed = false; // spoiler-safe reveal
   Identity? _identity;
+  final ScrollController _scroll = ScrollController();
+
+  void _scrollToChat() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(_scroll.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -51,9 +61,17 @@ class _RoomScreenState extends State<RoomScreen> {
 
   int _lastGoals = 0;
   int _lastReds = 0;
+  int _lastPoints = -1;
   void _onChange() {
     if (!mounted) return;
     final room = _c.room;
+    // celebrate when the user's Next Swing points go up
+    final myPoints = _c.me?.points ?? 0;
+    if (_lastPoints >= 0 && myPoints > _lastPoints) {
+      _pointsBurst(myPoints - _lastPoints);
+      HapticFeedback.heavyImpact();
+    }
+    _lastPoints = myPoints;
     final goalCards = room?.pulse.where((p) => p.kind == 'goal').toList() ?? const [];
     final redCards = room?.pulse.where((p) => p.kind == 'red').toList() ?? const [];
     if (goalCards.length > _lastGoals) {
@@ -62,16 +80,21 @@ class _RoomScreenState extends State<RoomScreen> {
       // notify only for real (live TxLINE) rooms, not the on-device sim
       if (!_c.isLocal && room != null && room.score != null) {
         final g = goalCards.last;
+        final s = room.score!;
+        final team = g.accent == 'away' ? room.fixture.away : room.fixture.home;
         Notifications.show(
-          '⚽ GOAL${g.scorer != null ? " — ${g.scorer}" : ""}',
-          '${room.fixture.home.code} ${room.score!.goals.home}–${room.score!.goals.away} ${room.fixture.away.code} · ${room.name}',
+          '⚽ GOAL — ${team.name}${g.scorer != null ? " · ${g.scorer}" : ""}',
+          "${room.fixture.home.name} ${s.goals.home}–${s.goals.away} ${room.fixture.away.name}   ·   ${s.minute}'",
+          subText: '${room.fixture.stage} · ${room.name}',
         );
       }
     }
     if (redCards.length > _lastReds) {
       _lastReds = redCards.length;
       if (!_c.isLocal && room != null) {
-        Notifications.show('🟥 Red card', redCards.last.headline);
+        final r = redCards.last;
+        Notifications.show('🟥 RED CARD', r.detail.isNotEmpty ? r.detail : r.headline,
+            subText: '${room.fixture.home.name} v ${room.fixture.away.name}');
       }
     }
     setState(() {});
@@ -79,6 +102,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     _c.removeListener(_onChange);
     _c.dispose();
     super.dispose();
@@ -162,7 +186,7 @@ class _RoomScreenState extends State<RoomScreen> {
             ),
           ),
           Expanded(
-            child: ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 16), children: [
+            child: ListView(controller: _scroll, padding: const EdgeInsets.fromLTRB(16, 12, 16, 16), children: [
               _controls(room),
               const SizedBox(height: 12),
               _segmentBar(),
@@ -192,7 +216,15 @@ class _RoomScreenState extends State<RoomScreen> {
               ],
             ]),
           ),
-          ChatComposer(onSend: _c.sendChat, onReact: _c.react, disabled: !_c.joined, emojis: packEmojis(room.reactionPack)),
+          ChatComposer(
+            onSend: (t) {
+              _c.sendChat(t);
+              if (_seg == 0) _scrollToChat(); // jump to the terrace so you see it land
+            },
+            onReact: _c.react,
+            disabled: !_c.joined,
+            emojis: packEmojis(room.reactionPack),
+          ),
         ]),
         if (!_c.joined) _JoinGate(room: room, onJoin: _join),
       ]),
@@ -526,6 +558,53 @@ class _RoomScreenState extends State<RoomScreen> {
         ]),
       ),
     );
+  }
+
+  /// A celebratory "+N PTS" burst when the user's Next Swing call pays off.
+  void _pointsBurst(int gained) {
+    if (gained <= 0) return;
+    final overlay = Overlay.of(context);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        top: MediaQuery.of(ctx).size.height * 0.30,
+        left: 0,
+        right: 0,
+        child: IgnorePointer(
+          child: Center(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1500),
+              curve: Curves.easeOut,
+              onEnd: () => entry.remove(),
+              builder: (_, t, __) {
+                final pop = Curves.elasticOut.transform((t / 0.25).clamp(0, 1));
+                final opacity = t < 0.7 ? 1.0 : (1 - (t - 0.7) / 0.3);
+                return Opacity(
+                  opacity: opacity.clamp(0, 1),
+                  child: Transform.translate(
+                    offset: Offset(0, -50 * t),
+                    child: Transform.scale(
+                      scale: 0.5 + 0.5 * pop,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.orange,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: const [BoxShadow(color: Color(0x55E9531E), blurRadius: 26, offset: Offset(0, 10))],
+                        ),
+                        child: Text('+$gained PTS 🔥', style: display(26, color: Colors.white)),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
   }
 
   Future<void> _join(String name) async {

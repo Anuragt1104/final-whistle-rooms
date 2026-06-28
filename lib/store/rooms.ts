@@ -20,7 +20,7 @@ import {
 } from "@/lib/txline/types";
 import { MatchSimulation } from "@/lib/txline/simulation";
 import { PulseInterpreter, type PulseCard, winChance, type WinChance } from "@/lib/engine/pulse";
-import { generatePrompt, tryResolve, type SwingPrompt } from "@/lib/game/nextswing";
+import { generatePrompt, tryResolve, forceResolve, lockSnapshot, type SwingPrompt } from "@/lib/game/nextswing";
 import { swingPoints, teamBonusForEvent, TEAM_BONUS } from "@/lib/game/scoring";
 import { generateRecap } from "@/lib/recap/generate";
 import { getSource, sourceMode } from "@/lib/txline/source";
@@ -216,6 +216,21 @@ export function joinRoom(
 ): { memberId: string } | { error: string } {
   const rt = store.rooms.get(id);
   if (!rt) return { error: "Room not found" };
+  // Identity is the wallet key, not the device. Rejoining with the same key
+  // returns the SAME member (keeps points/side) instead of minting a duplicate
+  // — and two different keys can never collide on one slot.
+  if (input.walletPubkey) {
+    for (const m of rt.members.values()) {
+      if (m.walletPubkey && m.walletPubkey === input.walletPubkey) {
+        if (input.name && input.name !== m.name) {
+          m.name = input.name;
+          m.avatar = emojiAvatar(input.name);
+        }
+        broadcast(rt);
+        return { memberId: m.id };
+      }
+    }
+  }
   const memberId = uid("m");
   rt.members.set(memberId, {
     id: memberId,
@@ -453,10 +468,17 @@ function resolvePrompts(rt: RoomRuntime, newEvents: MatchEvent[], score: ScoreSn
     if (prompt.status === "settled") continue;
     if (prompt.status === "open" && score.minute >= prompt.locksAtMinute) {
       prompt.status = "locked";
+      prompt.lockState = lockSnapshot(score); // freeze stats so we can resolve from deltas
     }
     if (prompt.status === "locked") {
       const key = tryResolve(prompt, newEvents, score, win);
-      if (key) settlePrompt(rt, prompt, key);
+      if (key) {
+        settlePrompt(rt, prompt, key);
+      } else if (score.minute >= prompt.locksAtMinute + 12 || score.phase >= GamePhase.FullTime) {
+        // deadline reached with no live event — settle deterministically so a
+        // correct call still scores instead of dangling forever
+        settlePrompt(rt, prompt, forceResolve(prompt, score, win));
+      }
     }
   }
 }
@@ -464,6 +486,12 @@ function resolvePrompts(rt: RoomRuntime, newEvents: MatchEvent[], score: ScoreSn
 function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) {
   prompt.status = "settled";
   prompt.winningKey = winningKey;
+  // nothing relevant happened in the window — close it out without scoring or
+  // resetting anyone's streak (a fair "no result").
+  if (winningKey === "__void__") {
+    system(rt, "Next Swing — no result that window, no points lost.");
+    return;
+  }
   let winners = 0;
   for (const m of rt.members.values()) {
     const pick = rt.picks.get(m.id)?.get(prompt.id);
@@ -490,8 +518,11 @@ function finishMatch(rt: RoomRuntime) {
   if (rt.closeLiveFeed) rt.closeLiveFeed();
   rt.closeLiveFeed = null;
 
-  // void any unresolved prompts (no scoring impact)
-  for (const p of rt.prompts.values()) if (p.status !== "settled") p.status = "settled";
+  // settle any still-open prompts from the final score so correct calls score
+  for (const p of rt.prompts.values()) {
+    if (p.status === "settled") continue;
+    settlePrompt(rt, p, rt.score ? forceResolve(p, rt.score, rt.win) : "__void__");
+  }
 
   // lead-at-full-time team bonus
   const s = rt.score;

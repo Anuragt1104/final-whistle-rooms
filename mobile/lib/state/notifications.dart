@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// Local notifications for live match moments (goals, red cards). Fired while
@@ -27,19 +28,41 @@ class Notifications {
     _inited = true;
   }
 
-  static Future<void> show(String title, String body) async {
+  static Future<void> show(String title, String body, {String? subText}) async {
     try {
       await init();
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: AndroidNotificationDetails(
           'match_events',
           'Match events',
           channelDescription: 'Goals, red cards and key live moments',
           importance: Importance.max,
           priority: Priority.high,
-          ticker: 'GOAL',
+          ticker: title,
+          // brand the notification with the app logo + orange accent
+          icon: '@mipmap/ic_launcher',
+          largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+          color: const Color(0xFFE9531E),
+          colorized: true,
+          enableLights: true,
+          ledColor: const Color(0xFFE9531E),
+          ledOnMs: 600,
+          ledOffMs: 200,
+          // expandable, detailed body with a Final Whistle footer
+          styleInformation: BigTextStyleInformation(
+            body,
+            htmlFormatBigText: true,
+            contentTitle: '<b>$title</b>',
+            htmlFormatContentTitle: true,
+            summaryText: subText ?? 'FINAL WHISTLE ROOMS',
+            htmlFormatSummaryText: true,
+          ),
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: DarwinNotificationDetails(
+          subtitle: subText ?? 'Final Whistle Rooms',
+          presentBanner: true,
+          presentSound: true,
+        ),
       );
       await _plugin.show(id: _id++, title: title, body: body, notificationDetails: details);
     } catch (_) {

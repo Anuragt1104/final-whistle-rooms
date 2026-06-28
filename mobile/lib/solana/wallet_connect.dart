@@ -26,7 +26,11 @@ class WalletConnect {
   static Future<WalletConnectResult?> connect({String cluster = 'mainnet-beta'}) async {
     final scenario = await LocalAssociationScenario.create();
     try {
-      await scenario.startActivityForResult(null);
+      // Launch the wallet (fire-and-forget) and THEN await start(), which
+      // completes once the wallet connects back. Awaiting startActivityForResult
+      // first meant we weren't listening yet — the wallet just opened and never
+      // returned a key.
+      scenario.startActivityForResult(null).ignore();
       final client = await scenario.start();
       final result = await client.authorize(
         identityUri: Uri.parse('https://final-whistle.app'),
