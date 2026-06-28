@@ -14,10 +14,16 @@ class Team {
 }
 
 class FixtureScore {
-  final int home, away, minute;
-  FixtureScore(this.home, this.away, this.minute);
-  factory FixtureScore.fromJson(Map<String, dynamic> j) =>
-      FixtureScore((j['home'] ?? 0) as int, (j['away'] ?? 0) as int, (j['minute'] ?? 0) as int);
+  final int home, away, minute, clockSeconds;
+  final bool running;
+  FixtureScore(this.home, this.away, this.minute, this.clockSeconds, this.running);
+  factory FixtureScore.fromJson(Map<String, dynamic> j) => FixtureScore(
+        (j['home'] ?? 0) as int,
+        (j['away'] ?? 0) as int,
+        (j['minute'] ?? 0) as int,
+        (j['clockSeconds'] ?? ((j['minute'] ?? 0) as int) * 60) as int,
+        (j['running'] ?? false) as bool,
+      );
 }
 
 class Fixture {

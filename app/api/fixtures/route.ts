@@ -30,9 +30,15 @@ export async function GET() {
             .map(async (f) => {
               try {
                 const s = await getScore(f);
-                f.score = { home: s.goals.home, away: s.goals.away, minute: s.minute };
                 const ageMs = Date.now() - (s.updatedAt || 0);
                 const fresh = ageMs < 10 * 60_000; // updated within 10 min = actively live
+                f.score = {
+                  home: s.goals.home,
+                  away: s.goals.away,
+                  minute: s.minute,
+                  clockSeconds: s.clockSeconds,
+                  running: s.running && fresh,
+                };
                 // refine status from the AUTHORITATIVE clock + freshness, not the
                 // 2.5h kickoff heuristic — so frozen replays stop reading "LIVE"
                 if (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished || s.phase === GamePhase.Abandoned) {

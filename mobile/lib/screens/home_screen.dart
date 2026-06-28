@@ -55,7 +55,21 @@ class _HomeScreenState extends State<HomeScreen> {
     await _refresh();
     if (mounted) setState(() => _loading = false);
     _loadBalance();
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _loadRooms());
+    // poll rooms every 5s; refresh the live fixtures (scores/minutes/status)
+    // every ~12s so the home updates without a manual pull-to-refresh
+    _poll = Timer.periodic(const Duration(seconds: 4), (t) {
+      _loadRooms();
+      if (t.tick % 3 == 0) _refreshFixturesQuiet();
+    });
+  }
+
+  Future<void> _refreshFixturesQuiet() async {
+    try {
+      final f = await _api.fixtures();
+      if (f.isNotEmpty && mounted) setState(() => _fixtures = f);
+    } catch (_) {
+      /* keep showing the last known fixtures */
+    }
   }
 
   Future<void> _loadBalance() async {
@@ -314,6 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
             league: f.stage,
             score: f.score != null ? '${f.score!.home} - ${f.score!.away}' : null,
             minute: f.score != null ? "${f.score!.minute}'" : 'LIVE',
+            clockSeconds: f.score?.clockSeconds,
+            clockRunning: f.score?.running ?? false,
             pill: 'LIVE',
             watching: room?.memberCount,
             onTeamTap: (t) => showTeamSheet(context, t),

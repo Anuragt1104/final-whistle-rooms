@@ -36,14 +36,11 @@ class _LiveClockState extends State<LiveClock> {
   void didUpdateWidget(covariant LiveClock old) {
     super.didUpdateWidget(old);
     if (old.clockSeconds != widget.clockSeconds || old.running != widget.running) {
-      final incoming = widget.clockSeconds;
-      // trust forward moves and large jumps (new period / reset); hold tiny
-      // backward moves that are just network latency.
-      if (incoming >= _displayed || (_displayed - incoming) > 90) {
-        _base = incoming;
-      } else {
-        _base = _displayed;
-      }
+      // Always re-anchor to the authoritative snapshot value. The snapshot is
+      // already a few seconds stale (record -> server -> SSE -> us), so
+      // interpolating from it keeps the clock at-most-exact and never ahead of
+      // the real match — the user prefers a touch behind over running ahead.
+      _base = widget.clockSeconds;
       _anchor = DateTime.now();
       _tick();
     }
@@ -51,7 +48,10 @@ class _LiveClockState extends State<LiveClock> {
 
   void _tick() {
     if (!mounted) return;
-    final secs = widget.running ? _base + DateTime.now().difference(_anchor).inSeconds : _base;
+    // never display ahead of the last authoritative value by more than the
+    // elapsed real seconds; clamp so a slow upstream can't make us overshoot.
+    final elapsed = DateTime.now().difference(_anchor).inSeconds;
+    final secs = widget.running ? _base + elapsed.clamp(0, 75) : _base;
     if (secs != _displayed) setState(() => _displayed = secs);
   }
 

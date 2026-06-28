@@ -167,15 +167,44 @@ function phaseFrom(gameState: string | undefined, running: boolean, minute: numb
   return GamePhase.HalfTime; // stopped mid-match = paused
 }
 
-/** Pick the genuinely-latest scores record. The snapshot array is NOT
- *  time-ordered — the last element is often an old min-0 "reset" record — so we
- *  must select by the highest Ts (then Seq). This is the single most important
- *  fix for live accuracy. */
-function newestRecord(arr: TxScores[]): TxScores | undefined {
+const recTs = (r: TxScores) => r.Ts ?? 0;
+const recSecs = (r: TxScores) => r.Clock?.Seconds ?? 0;
+const newestByTs = (arr: TxScores[]) =>
+  arr.reduce((best, r) => (recTs(r) > recTs(best) || (recTs(r) === recTs(best) && (r.Seq ?? 0) > (best.Seq ?? 0)) ? r : best));
+
+/**
+ * Choose the record that represents the match's ACTUAL current state. The demo
+ * snapshot interleaves real live records (running, advancing minute) with min-0
+ * "reset" records and old replays — and the array is not time-ordered. So:
+ *  - if there's fresh, running play, use the furthest-progressed such record
+ *    (this is the live moment; ignores reset blips and stale replays);
+ *  - otherwise fall back to the newest record by timestamp.
+ */
+function bestRecord(arr: TxScores[], nowMs = Date.now()): TxScores | undefined {
   if (!Array.isArray(arr) || arr.length === 0) return undefined;
-  return arr.reduce((best, r) =>
-    (r.Ts ?? 0) > (best.Ts ?? 0) || ((r.Ts ?? 0) === (best.Ts ?? 0) && (r.Seq ?? 0) > (best.Seq ?? 0)) ? r : best,
+  const livePlay = arr.filter(
+    (r) => r.Clock?.Running === true && recSecs(r) >= 30 && nowMs - recTs(r) < 10 * 60_000,
   );
+  if (livePlay.length) {
+    return livePlay.reduce((best, r) =>
+      recSecs(r) > recSecs(best) || (recSecs(r) === recSecs(best) && recTs(r) > recTs(best)) ? r : best,
+    );
+  }
+  return newestByTs(arr);
+}
+
+/** Map a whole snapshot to one score. Applies the finished override (a played-
+ *  out match the demo reset to clock 0) ONLY when there's no live activity, so a
+ *  live match can never be flipped to full-time by a stray reset record. */
+function scoreFromSnapshot(arr: TxScores[], seq: number): ScoreSnapshot {
+  const best = bestRecord(arr);
+  if (!best) return emptyScore({ id: "" } as Fixture);
+  const s = mapScores(best, best.Seq ?? seq, new Date(best.Ts ?? Date.now()).toISOString());
+  const played = s.goals.home + s.goals.away + s.corners.home + s.corners.away + s.yellow.home + s.yellow.away + s.red.home + s.red.away > 0;
+  if (!s.running && s.phase === GamePhase.PreMatch && played) {
+    return { ...s, phase: GamePhase.FullTime };
+  }
+  return s;
 }
 
 function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
@@ -206,12 +235,7 @@ function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
   const yellow = total(3, 4, "YellowCards");
   const red = total(5, 6, "RedCards");
   const corners = total(7, 8, "Corners");
-  let phase = phaseFrom(s.GameState, running, minute);
-  // The demo resets ended matches to clock 0 but KEEPS the stat totals. So a
-  // clock-0 record that already carries goals/cards/corners is a FINISHED match,
-  // not a genuine pre-match — otherwise its room reads "KO SOON".
-  const played = goals.home + goals.away + corners.home + corners.away + yellow.home + yellow.away + red.home + red.away > 0;
-  if (phase === GamePhase.PreMatch && played) phase = GamePhase.FullTime;
+  const phase = phaseFrom(s.GameState, running, minute);
 
   return {
     fixtureId,
@@ -310,7 +334,7 @@ const toHex = (arr: number[] | undefined) => (arr ?? []).map((b) => (b & 0xff).t
 export async function getMatchProof(fixtureId: string): Promise<TxlineProof | null> {
   try {
     const snap = await getJson<TxScores[]>(`/api/scores/snapshot/${fixtureId}`);
-    const latest = newestRecord(snap);
+    const latest = bestRecord(snap);
     if (!latest) return null;
     const seq = latest.Seq ?? 0;
     const statKey = Number(Object.keys(latest.Stats ?? {})[0] ?? 1001);
@@ -356,10 +380,7 @@ export class LiveSource implements TxLineSource {
 
   async getScoreSnapshot(fixture: Fixture): Promise<ScoreSnapshot> {
     const data = await getJson<TxScores[]>(`/api/scores/snapshot/${fixture.id}`);
-    const latest = newestRecord(data);
-    return latest
-      ? mapScores(latest, latest.Seq ?? data.length, new Date(latest.Ts ?? Date.now()).toISOString())
-      : emptyScore(fixture);
+    return Array.isArray(data) && data.length ? scoreFromSnapshot(data, data.length) : emptyScore(fixture);
   }
 
   async getOddsSnapshot(fixture: Fixture): Promise<OddsSnapshot> {
@@ -407,6 +428,7 @@ export async function openLiveMatchFeed(
 
   let scoreSeq = 0;
   let lastScoreTs = 0; // ignore stream frames older than what we've shown
+  let lastMinute = 0; // ignore frames that drop the clock back (reset glitches)
   let oddsBuffer: TxOdds[] = [];
 
   async function consume(path: string, onData: (json: unknown) => void) {
@@ -441,10 +463,11 @@ export async function openLiveMatchFeed(
     const scRes = await fetch(`${txlineBase()}/api/scores/snapshot/${fixture.id}`, { headers: jsonHeaders, signal: controller.signal });
     if (scRes.ok) {
       const arr = (await scRes.json()) as TxScores[];
-      const latest = newestRecord(arr);
-      if (latest) {
-        lastScoreTs = latest.Ts ?? 0;
-        handlers.onScore(mapScores(latest, ++scoreSeq, new Date(latest.Ts ?? Date.now()).toISOString()));
+      if (Array.isArray(arr) && arr.length) {
+        const snap = scoreFromSnapshot(arr, ++scoreSeq);
+        lastScoreTs = snap.updatedAt;
+        lastMinute = snap.minute;
+        handlers.onScore(snap);
       }
     }
   } catch (e) {
@@ -464,7 +487,12 @@ export async function openLiveMatchFeed(
     const s = json as TxScores;
     const ts = s.Ts ?? Date.now();
     if (ts < lastScoreTs) return; // drop stale/out-of-order frames
+    const min = Math.floor((s.Clock?.Seconds ?? 0) / 60);
+    // a live match dropping the clock back to ~0 with the ball not running is a
+    // reset blip — ignore it so the room never flickers to 0'/full-time
+    if (lastMinute >= 10 && min < lastMinute - 8 && s.Clock?.Running !== true) return;
     lastScoreTs = ts;
+    lastMinute = min;
     handlers.onScore(mapScores(s, ++scoreSeq, new Date(ts).toISOString()));
   }).catch((e) => handlers.onError?.(e));
 
