@@ -45,6 +45,7 @@ class LiveMatchEngine extends ChangeNotifier {
 
   int gH = 0, gA = 0, yH = 0, yA = 0, rH = 0, rA = 0, cH = 0, cA = 0;
   int _momentum = 0;
+  double _oddsDrift = 0; // mean-reverting market jitter so win-chance breathes tick-to-tick
   int proofLeaves = 0;
   int _lastPromptMinute = -99;
 
@@ -219,8 +220,13 @@ class LiveMatchEngine extends ChangeNotifier {
     final rh = fixture.home.rating, ra = fixture.away.rating;
     final lead = gH - gA;
     final tLeft = ((90 - m) / 90).clamp(0.0, 1.0);
-    var h = 0.42 + (rh - ra) / 100 * 0.45 + lead * 0.16 * (0.5 + tLeft);
-    var a = 0.42 - (rh - ra) / 100 * 0.45 - lead * 0.16 * (0.5 + tLeft);
+    // live-market feel: a gentle mean-reverting random walk + a momentum tilt so
+    // the win chance ticks both ways between goals (and the Higher/Lower call is
+    // a real read, never a static "always lower").
+    _oddsDrift = (_oddsDrift * 0.8 + (_rng.nextDouble() * 2 - 1) * 0.016).clamp(-0.05, 0.05);
+    final tilt = _momentum / 100 * 0.05 + _oddsDrift;
+    var h = 0.42 + (rh - ra) / 100 * 0.45 + lead * 0.16 * (0.5 + tLeft) + tilt;
+    var a = 0.42 - (rh - ra) / 100 * 0.45 - lead * 0.16 * (0.5 + tLeft) - tilt * 0.6;
     h = h.clamp(0.03, 0.94);
     a = a.clamp(0.03, 0.94);
     var d = (1 - h - a).clamp(0.03, 0.6);
@@ -245,9 +251,9 @@ class LiveMatchEngine extends ChangeNotifier {
     final leaderCode = homeLeads ? fixture.home.code : fixture.away.code;
     final leaderPct = homeLeads ? _win.home : _win.away;
     final winSwing = _PromptDef(
-      '$leaderCode $leaderPct% to win — higher or lower in 5\'?',
+      '$leaderCode $leaderPct% to win — higher or lower?',
       [_opt('up', 'Higher', '📈'), _opt('down', 'Lower', '📉')],
-      100 + (50 - leaderPct).abs(), min(m + 2, 90), _Resolver.winSwing, min(m + 5, 90), leaderPct, homeLeads ? 0 : 1);
+      100 + (50 - leaderPct).abs(), min(m + 8, 90), _Resolver.winSwing, min(m + 12, 90), leaderPct, homeLeads ? 0 : 1);
     final def = _rng.nextDouble() < 0.55 ? winSwing : menu[_rng.nextInt(menu.length)];
     final id = _id('sw');
     _prompts[id] = PromptView(id: id, question: def.q, options: def.options, basePoints: def.pts, locksAtMinute: def.lock, status: 'open', winningKey: null, createdAt: _now(), tally: {for (final o in def.options) o.key: 0});
