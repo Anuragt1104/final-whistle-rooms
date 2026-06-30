@@ -238,13 +238,21 @@ class LiveMatchEngine extends ChangeNotifier {
       _PromptDef('What happens first?', [_opt('goal', 'A goal ⚽'), _opt('card', 'A card 🟨')], 120, lock, _Resolver.firstEvent),
       _PromptDef('Who wins the next corner?', [_opt('home', fixture.home.code), _opt('away', fixture.away.code)], 100, lock, _Resolver.nextCorner),
       _PromptDef('Next goal before ${min(m + 15, 90)}\'?', [_opt('home', fixture.home.code, '${_win.home}%'), _opt('none', 'No goal'), _opt('away', fixture.away.code, '${_win.away}%')], 140, lock, _Resolver.nextGoal, min(m + 15, 90)),
-      _PromptDef('Does ${fixture.home.code}\'s win chance rise next 6\'?', [_opt('yes', 'Rises 📈'), _opt('no', 'Holds 📉')], 110, min(m + 2, 90), _Resolver.oddsRise, min(m + 6, 90), _win.home),
     ];
-    final def = menu[_rng.nextInt(menu.length)];
+    // ⭐ the signature HIGHER OR LOWER call on the favourite's live win-chance —
+    // the one stat that swings both ways. Featured most often; events are variety.
+    final homeLeads = _win.home >= _win.away;
+    final leaderCode = homeLeads ? fixture.home.code : fixture.away.code;
+    final leaderPct = homeLeads ? _win.home : _win.away;
+    final winSwing = _PromptDef(
+      '$leaderCode $leaderPct% to win — higher or lower in 5\'?',
+      [_opt('up', 'Higher', '📈'), _opt('down', 'Lower', '📉')],
+      100 + (50 - leaderPct).abs(), min(m + 2, 90), _Resolver.winSwing, min(m + 5, 90), leaderPct, homeLeads ? 0 : 1);
+    final def = _rng.nextDouble() < 0.55 ? winSwing : menu[_rng.nextInt(menu.length)];
     final id = _id('sw');
     _prompts[id] = PromptView(id: id, question: def.q, options: def.options, basePoints: def.pts, locksAtMinute: def.lock, status: 'open', winningKey: null, createdAt: _now(), tally: {for (final o in def.options) o.key: 0});
     _res[id] = def.resolver;
-    _resMeta[id] = [def.targetMinute, def.baseline];
+    _resMeta[id] = [def.targetMinute, def.baseline, def.side];
     // bots vote shortly
     for (final b in _members.where((x) => x.isBot)) {
       if (_rng.nextDouble() < 0.8) _botPicks['$id:${b.id}'] = def.options[_rng.nextInt(def.options.length)].key;
@@ -296,6 +304,12 @@ class LiveMatchEngine extends ChangeNotifier {
         return null;
       case _Resolver.oddsRise:
         if (m >= meta[0]) return _win.home > meta[1] ? 'yes' : 'no';
+        return null;
+      case _Resolver.winSwing:
+        if (m >= meta[0]) {
+          final cur = (meta.length > 2 && meta[2] == 1) ? _win.away : _win.home;
+          return cur > meta[1] ? 'up' : 'down';
+        }
         return null;
     }
   }
@@ -537,7 +551,7 @@ class _GoalRec {
   _GoalRec(this.name, this.minute, this.side, this.teamCode);
 }
 
-enum _Resolver { firstEvent, nextCorner, nextGoal, oddsRise }
+enum _Resolver { firstEvent, nextCorner, nextGoal, oddsRise, winSwing }
 
 SwingOption _opt(String key, String label, [String? hint]) => SwingOption(key: key, label: label, hint: hint);
 
@@ -548,5 +562,6 @@ class _PromptDef {
   final _Resolver resolver;
   final int targetMinute;
   final int baseline;
-  _PromptDef(this.q, this.options, this.pts, this.lock, this.resolver, [this.targetMinute = 90, this.baseline = 0]);
+  final int side; // 0=home, 1=away (winSwing: whose win-chance the call is about)
+  _PromptDef(this.q, this.options, this.pts, this.lock, this.resolver, [this.targetMinute = 90, this.baseline = 0, this.side = 0]);
 }
