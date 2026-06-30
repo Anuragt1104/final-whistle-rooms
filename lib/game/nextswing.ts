@@ -25,7 +25,9 @@ export type SwingResolver =
   /** Is the given half level when it ends? */
   | { kind: "half-level"; endMinute: number }
   /** Does the home win-chance move up/down by `delta` before `minute`? */
-  | { kind: "odds-move"; baseline: number; minute: number };
+  | { kind: "odds-move"; baseline: number; minute: number }
+  /** HIGHER or LOWER: is the side's win-chance above `baseline` by `minute`? */
+  | { kind: "win-swing"; side: "home" | "away"; baseline: number; minute: number };
 
 export type SwingStatus = "open" | "locked" | "settled";
 
@@ -113,21 +115,6 @@ export function generatePrompt(
     createdAt: Date.now(),
   }));
 
-  // odds-movement prompt (the "market translator" as a game)
-  menu.push(() => ({
-    id: pid(),
-    question: `Does ${home}'s win chance rise in the next 6'?`,
-    options: [
-      { key: "yes", label: "Rises 📈" },
-      { key: "no", label: "Holds / drops 📉" },
-    ],
-    resolver: { kind: "odds-move", baseline: win.home, minute: Math.min(minute + 6, 90) },
-    basePoints: 110,
-    locksAtMinute: Math.min(minute + 2, 90),
-    status: "open",
-    createdAt: Date.now(),
-  }));
-
   // first-half level prompt, only when relevant
   if (minute < 40) {
     menu.push(() => ({
@@ -145,6 +132,26 @@ export function generatePrompt(
     }));
   }
 
+  // ⭐ The signature HIGHER OR LOWER call — predict the win-chance swing. This
+  // is the headline game (the one stat that genuinely moves both ways), so it
+  // plays most often; the event prompts above are variety.
+  const leader = win.home >= win.away ? home : away;
+  const leaderPct = Math.max(win.home, win.away);
+  const winSwing = (): SwingPrompt => ({
+    id: pid(),
+    question: `${leader} ${leaderPct}% to win — higher or lower in 5'?`,
+    options: [
+      { key: "up", label: "Higher", hint: "📈" },
+      { key: "down", label: "Lower", hint: "📉" },
+    ],
+    resolver: { kind: "win-swing", side: win.home >= win.away ? "home" : "away", baseline: leaderPct, minute: Math.min(minute + 5, 90) },
+    basePoints: 100 + Math.round(Math.abs(50 - leaderPct)), // tighter calls pay a touch more
+    locksAtMinute: Math.min(minute + 2, 90),
+    status: "open",
+    createdAt: Date.now(),
+  });
+
+  if (rand() < 0.55) return winSwing();
   const pick = menu[Math.floor(rand() * menu.length)];
   return pick();
 }
@@ -188,6 +195,13 @@ export function tryResolve(
     case "odds-move": {
       if (score.minute >= r.minute) {
         return win.home > r.baseline ? "yes" : "no";
+      }
+      return null;
+    }
+    case "win-swing": {
+      if (score.minute >= r.minute) {
+        const cur = r.side === "home" ? win.home : win.away;
+        return cur > r.baseline ? "up" : "down";
       }
       return null;
     }
@@ -235,6 +249,10 @@ export function forceResolve(prompt: SwingPrompt, score: ScoreSnapshot, win: Win
       return score.goals.home === score.goals.away ? "yes" : "no";
     case "odds-move":
       return win.home > r.baseline ? "yes" : "no";
+    case "win-swing": {
+      const cur = r.side === "home" ? win.home : win.away;
+      return cur > r.baseline ? "up" : "down";
+    }
   }
 }
 

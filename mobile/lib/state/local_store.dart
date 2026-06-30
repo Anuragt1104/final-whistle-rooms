@@ -59,4 +59,21 @@ class LocalStore {
     final p = await SharedPreferences.getInstance();
     await p.setString('picks_$roomId', jsonEncode(picks));
   }
+
+  // ---- Higher-or-Lower: lifetime best streak across all rooms/matches ----
+  static Future<int> streakBest() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getInt('streak_best') ?? 0;
+  }
+
+  /// Raise the lifetime best streak; returns the (possibly unchanged) best.
+  static Future<int> bumpStreakBest(int streak) async {
+    final p = await SharedPreferences.getInstance();
+    final best = p.getInt('streak_best') ?? 0;
+    if (streak > best) {
+      await p.setInt('streak_best', streak);
+      return streak;
+    }
+    return best;
+  }
 }

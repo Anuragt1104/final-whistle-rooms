@@ -72,12 +72,28 @@ class _RoomScreenState extends State<RoomScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _c.startMatch());
     }
     IdentityStore.getOrCreate().then((i) => _identity = i);
+    LocalStore.streakBest().then((b) => mounted ? setState(() => _lifetimeBest = b) : null);
     ApiClient.instance.config().then((c) => mounted ? setState(() => _aiOn = c.recapAI) : null).catchError((_) {});
+  }
+
+  Future<void> _shareScore(RoomView room) async {
+    final me = _c.me;
+    final best = ((me?.bestStreak ?? 0) > _lifetimeBest) ? (me?.bestStreak ?? 0) : _lifetimeBest;
+    final text =
+        '🔥 Higher or Lower on Final Whistle Rooms — best streak $best, ${me?.points ?? 0} pts '
+        'on ${room.fixture.home.name} v ${room.fixture.away.name}. Think you can read the swings better? ⚽';
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Score copied — paste it anywhere to share 🔥')),
+      );
+    }
   }
 
   int _lastGoals = 0;
   int _lastReds = 0;
   int _lastPoints = -1;
+  int _lifetimeBest = 0; // best Higher-or-Lower streak across all matches
   void _onChange() {
     if (!mounted) return;
     final room = _c.room;
@@ -88,6 +104,12 @@ class _RoomScreenState extends State<RoomScreen> {
       HapticFeedback.heavyImpact();
     }
     _lastPoints = myPoints;
+    // keep a lifetime-best streak across rooms (replayable across 104 games)
+    final st = _c.me?.streak ?? 0;
+    if (st > _lifetimeBest) {
+      _lifetimeBest = st;
+      LocalStore.bumpStreakBest(st);
+    }
     final goalCards = room?.pulse.where((p) => p.kind == 'goal').toList() ?? const [];
     final redCards = room?.pulse.where((p) => p.kind == 'red').toList() ?? const [];
     if (goalCards.length > _lastGoals) {
@@ -231,7 +253,17 @@ class _RoomScreenState extends State<RoomScreen> {
                   MatchStatsPanel(score: room.score!, home: room.fixture.home, away: room.fixture.away),
                   const SizedBox(height: 12),
                 ],
-                if (showSwing) ...[NextSwingCard(prompts: room.prompts, myPicks: _c.myPicks, onPick: _c.predict), const SizedBox(height: 12)],
+                if (showSwing) ...[
+                  NextSwingCard(
+                    prompts: room.prompts,
+                    myPicks: _c.myPicks,
+                    onPick: _c.predict,
+                    streak: _c.me?.streak ?? 0,
+                    bestStreak: ((_c.me?.bestStreak ?? 0) > _lifetimeBest) ? (_c.me?.bestStreak ?? 0) : _lifetimeBest,
+                    onShare: () => _shareScore(room),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 if (latestRecap != null) ...[RecapCard(recap: latestRecap, aiOn: _aiOn), const SizedBox(height: 12)],
                 PulseFeed(pulse: room.pulse),
                 const SizedBox(height: 16),

@@ -7,7 +7,18 @@ class NextSwingCard extends StatelessWidget {
   final List<PromptView> prompts;
   final Map<String, String> myPicks;
   final void Function(String promptId, String optionKey) onPick;
-  const NextSwingCard({super.key, required this.prompts, required this.myPicks, required this.onPick});
+  final int streak;
+  final int bestStreak;
+  final VoidCallback? onShare;
+  const NextSwingCard({
+    super.key,
+    required this.prompts,
+    required this.myPicks,
+    required this.onPick,
+    this.streak = 0,
+    this.bestStreak = 0,
+    this.onShare,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -32,9 +43,22 @@ class NextSwingCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           color: AppColors.cardAlt,
           child: Row(children: [
-            Text('⚡ NEXT SWING', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)),
+            Text('⚡ HIGHER OR LOWER', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)),
             const Spacer(),
-            Text('SKILL · POINTS ONLY', style: label(color: AppColors.mut, size: 9)),
+            // live streak — build it, share it
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: streak > 0 ? AppColors.orange : AppColors.line.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text('🔥 $streak${bestStreak > 0 ? "  ·  best $bestStreak" : ""}',
+                  style: label(color: streak > 0 ? Colors.white : AppColors.mut, size: 9.5, weight: FontWeight.w800)),
+            ),
+            if (onShare != null) ...[
+              const SizedBox(width: 8),
+              GestureDetector(onTap: onShare, child: const Icon(Icons.ios_share_rounded, size: 16, color: AppColors.mut)),
+            ],
           ]),
         ),
         if (active != null)
