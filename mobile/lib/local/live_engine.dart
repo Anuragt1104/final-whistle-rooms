@@ -45,6 +45,8 @@ class LiveMatchEngine extends ChangeNotifier {
   bool _htRecap = false;
 
   int gH = 0, gA = 0, yH = 0, yA = 0, rH = 0, rA = 0, cH = 0, cA = 0;
+  // first-half tallies (second half = total - firstHalf) for the by-half view
+  int gH1 = 0, gA1 = 0, yH1 = 0, yA1 = 0, rH1 = 0, rA1 = 0, cH1 = 0, cA1 = 0;
   int _momentum = 0;
   double _oddsDrift = 0; // mean-reverting market jitter so win-chance breathes tick-to-tick
   // Real Merkle commitment: every reacted-to event is hashed into a leaf using
@@ -157,6 +159,11 @@ class LiveMatchEngine extends ChangeNotifier {
 
     _maybeEvents(m);
     _recomputeWin(m);
+    if (m > _winSampleMinute) {
+      _winHistory.add(_win.home);
+      _winSampleMinute = m;
+      if (_winHistory.length > 130) _winHistory.removeAt(0);
+    }
     if (nextSwingMode) {
       _maybePrompt(m);
       _resolvePrompts(m);
@@ -196,6 +203,7 @@ class LiveMatchEngine extends ChangeNotifier {
       gA++;
       _momentum = (_momentum - 38).clamp(-100, 100);
     }
+    if (_phase == 1) side == 'home' ? gH1++ : gA1++;
     _leafEvent('goal', side, m);
     final team = side == 'home' ? fixture.home : fixture.away;
     final sideCount = side == 'home' ? gH : gA;
@@ -214,6 +222,7 @@ class LiveMatchEngine extends ChangeNotifier {
     } else {
       cA++;
     }
+    if (_phase == 1) side == 'home' ? cH1++ : cA1++;
     _leafEvent('corner', side, m);
     for (final mem in _members) {
       if (mem.side == side) mem.points += 4;
@@ -230,6 +239,7 @@ class LiveMatchEngine extends ChangeNotifier {
     } else {
       yA++;
     }
+    if (_phase == 1) side == 'home' ? yH1++ : yA1++;
     _leafEvent('yellow', side, m);
     _momentum = (_momentum + (side == 'home' ? -5 : 5)).clamp(-100, 100);
     if (_rng.nextDouble() < 0.5) {
@@ -238,6 +248,8 @@ class LiveMatchEngine extends ChangeNotifier {
   }
 
   WinChance _win = WinChance(45, 28, 27);
+  final List<int> _winHistory = []; // home win-chance per match-minute
+  int _winSampleMinute = -1;
   void _recomputeWin(int m) {
     final rh = fixture.home.rating, ra = fixture.away.rating;
     final lead = gH - gA;
@@ -523,7 +535,20 @@ class LiveMatchEngine extends ChangeNotifier {
     final phaseInt = _phase == 1 ? 1 : (_phase == 2 ? 2 : (_phase == 3 ? 3 : (_phase == 4 ? 4 : 0)));
     final score = status == 'lobby'
         ? null
-        : ScoreView(minute: _minuteF.floor(), clockSeconds: (_minuteF * 60).floor(), running: phaseInt == 1 || phaseInt == 3, phase: phaseInt, goals: StatPair(gH, gA), yellow: StatPair(yH, yA), red: StatPair(rH, rA), corners: StatPair(cH, cA));
+        : ScoreView(
+            minute: _minuteF.floor(),
+            clockSeconds: (_minuteF * 60).floor(),
+            running: phaseInt == 1 || phaseInt == 3,
+            phase: phaseInt,
+            goals: StatPair(gH, gA),
+            yellow: StatPair(yH, yA),
+            red: StatPair(rH, rA),
+            corners: StatPair(cH, cA),
+            periods: MatchPeriods(
+              firstHalf: PeriodStat(goals: StatPair(gH1, gA1), yellow: StatPair(yH1, yA1), red: StatPair(rH1, rA1), corners: StatPair(cH1, cA1)),
+              secondHalf: PeriodStat(goals: StatPair(gH - gH1, gA - gA1), yellow: StatPair(yH - yH1, yA - yA1), red: StatPair(rH - rH1, rA - rA1), corners: StatPair(cH - cH1, cA - cA1)),
+            ),
+          );
     final promptList = _prompts.values.toList()..sort((a, b) => b.createdAt - a.createdAt);
     return RoomView(
       id: 'local',
@@ -535,6 +560,7 @@ class LiveMatchEngine extends ChangeNotifier {
       modes: RoomModes(draftMode, nextSwingMode),
       momentum: _momentum,
       win: _win,
+      winHistory: List<int>.from(_winHistory),
       score: score,
       members: mv,
       chat: [..._chat],

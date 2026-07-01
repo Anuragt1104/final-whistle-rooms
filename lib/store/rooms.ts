@@ -92,6 +92,8 @@ interface RoomRuntime {
   score: ScoreSnapshot | null;
   odds: OddsSnapshot | null;
   win: WinChance;
+  winHistory: number[];
+  winSampleMinute: number;
   momentum: number;
   recaps: RecapView[];
   keyEvents: MatchEvent[];
@@ -183,6 +185,8 @@ export async function createRoom(input: {
     score: null,
     odds: null,
     win: { home: 33, draw: 34, away: 33 },
+    winHistory: [],
+    winSampleMinute: -1,
     momentum: 0,
     recaps: [],
     keyEvents: [],
@@ -420,6 +424,12 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
   // 1) interpretation -> pulse cards + win + momentum
   const { cards, win } = rt.interpreter.ingest(newEvents, score, odds);
   rt.win = win;
+  // sample the win-chance once per match-minute for the live timeline
+  if (score.minute > rt.winSampleMinute) {
+    rt.winHistory.push(win.home);
+    rt.winSampleMinute = score.minute;
+    if (rt.winHistory.length > 130) rt.winHistory.shift();
+  }
   rt.momentum = rt.interpreter.momentum;
   if (cards.length) {
     rt.pulse.push(...cards);
@@ -635,6 +645,7 @@ export function buildView(rt: RoomRuntime): RoomView {
         yellow: rt.score.yellow,
         red: rt.score.red,
         corners: rt.score.corners,
+        periods: rt.score.periods,
       }
     : null;
 
@@ -650,6 +661,7 @@ export function buildView(rt: RoomRuntime): RoomView {
     status: rt.status,
     momentum: rt.momentum,
     win: rt.win,
+    winHistory: [...rt.winHistory],
     score,
     markets: rt.odds?.markets ?? [],
     members,

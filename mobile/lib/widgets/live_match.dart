@@ -74,13 +74,39 @@ class _LiveClockState extends State<LiveClock> {
 
 /// Live stats comparison — every stat TxLINE provides (goals, corners, yellow,
 /// red) shown per team with rolling counts and a proportional team-coloured bar.
-class MatchStatsPanel extends StatelessWidget {
+class MatchStatsPanel extends StatefulWidget {
   final ScoreView score;
   final Team home, away;
   const MatchStatsPanel({super.key, required this.score, required this.home, required this.away});
 
   @override
+  State<MatchStatsPanel> createState() => _MatchStatsPanelState();
+}
+
+class _MatchStatsPanelState extends State<MatchStatsPanel> {
+  int _period = 0; // 0 = full match, 1 = 1st half, 2 = 2nd half
+
+  Team get home => widget.home;
+  Team get away => widget.away;
+
+  @override
   Widget build(BuildContext context) {
+    final score = widget.score;
+    final periods = score.periods;
+    // pick the stat lines for the selected period
+    late final StatPair goals, corners, yellow, red;
+    if (_period == 0 || periods == null) {
+      goals = score.goals;
+      corners = score.corners;
+      yellow = score.yellow;
+      red = score.red;
+    } else {
+      final p = _period == 1 ? periods.firstHalf : periods.secondHalf;
+      goals = p.goals;
+      corners = p.corners;
+      yellow = p.yellow;
+      red = p.red;
+    }
     return Container(
       decoration: cardBox(),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -88,17 +114,49 @@ class MatchStatsPanel extends StatelessWidget {
         Row(children: [
           Text('MATCH STATS', style: label(color: AppColors.ink, size: 12, weight: FontWeight.w800)),
           const Spacer(),
-          // tiny team key
           _key(home.code, teamColor(home.code)),
           const SizedBox(width: 10),
           _key(away.code, teamColor(away.code)),
         ]),
+        if (periods != null) ...[
+          const SizedBox(height: 12),
+          _periodToggle(),
+        ],
         const SizedBox(height: 16),
-        _row(const Icon(Icons.sports_soccer, size: 15, color: AppColors.ink), 'Goals', score.goals.home, score.goals.away, big: true),
-        _row(const Icon(Icons.flag_rounded, size: 15, color: AppColors.ink), 'Corners', score.corners.home, score.corners.away),
-        _row(_card(const Color(0xFFF5C518)), 'Yellow cards', score.yellow.home, score.yellow.away),
-        if (score.red.home + score.red.away > 0) _row(_card(const Color(0xFFD8392B)), 'Red cards', score.red.home, score.red.away),
+        _row(const Icon(Icons.sports_soccer, size: 15, color: AppColors.ink), 'Goals', goals.home, goals.away, big: true),
+        _row(const Icon(Icons.flag_rounded, size: 15, color: AppColors.ink), 'Corners', corners.home, corners.away),
+        _row(_card(const Color(0xFFF5C518)), 'Yellow cards', yellow.home, yellow.away),
+        if (red.home + red.away > 0) _row(_card(const Color(0xFFD8392B)), 'Red cards', red.home, red.away),
       ]),
+    );
+  }
+
+  Widget _periodToggle() {
+    const labels = ['Match', '1st half', '2nd half'];
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.cardAlt,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Row(
+        children: List.generate(3, (i) {
+          final sel = _period == i;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _period = i),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(color: sel ? AppColors.ink : Colors.transparent, borderRadius: BorderRadius.circular(8)),
+                alignment: Alignment.center,
+                child: Text(labels[i], style: label(color: sel ? Colors.white : AppColors.mut, size: 10.5, weight: FontWeight.w800)),
+              ),
+            ),
+          );
+        }),
+      ),
     );
   }
 

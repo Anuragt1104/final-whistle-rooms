@@ -56,6 +56,11 @@ export interface ScoreView {
   yellow: { home: number; away: number };
   red: { home: number; away: number };
   corners: { home: number; away: number };
+  /** Per-half breakdowns (from the feed's period-offset stat keys). */
+  periods?: {
+    firstHalf: { goals: { home: number; away: number }; yellow: { home: number; away: number }; red: { home: number; away: number }; corners: { home: number; away: number } };
+    secondHalf: { goals: { home: number; away: number }; yellow: { home: number; away: number }; red: { home: number; away: number }; corners: { home: number; away: number } };
+  };
 }
 
 export interface RecapView {
@@ -77,6 +82,8 @@ export interface RoomView {
   status: RoomStatus;
   momentum: number;
   win: WinChance;
+  /** Home win-chance sampled once per match-minute — the live momentum story. */
+  winHistory: number[];
   score: ScoreView | null;
   markets: OddsMarket[];
   members: MemberView[];

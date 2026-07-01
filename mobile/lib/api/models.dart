@@ -86,12 +86,34 @@ class StatPair {
       j == null ? StatPair(0, 0) : StatPair((j['home'] ?? 0) as int, (j['away'] ?? 0) as int);
 }
 
+/// One period's stat lines (a half or extra-time period).
+class PeriodStat {
+  final StatPair goals, yellow, red, corners;
+  PeriodStat({required this.goals, required this.yellow, required this.red, required this.corners});
+  factory PeriodStat.fromJson(Map<String, dynamic> j) => PeriodStat(
+        goals: StatPair.fromJson(j['goals']),
+        yellow: StatPair.fromJson(j['yellow']),
+        red: StatPair.fromJson(j['red']),
+        corners: StatPair.fromJson(j['corners']),
+      );
+}
+
+class MatchPeriods {
+  final PeriodStat firstHalf, secondHalf;
+  MatchPeriods({required this.firstHalf, required this.secondHalf});
+  factory MatchPeriods.fromJson(Map<String, dynamic> j) => MatchPeriods(
+        firstHalf: PeriodStat.fromJson(j['firstHalf']),
+        secondHalf: PeriodStat.fromJson(j['secondHalf']),
+      );
+}
+
 class ScoreView {
   final int minute, phase;
   final int clockSeconds;
   final bool running;
   final String? statusNote;
   final StatPair goals, yellow, red, corners;
+  final MatchPeriods? periods;
   ScoreView({
     required this.minute,
     required this.clockSeconds,
@@ -102,6 +124,7 @@ class ScoreView {
     required this.yellow,
     required this.red,
     required this.corners,
+    this.periods,
   });
   factory ScoreView.fromJson(Map<String, dynamic> j) => ScoreView(
         minute: (j['minute'] ?? 0) as int,
@@ -113,6 +136,7 @@ class ScoreView {
         yellow: StatPair.fromJson(j['yellow']),
         red: StatPair.fromJson(j['red']),
         corners: StatPair.fromJson(j['corners']),
+        periods: j['periods'] == null ? null : MatchPeriods.fromJson(j['periods']),
       );
 }
 
@@ -319,6 +343,7 @@ class RoomView {
   final RoomModes modes;
   final int momentum;
   final WinChance win;
+  final List<int> winHistory;
   final ScoreView? score;
   final List<MemberView> members;
   final List<ChatView> chat;
@@ -341,6 +366,7 @@ class RoomView {
     required this.modes,
     required this.momentum,
     required this.win,
+    this.winHistory = const [],
     required this.score,
     required this.members,
     required this.chat,
@@ -364,6 +390,7 @@ class RoomView {
         modes: RoomModes.fromJson(j['modes']),
         momentum: (j['momentum'] ?? 0) as int,
         win: WinChance.fromJson(j['win']),
+        winHistory: ((j['winHistory'] ?? []) as List).map((e) => (e as num).toInt()).toList(),
         score: j['score'] == null ? null : ScoreView.fromJson(j['score']),
         members: ((j['members'] ?? []) as List).map((m) => MemberView.fromJson(m)).toList(),
         chat: ((j['chat'] ?? []) as List).map((c) => ChatView.fromJson(c)).toList(),
@@ -399,10 +426,18 @@ String phaseLabel(int phase) {
       return '2nd half';
     case 4:
       return 'Full-time';
+    case 5:
+      return 'Extra time';
+    case 6:
+      return 'ET break';
+    case 7:
+      return 'Extra time';
     case 8:
       return 'Penalties';
     case 9:
       return 'Finished';
+    case 10:
+      return 'Abandoned';
     default:
       return '—';
   }

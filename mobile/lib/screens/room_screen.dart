@@ -255,6 +255,10 @@ class _RoomScreenState extends State<RoomScreen> {
                 if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
                 if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
                 if (room.score != null && !_hidden(room)) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
+                if (room.score != null && !_hidden(room) && room.winHistory.length >= 3) ...[
+                  WinTimeline(history: room.winHistory, home: room.fixture.home, away: room.fixture.away),
+                  const SizedBox(height: 12),
+                ],
                 if (room.score != null && room.status != 'lobby' && !_hidden(room)) ...[
                   MatchStatsPanel(score: room.score!, home: room.fixture.home, away: room.fixture.away),
                   const SizedBox(height: 12),
