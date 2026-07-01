@@ -2,6 +2,9 @@
 
 **A verified, private live watch-room for World Cup fans — powered by TxLINE on Solana.**
 
+> **Live backend:** https://final-whistle-production.up.railway.app · health: [`/api/config`](https://final-whistle-production.up.railway.app/api/config)
+> The Android APK ships pointing at this URL (works on any network). Serves real mainnet TxLINE World Cup data in live mode.
+
 > Most fans watch the World Cup with a phone in their hand, scattered across a
 > scores app, a group chat, a predictor, and a pundit feed. Final Whistle Rooms
 > compresses all of that into **one room your group watches together** — that

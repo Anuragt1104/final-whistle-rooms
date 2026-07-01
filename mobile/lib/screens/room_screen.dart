@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
@@ -82,11 +83,16 @@ class _RoomScreenState extends State<RoomScreen> {
     final text =
         '🔥 Higher or Lower on Final Whistle Rooms — best streak $best, ${me?.points ?? 0} pts '
         'on ${room.fixture.home.name} v ${room.fixture.away.name}. Think you can read the swings better? ⚽';
-    await Clipboard.setData(ClipboardData(text: text));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Score copied — paste it anywhere to share 🔥')),
-      );
+    try {
+      await Share.share(text, subject: 'My Final Whistle Rooms streak');
+    } catch (_) {
+      // fall back to clipboard if the platform share sheet is unavailable
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Score copied — paste it anywhere to share 🔥')),
+        );
+      }
     }
   }
 
@@ -330,7 +336,7 @@ class _RoomScreenState extends State<RoomScreen> {
             ]),
           ),
           const Spacer(),
-          AppChip(room.proof.anchored ? '🛡 ⛓ on-chain' : '🛡 Verified · ${room.proof.leafCount}', color: AppColors.ink, onTap: () => showProofSheet(context, widget.roomId, _c.isHost)),
+          AppChip(room.proof.anchored ? '🛡 ⛓ on-chain' : '🛡 Verified · ${room.proof.leafCount}', color: AppColors.ink, onTap: () => showProofSheet(context, widget.roomId, _c.isHost, localProof: _c.localProof())),
           if (_c.isHost && room.status == 'lobby') ...[
             const SizedBox(width: 8),
             PrimaryButton('Start', icon: Icons.play_arrow_rounded, onTap: _c.startMatch),

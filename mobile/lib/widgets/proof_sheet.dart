@@ -3,20 +3,21 @@ import '../api/api_client.dart';
 import '../theme.dart';
 import 'common.dart';
 
-Future<void> showProofSheet(BuildContext context, String roomId, bool isHost) {
+Future<void> showProofSheet(BuildContext context, String roomId, bool isHost, {Map<String, dynamic>? localProof}) {
   return showModalBottomSheet(
     context: context,
     backgroundColor: AppColors.card,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-    builder: (_) => _ProofSheet(roomId: roomId, isHost: isHost),
+    builder: (_) => _ProofSheet(roomId: roomId, isHost: isHost, localProof: localProof),
   );
 }
 
 class _ProofSheet extends StatefulWidget {
   final String roomId;
   final bool isHost;
-  const _ProofSheet({required this.roomId, required this.isHost});
+  final Map<String, dynamic>? localProof; // non-null = solo room, proven on-device
+  const _ProofSheet({required this.roomId, required this.isHost, this.localProof});
   @override
   State<_ProofSheet> createState() => _ProofSheetState();
 }
@@ -25,11 +26,18 @@ class _ProofSheetState extends State<_ProofSheet> {
   Map<String, dynamic>? proof;
   String? error;
   bool anchoring = false;
+  bool get _isLocal => proof?['local'] == true;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    // Solo rooms compute their proof on-device — no backend call (which would
+    // 404, since the room only exists locally).
+    if (widget.localProof != null) {
+      proof = widget.localProof;
+    } else {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -62,10 +70,12 @@ class _ProofSheetState extends State<_ProofSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
           const SizedBox(height: 14),
-          Text('VERIFIED BY TXLINE', style: display(18)),
+          Text(_isLocal ? 'VERIFIED ON-DEVICE' : 'VERIFIED BY TXLINE', style: display(18)),
           const SizedBox(height: 8),
           Text(
-            'This match\'s live data is attested by the TxLINE oracle — every stat is committed to TxLINE\'s on-chain Merkle tree, fetched live from /api/scores/stat-validation. Not our number: TxLINE\'s.',
+            _isLocal
+                ? 'Every event this room reacts to is committed to a real SHA-256 Merkle tree on your device — the exact same tamper-evident scheme used to verify TxLINE\'s live oracle data in hosted rooms. Tap-verify the latest event below.'
+                : 'This match\'s live data is attested by the TxLINE oracle — every stat is committed to TxLINE\'s on-chain Merkle tree, fetched live from /api/scores/stat-validation. Not our number: TxLINE\'s.',
             style: body(color: AppColors.mut, size: 13),
           ),
           const SizedBox(height: 14),
@@ -107,7 +117,14 @@ class _ProofSheetState extends State<_ProofSheet> {
   Widget _txlineBlock() {
     final tx = proof?['txline'] as Map<String, dynamic>?;
     if (tx == null) {
-      return _box(child: Text('TxLINE oracle attestation appears once the live feed is streaming this match.', style: body(color: AppColors.mut, size: 12)));
+      return _box(
+        child: Text(
+          _isLocal
+              ? 'This is a live demo match. Hosted rooms on a real fixture additionally carry TxLINE\'s own on-chain oracle root, fetched live from the feed — the same commitment, straight from the source.'
+              : 'TxLINE oracle attestation appears once the live feed is streaming this match.',
+          style: body(color: AppColors.mut, size: 12),
+        ),
+      );
     }
     final root = (tx['root'] ?? '') as String;
     final shortRoot = root.length > 28 ? '${root.substring(0, 18)}…${root.substring(root.length - 8)}' : root;
@@ -163,8 +180,12 @@ class _ProofSheetState extends State<_ProofSheet> {
               ? GhostButton(anchoring ? 'Anchoring…' : 'Anchor this root on Solana', expand: true, onTap: anchoring ? null : _anchor)
               : Text('Host can anchor this root.', style: body(color: AppColors.mut, size: 11.5))
         else
-          Text('Proof verifies locally. Set SOLANA_ANCHOR_SECRET_KEY to also timestamp the root on-chain.',
-              style: body(color: AppColors.mut, size: 11.5)),
+          Text(
+            _isLocal
+                ? 'Proof verifies on your device. Host a live room to also timestamp the root on-chain.'
+                : 'Proof verifies locally. Set SOLANA_ANCHOR_SECRET_KEY to also timestamp the root on-chain.',
+            style: body(color: AppColors.mut, size: 11.5),
+          ),
       ]),
     );
   }

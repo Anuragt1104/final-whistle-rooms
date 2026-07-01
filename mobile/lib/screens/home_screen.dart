@@ -433,21 +433,98 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---- INBOX ----
   Widget _inboxTab() {
-    return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
-      Text('INBOX', style: display(26)),
-      const SizedBox(height: 16),
-      Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.all(20),
-        child: Column(children: [
-          const Icon(Icons.notifications_none_rounded, color: AppColors.mut, size: 34),
-          const SizedBox(height: 10),
-          Text('You\'re all caught up', style: display(18)),
-          const SizedBox(height: 6),
-          Text('Room invites, kick-off reminders and final-whistle recaps will land here.', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 13)),
-        ]),
+    final live = _fixtures.where((f) => f.status == 'live').toList();
+    final up = _fixtures.where((f) => f.status == 'scheduled').toList()
+      ..sort((a, b) => a.kickoff.compareTo(b.kickoff));
+    final fin = _fixtures.where((f) => f.status == 'finished').toList();
+    final hasAny = live.isNotEmpty || up.isNotEmpty || fin.isNotEmpty;
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.orange,
+      child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+        Text('INBOX', style: display(26)),
+        const SizedBox(height: 4),
+        Text('Kick-off reminders, live alerts and final whistles.', style: body(color: AppColors.mut, size: 13)),
+        const SizedBox(height: 16),
+        if (!hasAny)
+          Container(
+            decoration: cardBox(),
+            padding: const EdgeInsets.all(20),
+            child: Column(children: [
+              const Icon(Icons.notifications_none_rounded, color: AppColors.mut, size: 34),
+              const SizedBox(height: 10),
+              Text('You\'re all caught up', style: display(18)),
+              const SizedBox(height: 6),
+              Text('Room invites, kick-off reminders and final-whistle recaps will land here.',
+                  textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 13)),
+            ]),
+          )
+        else ...[
+          if (live.isNotEmpty) ...[
+            const SectionLabel('Live now'),
+            ...live.map((f) => _inboxRow(
+                  Icons.podcasts_rounded,
+                  AppColors.orange,
+                  '${f.home.code} v ${f.away.code} is live',
+                  f.score != null ? "${f.score!.home}–${f.score!.away} · ${f.score!.minute}' — tap to watch" : 'Tap to watch now',
+                  () => _watchLive(f),
+                )),
+            const SizedBox(height: 12),
+          ],
+          if (up.isNotEmpty) ...[
+            const SectionLabel('Kicking off soon'),
+            ...up.take(5).map((f) => _inboxRow(
+                  Icons.alarm_rounded,
+                  AppColors.ink,
+                  '${f.home.code} v ${f.away.code}',
+                  'Kicks off ${relativeKickoff(f.kickoff)} · ${kickoffClock(f.kickoff)}',
+                  () => _watchLive(f),
+                )),
+            const SizedBox(height: 12),
+          ],
+          if (fin.isNotEmpty) ...[
+            const SectionLabel('Final whistle'),
+            ...fin.take(5).map((f) => _inboxRow(
+                  Icons.sports_score_rounded,
+                  AppColors.mut,
+                  'Full time — ${f.home.code} ${f.score?.home ?? 0}–${f.score?.away ?? 0} ${f.away.code}',
+                  'Tap to open the room recap',
+                  () => _watchLive(f),
+                )),
+          ],
+        ],
+      ]),
+    );
+  }
+
+  Widget _inboxRow(IconData icon, Color color, String title, String subtitle, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Pressable(
+        onTap: onTap,
+        child: Container(
+          decoration: cardBox(),
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w800, size: 14)),
+                const SizedBox(height: 2),
+                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
+              ]),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.mut, size: 20),
+          ]),
+        ),
       ),
-    ]);
+    );
   }
 
   // ---- YOU ----

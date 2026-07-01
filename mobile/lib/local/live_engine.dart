@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
+import '../util/merkle.dart';
 import 'players.dart';
 
 /// A fully on-device live match — produces the same RoomView the UI renders,
@@ -46,7 +47,26 @@ class LiveMatchEngine extends ChangeNotifier {
   int gH = 0, gA = 0, yH = 0, yA = 0, rH = 0, rA = 0, cH = 0, cA = 0;
   int _momentum = 0;
   double _oddsDrift = 0; // mean-reverting market jitter so win-chance breathes tick-to-tick
-  int proofLeaves = 0;
+  // Real Merkle commitment: every reacted-to event is hashed into a leaf using
+  // the SAME scheme as the backend (lib/util/merkle.ts), so the "Verified" chip
+  // in a solo room shows a genuine, on-device-verifiable SHA-256 root — not a
+  // placeholder. Leaf format mirrors the server exactly.
+  final List<String> _leaves = [];
+  int _seq = 0;
+  String? _cachedRoot;
+  int _cachedLeafCount = -1;
+  int get proofLeaves => _leaves.length;
+  void _leafEvent(String kind, String side, int m) => _leaves.add('${_seq++}:$m:$kind:$side:$gH-$gA');
+  void _leafPhase(String kind, int m) => _leaves.add('${_seq++}:$m:$kind');
+  String? get _liveRoot {
+    if (_leaves.isEmpty) return null;
+    if (_cachedLeafCount != _leaves.length) {
+      _cachedRoot = buildMerkleTree(_leaves).root;
+      _cachedLeafCount = _leaves.length;
+    }
+    return _cachedRoot;
+  }
+
   int _lastPromptMinute = -99;
 
   final List<PulseCard> _pulse = [];
@@ -71,6 +91,7 @@ class LiveMatchEngine extends ChangeNotifier {
     if (status == 'live') return;
     status = 'live';
     _phase = 1;
+    _leafPhase('kickoff', 0);
     _system('Kick-off! The terrace is live.');
     _addPulse('kickoff', '🟢', "We're live", '${fixture.home.name} vs ${fixture.away.name} is under way.', 'neutral', 0);
     _timer = Timer.periodic(const Duration(milliseconds: 750), (_) => _tick());
@@ -146,6 +167,7 @@ class LiveMatchEngine extends ChangeNotifier {
       _phase = 2;
       _atHalfTime = true;
       _htUntil = _now() + 2200;
+      _leafPhase('half-time', 45);
       _addPulse('half-time', '⏸️', 'Half-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}.', 'neutral', 45);
       if (!_htRecap) {
         _htRecap = true;
@@ -174,7 +196,7 @@ class LiveMatchEngine extends ChangeNotifier {
       gA++;
       _momentum = (_momentum - 38).clamp(-100, 100);
     }
-    proofLeaves++;
+    _leafEvent('goal', side, m);
     final team = side == 'home' ? fixture.home : fixture.away;
     final sideCount = side == 'home' ? gH : gA;
     final name = scorerName(fixture.id, side, sideCount - 1);
@@ -192,7 +214,7 @@ class LiveMatchEngine extends ChangeNotifier {
     } else {
       cA++;
     }
-    proofLeaves++;
+    _leafEvent('corner', side, m);
     for (final mem in _members) {
       if (mem.side == side) mem.points += 4;
     }
@@ -208,7 +230,7 @@ class LiveMatchEngine extends ChangeNotifier {
     } else {
       yA++;
     }
-    proofLeaves++;
+    _leafEvent('yellow', side, m);
     _momentum = (_momentum + (side == 'home' ? -5 : 5)).clamp(-100, 100);
     if (_rng.nextDouble() < 0.5) {
       _addPulse('chaos', '⚡', 'Chaos watch', 'Tempers fraying — the ref reaches for a card.', 'hot', m);
@@ -392,6 +414,7 @@ class LiveMatchEngine extends ChangeNotifier {
   void _finish() {
     status = 'finished';
     _phase = 4;
+    _leafPhase('full-time', 90);
     _timer?.cancel();
     for (final p in _prompts.values.toList()) {
       if (p.status != 'settled') {
@@ -518,7 +541,7 @@ class LiveMatchEngine extends ChangeNotifier {
       pulse: [..._pulse],
       prompts: promptList.take(8).toList(),
       recaps: [..._recaps],
-      proof: ProofInfo(leafCount: proofLeaves, root: proofLeaves > 0 ? _fakeRoot() : null, anchorSignature: null, anchored: false, cluster: 'devnet'),
+      proof: ProofInfo(leafCount: _leaves.length, root: _liveRoot, anchorSignature: null, anchored: false, cluster: 'devnet'),
       spoilerSafe: spoilerSafe,
       voice: voice,
       reactionPack: reactionPack,
@@ -526,9 +549,36 @@ class LiveMatchEngine extends ChangeNotifier {
     );
   }
 
-  String _fakeRoot() {
-    final h = (proofLeaves * 2654435761 + fixture.id.hashCode).toUnsigned(32);
-    return h.toRadixString(16).padLeft(8, '0') * 8;
+  /// The full proof payload for the proof sheet — a REAL SHA-256 Merkle root
+  /// over the events this room reacted to, plus a live inclusion proof of the
+  /// latest event that verifies on-device. Same shape the backend proof route
+  /// returns, so the proof sheet renders identically for solo and hosted rooms.
+  Map<String, dynamic> proofData() {
+    final tree = buildMerkleTree(_leaves);
+    Map<String, dynamic>? sample;
+    if (_leaves.isNotEmpty) {
+      final index = _leaves.length - 1;
+      final pf = tree.proof(index);
+      sample = {
+        'leaf': _leaves[index],
+        'index': index,
+        'proof': pf.map((s) => s.toJson()).toList(),
+        'verified': verifyMerkleProof(_leaves[index], pf, tree.root),
+      };
+    }
+    return {
+      'root': tree.root,
+      'leafCount': _leaves.length,
+      'leaves': _leaves.length > 12 ? _leaves.sublist(_leaves.length - 12) : List<String>.from(_leaves),
+      'sample': sample,
+      'txline': null,
+      'fixtureId': fixture.id,
+      'anchored': false,
+      'anchorSignature': null,
+      'anchorAvailable': false,
+      'cluster': 'devnet',
+      'local': true, // solo/sim room — proof sheet uses on-device-honest copy
+    };
   }
 
   int _now() => DateTime.now().millisecondsSinceEpoch;

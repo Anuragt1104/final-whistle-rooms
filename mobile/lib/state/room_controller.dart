@@ -57,6 +57,10 @@ class RoomController extends ChangeNotifier {
   RoomView? get room => isLocal ? engine!.view : _remoteRoom;
   Map<String, String> get myPicks => isLocal ? engine!.myPicks : _myPicks;
 
+  /// Solo rooms compute their proof on-device (no backend); returns null for
+  /// remote rooms so the proof sheet fetches from the API instead.
+  Map<String, dynamic>? localProof() => isLocal ? engine!.proofData() : null;
+
   MemberView? get me {
     final members = room?.members;
     if (members == null) return null;

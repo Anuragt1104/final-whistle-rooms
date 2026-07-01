@@ -1,5 +1,11 @@
 # Deploy guide — backend, app, mainnet
 
+> **Already live:** the backend is deployed on Railway at
+> **https://final-whistle-production.up.railway.app** (health check:
+> [`/api/config`](https://final-whistle-production.up.railway.app/api/config)),
+> running in live mode against real mainnet TxLINE World Cup data. The shipped
+> APK is baked to point at it. The steps below are for deploying your own.
+
 The app already works **standalone** (local fixtures + on-device live matches),
 so anyone can install the APK and start watching with zero setup. You only need
 to deploy the **backend** to unlock **multiplayer rooms** (friends in the same
