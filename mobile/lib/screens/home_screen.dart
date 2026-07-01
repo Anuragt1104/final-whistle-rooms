@@ -235,7 +235,14 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---- ROOMS (Browse) ----
   Widget _roomsTab() {
     final liveFixtures = _fixtures.where((f) => f.status == 'live').toList();
-    final upcoming = _fixtures.where((f) => f.status == 'scheduled').take(8).toList();
+    final upcomingAll = _fixtures.where((f) => f.status == 'scheduled').toList()
+      ..sort((a, b) => minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff)));
+    // Home only surfaces genuinely-soon matches (next 24h) so "kicking off soon"
+    // is honest; the full schedule lives in Fixtures. If nothing's within 24h,
+    // fall back to the next few as "Next up".
+    final soon = upcomingAll.where((f) => minutesUntilKickoff(f.kickoff) <= 24 * 60).toList();
+    final soonMode = soon.isNotEmpty;
+    final shownUpcoming = soonMode ? soon : upcomingAll.take(3).toList();
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -252,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_loading)
           _skeleton()
         else if (liveFixtures.isEmpty)
-          _noLiveCard(upcoming.isNotEmpty ? upcoming.first : null)
+          _noLiveCard(upcomingAll.isNotEmpty ? upcomingAll.first : null)
         else
           ...liveFixtures.map((f) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _liveMatchCard(f))),
         const SizedBox(height: 4),
@@ -271,13 +278,29 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_joinErr.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 6), child: Text(_joinErr, style: body(color: const Color(0xFFD8392B), size: 12))),
         const SizedBox(height: 22),
-        const SectionLabel('Kicking off soon'),
+        SectionLabel(
+          soonMode ? 'Kicking off soon' : 'Next up',
+          trailing: upcomingAll.length > shownUpcoming.length
+              ? GestureDetector(
+                  onTap: () => setState(() => _nav = 'fixtures'),
+                  child: Text('See all ${upcomingAll.length} →',
+                      style: label(color: AppColors.orange, size: 11, weight: FontWeight.w800)),
+                )
+              : null,
+        ),
         if (_loading)
           ...[0, 1].map((_) => _skeleton())
-        else if (upcoming.isEmpty)
+        else if (upcomingAll.isEmpty)
           Text('No upcoming matches in range.', style: body(color: AppColors.mut, size: 13))
-        else
-          ...upcoming.map(_fixtureRow),
+        else ...[
+          if (!soonMode)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text('Nothing kicks off in the next 24h — here\'s what\'s next.',
+                  style: body(color: AppColors.mut, size: 12)),
+            ),
+          ...shownUpcoming.map(_fixtureRow),
+        ],
         const SizedBox(height: 16),
         Center(child: Text('Powered by TxLINE · sign-in with Solana · points only, no cash staking', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11))),
       ]),
@@ -414,7 +437,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---- FIXTURES ----
   Widget _fixturesTab() {
     final live = _fixtures.where((f) => f.status == 'live').toList();
-    final up = _fixtures.where((f) => f.status == 'scheduled').toList();
+    final up = _fixtures.where((f) => f.status == 'scheduled').toList()
+      ..sort((a, b) => minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff)));
     final fin = _fixtures.where((f) => f.status == 'finished').toList();
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -477,7 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icons.alarm_rounded,
                   AppColors.ink,
                   '${f.home.code} v ${f.away.code}',
-                  'Kicks off ${relativeKickoff(f.kickoff)} · ${kickoffClock(f.kickoff)}',
+                  'Kicks off ${kickoffWhen(f.kickoff)} · ${relativeKickoff(f.kickoff)}',
                   () => _watchLive(f),
                 )),
             const SizedBox(height: 12),
@@ -645,6 +669,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String _fxSubtitle(Fixture f) {
     if (f.status == 'finished') return 'Full time · tap to open the room';
     if (f.status == 'live') return 'LIVE now · tap to watch';
-    return 'Tap to watch live · ${relativeKickoff(f.kickoff)}';
+    return 'Kicks off ${kickoffWhen(f.kickoff)} · ${relativeKickoff(f.kickoff)}';
   }
 }

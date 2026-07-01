@@ -296,6 +296,34 @@ String relativeKickoff(String iso) {
   }
 }
 
+/// Minutes until kickoff (negative once started). Big fallback on parse error
+/// so a bad timestamp never sneaks into a "kicking off soon" window.
+int minutesUntilKickoff(String iso) {
+  try {
+    return DateTime.parse(iso).difference(DateTime.now()).inMinutes;
+  } catch (_) {
+    return 1 << 30;
+  }
+}
+
+/// Human, unambiguous kickoff: "today 21:30", "tomorrow 01:30", "Sat 04:30".
+/// A bare clock is confusing for a match days out — this pins the day.
+String kickoffWhen(String iso) {
+  try {
+    final ko = DateTime.parse(iso).toLocal();
+    final now = DateTime.now();
+    final days = DateTime(ko.year, ko.month, ko.day).difference(DateTime(now.year, now.month, now.day)).inDays;
+    final t = '${ko.hour.toString().padLeft(2, '0')}:${ko.minute.toString().padLeft(2, '0')}';
+    if (days == 0) return 'today $t';
+    if (days == 1) return 'tomorrow $t';
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    if (days < 7) return '${names[(ko.weekday - 1) % 7]} $t';
+    return '${ko.day}/${ko.month} $t';
+  } catch (_) {
+    return kickoffClock(iso);
+  }
+}
+
 String kickoffClock(String iso) {
   try {
     final ko = DateTime.parse(iso).toLocal();
