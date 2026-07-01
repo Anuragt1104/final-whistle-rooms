@@ -49,5 +49,11 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="solana-wallet" />
         </intent>
+        <!-- url_launcher: open the Solana Explorer link in a browser -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 </manifest>

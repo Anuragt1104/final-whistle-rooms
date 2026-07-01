@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProofData, getRoomRuntime, setAnchor } from "@/lib/store/rooms";
 import { buildMerkleTree, verifyMerkleProof } from "@/lib/util/merkle";
-import { anchorConfigured, anchorRoot, explorerTxUrl } from "@/lib/solana/anchor";
+import { anchorConfigured, anchorCluster, anchorRoot, explorerTxUrl } from "@/lib/solana/anchor";
 import { sourceMode } from "@/lib/txline/source";
 import { getMatchProof } from "@/lib/txline/live";
 
@@ -46,8 +46,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     fixtureId: rt.fixture.id,
     anchored: rt.anchored,
     anchorSignature: rt.anchorSignature,
+    explorerUrl: rt.anchorSignature ? explorerTxUrl(rt.anchorSignature) : null,
     anchorAvailable: anchorConfigured(),
-    cluster: process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet",
+    cluster: anchorCluster(),
   });
 }
 

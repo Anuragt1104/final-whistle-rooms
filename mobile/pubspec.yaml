@@ -39,6 +39,7 @@ dependencies:
   cryptography: ^2.9.0
   crypto: ^3.0.6
   share_plus: ^10.1.4
+  url_launcher: ^6.3.1
   solana_mobile_client: ^0.1.2
   flutter_local_notifications: ^22.0.1
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../api/api_client.dart';
 import '../theme.dart';
 import 'common.dart';
@@ -35,6 +36,7 @@ class _ProofSheetState extends State<_ProofSheet> {
     // 404, since the room only exists locally).
     if (widget.localProof != null) {
       proof = widget.localProof;
+      _hydrateAnchorAvailability();
     } else {
       _load();
     }
@@ -49,16 +51,48 @@ class _ProofSheetState extends State<_ProofSheet> {
     }
   }
 
+  // For solo rooms: ask the backend whether on-chain anchoring is available so
+  // we can offer the "Anchor on Solana" action (the root itself is on-device).
+  Future<void> _hydrateAnchorAvailability() async {
+    try {
+      final c = await ApiClient.instance.config();
+      if (mounted && proof != null) {
+        setState(() => proof = {...proof!, 'anchorAvailable': c.anchorConfigured, 'cluster': c.anchorCluster});
+      }
+    } catch (_) {/* offline — stays "verifies on device" */}
+  }
+
   Future<void> _anchor() async {
     setState(() => anchoring = true);
     try {
-      await ApiClient.instance.anchor(widget.roomId);
-      await _load();
+      if (_isLocal) {
+        final res = await ApiClient.instance.anchorRoot(proof!['root'] as String, tag: proof!['fixtureId']?.toString());
+        if (mounted) {
+          setState(() => proof = {
+                ...proof!,
+                'anchored': true,
+                'anchorSignature': res['signature'],
+                'explorerUrl': res['explorerUrl'],
+                'cluster': res['cluster'] ?? proof!['cluster'],
+              });
+        }
+      } else {
+        await ApiClient.instance.anchor(widget.roomId);
+        await _load();
+      }
     } catch (e) {
       setState(() => error = e.toString());
     } finally {
       if (mounted) setState(() => anchoring = false);
     }
+  }
+
+  Future<void> _openExplorer() async {
+    final sig = proof?['anchorSignature'] as String?;
+    if (sig == null) return;
+    final cluster = proof?['cluster'] ?? 'devnet';
+    final url = (proof?['explorerUrl'] as String?) ?? 'https://explorer.solana.com/tx/$sig?cluster=$cluster';
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   @override
@@ -174,7 +208,18 @@ class _ProofSheetState extends State<_ProofSheet> {
         Text('ON-CHAIN ANCHOR ($cluster)', style: label(color: AppColors.mut, size: 9.5)),
         const SizedBox(height: 6),
         if (anchored && sig != null)
-          SelectableText(sig, style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: AppColors.orange))
+          GestureDetector(
+            onTap: _openExplorer,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(sig, style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: AppColors.orange)),
+              const SizedBox(height: 6),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.open_in_new_rounded, size: 13, color: AppColors.orange),
+                const SizedBox(width: 4),
+                Text('View on Solana Explorer', style: body(color: AppColors.orange, size: 11.5, weight: FontWeight.w700)),
+              ]),
+            ]),
+          )
         else if (available)
           widget.isHost
               ? GhostButton(anchoring ? 'Anchoring…' : 'Anchor this root on Solana', expand: true, onTap: anchoring ? null : _anchor)

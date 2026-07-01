@@ -6,12 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 
 class AppConfig {
-  final String mode, cluster;
+  final String mode, cluster, anchorCluster;
   final bool anchorConfigured, recapAI;
-  AppConfig({required this.mode, required this.cluster, required this.anchorConfigured, required this.recapAI});
+  AppConfig({required this.mode, required this.cluster, required this.anchorCluster, required this.anchorConfigured, required this.recapAI});
   factory AppConfig.fromJson(Map<String, dynamic> j) => AppConfig(
         mode: j['mode'] ?? 'simulation',
         cluster: j['cluster'] ?? 'devnet',
+        anchorCluster: j['anchorCluster'] ?? 'devnet',
         anchorConfigured: j['anchorConfigured'] ?? false,
         recapAI: j['recapAI'] ?? false,
       );
@@ -151,6 +152,10 @@ class ApiClient {
 
   Future<Map<String, dynamic>> anchor(String id) async =>
       (await _post('/api/rooms/$id/proof', {})) as Map<String, dynamic>;
+
+  /// Anchor an arbitrary on-device Merkle root (solo rooms have no server room).
+  Future<Map<String, dynamic>> anchorRoot(String root, {String? tag}) async =>
+      (await _post('/api/anchor', {'root': root, if (tag != null) 'tag': tag})) as Map<String, dynamic>;
 }
 
 class ApiException implements Exception {
