@@ -216,3 +216,92 @@ class _MatchStatsPanelState extends State<MatchStatsPanel> {
     );
   }
 }
+
+/// Penalty shootout scoreboard — kick-by-kick, running tally, sudden-death, winner.
+class ShootoutCard extends StatelessWidget {
+  final ShootoutView s;
+  final Team home, away;
+  const ShootoutCard({super.key, required this.s, required this.home, required this.away});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: cardBox(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          color: AppColors.ink,
+          child: Row(children: [
+            Text('🎯 PENALTY SHOOTOUT', style: label(color: AppColors.cream, size: 11.5, weight: FontWeight.w800)),
+            const Spacer(),
+            Text('${s.home}–${s.away}', style: display(18, color: AppColors.orangeBright)),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(children: [
+            _teamRow(home, 'home'),
+            const SizedBox(height: 10),
+            _teamRow(away, 'away'),
+            const SizedBox(height: 12),
+            if (s.decided && s.winnerSide != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(10)),
+                alignment: Alignment.center,
+                child: Text('${(s.winnerSide == 'home' ? home.name : away.name).toUpperCase()} WIN ${s.home}–${s.away} ON PENS',
+                    style: label(color: Colors.white, size: 11.5, weight: FontWeight.w900)),
+              )
+            else
+              Text(_statusLine(), textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11.5)),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  String _statusLine() {
+    final hk = s.kicks.where((k) => k.side == 'home').length;
+    final ak = s.kicks.where((k) => k.side == 'away').length;
+    if (hk > 5 || ak > 5) return 'Sudden death — one slip settles it.';
+    return 'Best of five · nerves of steel';
+  }
+
+  Widget _teamRow(Team t, String side) {
+    final c = teamColor(t.code);
+    final kicks = s.kicks.where((k) => k.side == side).toList();
+    return Row(children: [
+      SizedBox(width: 46, child: Text(t.code, style: label(color: c, size: 12.5, weight: FontWeight.w800))),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Wrap(spacing: 5, runSpacing: 5, children: [
+          for (final k in kicks) _dot(scored: k.scored, color: c),
+          for (int i = kicks.length; i < 5; i++) _dot(empty: true),
+        ]),
+      ),
+    ]);
+  }
+
+  Widget _dot({bool scored = false, bool empty = false, Color? color}) {
+    if (empty) {
+      return Container(
+        width: 16, height: 16,
+        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: AppColors.line, width: 1.5)),
+      );
+    }
+    if (!scored) {
+      return Container(
+        width: 16, height: 16,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: AppColors.line.withValues(alpha: 0.5)),
+        child: const Icon(Icons.close_rounded, size: 12, color: AppColors.mut),
+      );
+    }
+    return Container(
+      width: 16, height: 16,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      child: const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+    );
+  }
+}

@@ -178,8 +178,22 @@ class _RoomScreenState extends State<RoomScreen> {
     if (r.status == 'lobby') return 'LOBBY';
     final s = r.score;
     if (s == null || s.phase == 0) return 'KO SOON';
-    if (s.phase == 4 || s.phase == 9) return 'FULL TIME';
-    return 'LIVE';
+    switch (s.phase) {
+      case 2:
+        return 'HALF-TIME';
+      case 4:
+      case 9:
+        return 'FULL TIME';
+      case 5:
+      case 7:
+        return 'EXTRA TIME';
+      case 6:
+        return 'ET BREAK';
+      case 8:
+        return 'PENALTIES';
+      default:
+        return 'LIVE';
+    }
   }
 
   List<String> _scorers(RoomView r) => r.pulse
@@ -235,7 +249,7 @@ class _RoomScreenState extends State<RoomScreen> {
               clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room) && (room.score?.phase ?? 0) != 0,
               onTeamTap: (t) => showTeamSheet(context, t),
               pill: _pillText(room),
-              pillColor: _pillText(room) == 'LIVE' ? AppColors.orange : AppColors.inkSoft,
+              pillColor: const {'LIVE', 'EXTRA TIME', 'PENALTIES'}.contains(_pillText(room)) ? AppColors.orange : AppColors.inkSoft,
               watching: room.members.length,
               onBack: () => Navigator.of(context).maybePop(),
               topRadius: 0,
@@ -254,6 +268,10 @@ class _RoomScreenState extends State<RoomScreen> {
                 if (room.score?.statusNote != null) ...[_statusBanner(room.score!.statusNote!), const SizedBox(height: 12)],
                 if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
                 if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
+                if (room.shootout != null && !_hidden(room)) ...[
+                  ShootoutCard(s: room.shootout!, home: room.fixture.home, away: room.fixture.away),
+                  const SizedBox(height: 12),
+                ],
                 if (room.score != null && !_hidden(room)) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
                 if (room.score != null && !_hidden(room) && room.winHistory.length >= 3) ...[
                   WinTimeline(history: room.winHistory, home: room.fixture.home, away: room.fixture.away),
@@ -529,6 +547,7 @@ class _RoomScreenState extends State<RoomScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           child: Column(children: [
+            if (room.shootout != null) ...[ShootoutCard(s: room.shootout!, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 14)],
             if (room.motm != null) ...[MotmPollCard(poll: room.motm!, onVote: (k) => _c.voteMotm(k)), const SizedBox(height: 14)],
             if (recap != null) ...[RecapCard(recap: recap, aiOn: _aiOn), const SizedBox(height: 14)],
             Leaderboard(room: room, meId: _c.memberId),

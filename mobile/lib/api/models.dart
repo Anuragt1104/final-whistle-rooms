@@ -337,6 +337,28 @@ class RoomModes {
       j == null ? RoomModes(true, true) : RoomModes(j['draft'] ?? true, j['nextSwing'] ?? true);
 }
 
+class ShootoutKick {
+  final String side; // 'home' | 'away'
+  final bool scored;
+  ShootoutKick({required this.side, required this.scored});
+  factory ShootoutKick.fromJson(Map<String, dynamic> j) => ShootoutKick(side: j['side'] ?? 'home', scored: j['scored'] ?? false);
+}
+
+class ShootoutView {
+  final int home, away;
+  final List<ShootoutKick> kicks;
+  final bool decided;
+  final String? winnerSide;
+  ShootoutView({required this.home, required this.away, required this.kicks, required this.decided, this.winnerSide});
+  factory ShootoutView.fromJson(Map<String, dynamic> j) => ShootoutView(
+        home: (j['home'] ?? 0) as int,
+        away: (j['away'] ?? 0) as int,
+        kicks: ((j['kicks'] ?? []) as List).map((k) => ShootoutKick.fromJson(k)).toList(),
+        decided: j['decided'] ?? false,
+        winnerSide: j['winnerSide'],
+      );
+}
+
 class RoomView {
   final String id, code, name, hostId, status;
   final Fixture fixture;
@@ -344,6 +366,7 @@ class RoomView {
   final int momentum;
   final WinChance win;
   final List<int> winHistory;
+  final ShootoutView? shootout;
   final ScoreView? score;
   final List<MemberView> members;
   final List<ChatView> chat;
@@ -367,6 +390,7 @@ class RoomView {
     required this.momentum,
     required this.win,
     this.winHistory = const [],
+    this.shootout,
     required this.score,
     required this.members,
     required this.chat,
@@ -391,6 +415,7 @@ class RoomView {
         momentum: (j['momentum'] ?? 0) as int,
         win: WinChance.fromJson(j['win']),
         winHistory: ((j['winHistory'] ?? []) as List).map((e) => (e as num).toInt()).toList(),
+        shootout: j['shootout'] == null ? null : ShootoutView.fromJson(j['shootout']),
         score: j['score'] == null ? null : ScoreView.fromJson(j['score']),
         members: ((j['members'] ?? []) as List).map((m) => MemberView.fromJson(m)).toList(),
         chat: ((j['chat'] ?? []) as List).map((c) => ChatView.fromJson(c)).toList(),

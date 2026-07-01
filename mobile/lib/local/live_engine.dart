@@ -43,6 +43,16 @@ class LiveMatchEngine extends ChangeNotifier {
   bool _atHalfTime = false;
   int _htUntil = 0;
   bool _htRecap = false;
+  // where to resume after a break (2nd half or ET 2nd half)
+  int _resumePhase = 3;
+  double _resumeMinute = 45.001;
+  // penalty shootout state (only when a knockout-style match is level after ET)
+  int _penHome = 0, _penAway = 0;
+  String _penTurn = 'home';
+  bool _penDecided = false;
+  String? _penWinner;
+  int _penNext = 0;
+  final List<_Pen> _penKicks = [];
 
   int gH = 0, gA = 0, yH = 0, yA = 0, rH = 0, rA = 0, cH = 0, cA = 0;
   // first-half tallies (second half = total - firstHalf) for the by-half view
@@ -135,11 +145,20 @@ class LiveMatchEngine extends ChangeNotifier {
   // ---- tick ----
   void _tick() {
     if (status != 'live') return;
+
+    // penalty shootout runs on its own cadence (no match clock)
+    if (_phase == 8) {
+      _tickShootout();
+      notifyListeners();
+      return;
+    }
+
+    // half-time / ET-break holds
     if (_atHalfTime) {
       if (_now() >= _htUntil) {
         _atHalfTime = false;
-        _phase = 3;
-        _minuteF = 45.001;
+        _phase = _resumePhase;
+        _minuteF = _resumeMinute;
       } else {
         notifyListeners();
         return;
@@ -148,14 +167,11 @@ class LiveMatchEngine extends ChangeNotifier {
 
     _minuteF += 1.5;
     var m = _minuteF.floor();
-    if (_phase == 1 && m >= 45) {
-      m = 45;
-      _minuteF = 45;
-    }
-    if (m >= 90) {
-      m = 90;
-      _minuteF = 90;
-    }
+    // clamp at the end of each running period
+    if (_phase == 1 && m >= 45) { m = 45; _minuteF = 45; }
+    if (_phase == 3 && m >= 90) { m = 90; _minuteF = 90; }
+    if (_phase == 5 && m >= 105) { m = 105; _minuteF = 105; }
+    if (_phase == 7 && m >= 120) { m = 120; _minuteF = 120; }
 
     _maybeEvents(m);
     _recomputeWin(m);
@@ -170,19 +186,104 @@ class LiveMatchEngine extends ChangeNotifier {
     }
     _botChatter(m);
 
+    // phase transitions
     if (m >= 45 && _phase == 1) {
       _phase = 2;
       _atHalfTime = true;
       _htUntil = _now() + 2200;
+      _resumePhase = 3;
+      _resumeMinute = 45.001;
       _leafPhase('half-time', 45);
       _addPulse('half-time', '⏸️', 'Half-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}.', 'neutral', 45);
       if (!_htRecap) {
         _htRecap = true;
         _makeRecap('half-time', m);
       }
+    } else if (m >= 90 && _phase == 3) {
+      // level after 90' → extra time (knockout drama); otherwise it's over
+      gH == gA ? _startExtraTime() : _finish();
+    } else if (m >= 105 && _phase == 5) {
+      _phase = 6;
+      _atHalfTime = true;
+      _htUntil = _now() + 1600;
+      _resumePhase = 7;
+      _resumeMinute = 105.001;
+      _leafPhase('et-half-time', 105);
+      _addPulse('half-time', '⏸️', 'End of ET first half', '${fixture.home.code} $gH–$gA ${fixture.away.code}. 15 minutes left.', 'neutral', 105);
+    } else if (m >= 120 && _phase == 7) {
+      // still level after extra time → penalties
+      gH == gA ? _startPenalties() : _finish(outcome: 'et');
     }
-    if (m >= 90) _finish();
     notifyListeners();
+  }
+
+  void _startExtraTime() {
+    _phase = 5;
+    _minuteF = 90.001;
+    _leafPhase('extra-time', 90);
+    _system('Level at full-time — into extra time!');
+    _addPulse('chaos', '⚡', 'EXTRA TIME', 'All square after 90 — 30 more minutes to settle it.', 'hot', 90);
+  }
+
+  void _startPenalties() {
+    _phase = 8;
+    _leafPhase('penalties', 120);
+    _penHome = 0;
+    _penAway = 0;
+    _penTurn = 'home';
+    _penDecided = false;
+    _penWinner = null;
+    _penKicks.clear();
+    _penNext = _now() + 1000;
+    _system('Still level after extra time — it goes to penalties!');
+    _addPulse('chaos', '🎯', 'PENALTIES', "It's down to spot-kicks. Nerves of steel required.", 'hot', 120);
+  }
+
+  void _tickShootout() {
+    if (_penDecided) {
+      if (_now() >= _penNext) _finish(penWinner: _penWinner);
+      return;
+    }
+    if (_now() < _penNext) return;
+    _penNext = _now() + 1000;
+
+    final side = _penTurn;
+    final scored = _rng.nextDouble() < 0.74;
+    _penKicks.add(_Pen(side, scored));
+    if (scored) {
+      side == 'home' ? _penHome++ : _penAway++;
+    }
+    final team = side == 'home' ? fixture.home : fixture.away;
+    _addPulse(scored ? 'goal' : 'chaos', scored ? '⚽' : '🧤', scored ? 'SCORED — ${team.code}' : 'MISSED — ${team.code}',
+        scored ? 'Buries it. $_penHome–$_penAway on pens.' : 'Saved! Still $_penHome–$_penAway.', side, 120);
+    if (_rng.nextBool()) _botShout(side);
+
+    _penTurn = side == 'home' ? 'away' : 'home';
+    _checkPenDecided();
+    if (_penDecided) _penNext = _now() + 1800; // beat before the final whistle
+  }
+
+  void _checkPenDecided() {
+    final hk = _penKicks.where((k) => k.side == 'home').length;
+    final ak = _penKicks.where((k) => k.side == 'away').length;
+    final hRemain = hk < 5 ? 5 - hk : 0;
+    final aRemain = ak < 5 ? 5 - ak : 0;
+    // within best-of-five: a lead that can't be caught ends it
+    if (hk <= 5 && ak <= 5) {
+      if (_penHome > _penAway + aRemain) return _decidePens('home');
+      if (_penAway > _penHome + hRemain) return _decidePens('away');
+    }
+    // sudden death: equal kicks (>=5 each) and scores differ
+    if (hk >= 5 && ak >= 5 && hk == ak && _penHome != _penAway) {
+      _decidePens(_penHome > _penAway ? 'home' : 'away');
+    }
+  }
+
+  void _decidePens(String winner) {
+    _penDecided = true;
+    _penWinner = winner;
+    final team = winner == 'home' ? fixture.home : fixture.away;
+    _system('${team.name} win $_penHome–$_penAway on penalties!');
   }
 
   void _maybeEvents(int m) {
@@ -423,10 +524,11 @@ class LiveMatchEngine extends ChangeNotifier {
     }
   }
 
-  void _finish() {
+  void _finish({String? penWinner, String outcome = 'normal'}) {
     status = 'finished';
     _phase = 4;
-    _leafPhase('full-time', 90);
+    final endMin = _minuteF.floor().clamp(90, 120);
+    _leafPhase('full-time', endMin);
     _timer?.cancel();
     for (final p in _prompts.values.toList()) {
       if (p.status != 'settled') {
@@ -434,14 +536,17 @@ class LiveMatchEngine extends ChangeNotifier {
       }
     }
     final lead = gH - gA;
-    final winningSide = lead > 0 ? 'home' : (lead < 0 ? 'away' : null);
+    final winningSide = penWinner ?? (lead > 0 ? 'home' : (lead < 0 ? 'away' : null));
     if (winningSide != null) {
       for (final mem in _members) {
         if (mem.side == winningSide) mem.points += 30;
       }
     }
-    _addPulse('full-time', '🏁', 'Full-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}. Final whistle.', 'neutral', 90);
-    _makeRecap('full-time', 90);
+    final tail = penWinner != null
+        ? ' — ${penWinner == 'home' ? fixture.home.code : fixture.away.code} win $_penHome–$_penAway on pens'
+        : (outcome == 'et' ? ' after extra time' : '');
+    _addPulse('full-time', '🏁', 'Full-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}$tail. Final whistle.', 'neutral', endMin);
+    _makeRecap('full-time', endMin);
     _buildMotm();
   }
 
@@ -532,13 +637,22 @@ class LiveMatchEngine extends ChangeNotifier {
     final mv = members
         .map((m) => MemberView(id: m.id, name: m.name, avatar: '', side: m.side, walletShort: null, points: m.points, streak: m.streak, bestStreak: m.best, correct: m.correct, isHost: m.isHost))
         .toList();
-    final phaseInt = _phase == 1 ? 1 : (_phase == 2 ? 2 : (_phase == 3 ? 3 : (_phase == 4 ? 4 : 0)));
+    final phaseInt = _phase; // 1 H1, 2 HT, 3 H2, 4 FT, 5 ET1, 6 ET break, 7 ET2, 8 pens
+    final shootout = _penKicks.isNotEmpty
+        ? ShootoutView(
+            home: _penHome,
+            away: _penAway,
+            kicks: _penKicks.map((k) => ShootoutKick(side: k.side, scored: k.scored)).toList(),
+            decided: _penDecided,
+            winnerSide: _penWinner,
+          )
+        : null;
     final score = status == 'lobby'
         ? null
         : ScoreView(
             minute: _minuteF.floor(),
             clockSeconds: (_minuteF * 60).floor(),
-            running: phaseInt == 1 || phaseInt == 3,
+            running: phaseInt == 1 || phaseInt == 3 || phaseInt == 5 || phaseInt == 7,
             phase: phaseInt,
             goals: StatPair(gH, gA),
             yellow: StatPair(yH, yA),
@@ -561,6 +675,7 @@ class LiveMatchEngine extends ChangeNotifier {
       momentum: _momentum,
       win: _win,
       winHistory: List<int>.from(_winHistory),
+      shootout: shootout,
       score: score,
       members: mv,
       chat: [..._chat],
@@ -634,6 +749,12 @@ class _GoalRec {
 }
 
 enum _Resolver { firstEvent, nextCorner, nextGoal, oddsRise, winSwing }
+
+class _Pen {
+  final String side; // 'home' | 'away'
+  final bool scored;
+  _Pen(this.side, this.scored);
+}
 
 SwingOption _opt(String key, String label, [String? hint]) => SwingOption(key: key, label: label, hint: hint);
 
