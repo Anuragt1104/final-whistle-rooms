@@ -16,6 +16,13 @@ class AppConfig {
         anchorConfigured: j['anchorConfigured'] ?? false,
         recapAI: j['recapAI'] ?? false,
       );
+  Map<String, dynamic> toJson() => {
+        'mode': mode,
+        'cluster': cluster,
+        'anchorCluster': anchorCluster,
+        'anchorConfigured': anchorConfigured,
+        'recapAI': recapAI,
+      };
 }
 
 /// Talks to the Final Whistle Rooms Next.js backend (REST). The base URL is
@@ -39,6 +46,12 @@ class ApiClient {
     return 'http://localhost:3000';
   }
 
+  /// Last config seen from the backend (hydrated from disk at init) — the mode
+  /// rarely changes, so trusting it instantly makes cold starts and tap
+  /// decisions fast; a background revalidate keeps it fresh.
+  AppConfig? cachedConfig;
+  List<Fixture>? _cachedFixtures;
+
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString('api_base');
@@ -46,6 +59,35 @@ class ApiClient {
       _baseUrl = _defineBase;
     } else if (stored != null && stored.isNotEmpty) {
       _baseUrl = stored;
+    }
+    final cfg = prefs.getString('cached_config');
+    if (cfg != null) {
+      try {
+        cachedConfig = AppConfig.fromJson(jsonDecode(cfg));
+      } catch (_) {}
+    }
+    final fx = prefs.getString('cached_fixtures');
+    if (fx != null) {
+      try {
+        _cachedFixtures = ((jsonDecode(fx) as List)).map((f) => Fixture.fromJson(f)).toList();
+      } catch (_) {}
+    }
+  }
+
+  /// Fixtures from the last successful fetch — instant, may be stale.
+  List<Fixture>? cachedFixtures() => _cachedFixtures;
+
+  /// Best-effort config for tap-time decisions: last-known instantly (with a
+  /// background refresh), else one quick network try. Null = unreachable.
+  Future<AppConfig?> resolveConfig() async {
+    if (cachedConfig != null) {
+      config().catchError((_) => cachedConfig!); // revalidate in background
+      return cachedConfig;
+    }
+    try {
+      return await config();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -57,8 +99,8 @@ class ApiClient {
 
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
-  Future<dynamic> _get(String path) async {
-    final res = await _http.get(_uri(path));
+  Future<dynamic> _get(String path, {Duration timeout = const Duration(seconds: 6)}) async {
+    final res = await _http.get(_uri(path)).timeout(timeout);
     final data = res.body.isNotEmpty ? jsonDecode(res.body) : {};
     if (res.statusCode >= 400) {
       throw ApiException(data is Map ? (data['error'] ?? 'Request failed') : 'Request failed');
@@ -66,12 +108,14 @@ class ApiClient {
     return data;
   }
 
-  Future<dynamic> _post(String path, Map<String, dynamic> body) async {
-    final res = await _http.post(
-      _uri(path),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
+  Future<dynamic> _post(String path, Map<String, dynamic> body, {Duration timeout = const Duration(seconds: 8)}) async {
+    final res = await _http
+        .post(
+          _uri(path),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(timeout);
     final data = res.body.isNotEmpty ? jsonDecode(res.body) : {};
     if (res.statusCode >= 400) {
       throw ApiException(data is Map ? (data['error'] ?? 'Request failed') : 'Request failed');
@@ -79,11 +123,22 @@ class ApiClient {
     return data;
   }
 
-  Future<AppConfig> config() async => AppConfig.fromJson(await _get('/api/config'));
+  Future<AppConfig> config() async {
+    final c = AppConfig.fromJson(await _get('/api/config', timeout: const Duration(seconds: 3)));
+    cachedConfig = c;
+    SharedPreferences.getInstance().then((p) => p.setString('cached_config', jsonEncode(c.toJson())));
+    return c;
+  }
 
   Future<List<Fixture>> fixtures() async {
     final data = await _get('/api/fixtures');
-    return ((data['fixtures'] ?? []) as List).map((f) => Fixture.fromJson(f)).toList();
+    final raw = (data['fixtures'] ?? []) as List;
+    final list = raw.map((f) => Fixture.fromJson(f)).toList();
+    if (list.isNotEmpty) {
+      _cachedFixtures = list;
+      SharedPreferences.getInstance().then((p) => p.setString('cached_fixtures', jsonEncode(raw)));
+    }
+    return list;
   }
 
   Future<List<RoomSummary>> listRooms() async {

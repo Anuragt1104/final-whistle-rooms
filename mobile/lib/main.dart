@@ -16,6 +16,17 @@ Future<void> main() async {
     statusBarBrightness: Brightness.light,
   ));
   await ApiClient.instance.init();
+  // Pre-warm (not awaited): refreshes the cached config/fixtures and wakes a
+  // sleeping backend while the user is still on the splash/onboarding, so the
+  // first tap decides live-vs-replay instantly.
+  () async {
+    try {
+      await ApiClient.instance.config();
+    } catch (_) {}
+    try {
+      await ApiClient.instance.fixtures();
+    } catch (_) {}
+  }();
   Notifications.init(); // request permission + set up the match-events channel
   final onboarded = await LocalStore.onboarded();
   runApp(FinalWhistleApp(onboarded: onboarded));

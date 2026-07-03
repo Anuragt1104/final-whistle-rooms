@@ -5,20 +5,27 @@ import 'package:flutter/services.dart';
 import '../api/api_client.dart';
 import '../api/models.dart';
 import '../data/flags.dart';
+import '../data/player_images.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../local/fixtures.dart';
 import '../local/live_engine.dart';
+import '../local/squads.dart';
+import '../local/tournament.dart';
 import '../solana/wallet_connect.dart';
 import '../solana/rpc.dart';
 import '../theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_nav.dart';
 import '../widgets/common.dart';
+import '../widgets/season_pass_sheet.dart';
 import '../widgets/ticket.dart';
+import '../widgets/tournament_pulse.dart';
 import 'create_screen.dart';
+import 'match_screen.dart';
 import 'room_screen.dart';
 import 'team_sheet.dart';
+import '../widgets/player_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,9 +43,18 @@ class _HomeScreenState extends State<HomeScreen> {
   String _walletAddr = '';
   double? _solBalance;
   String _nav = 'rooms';
+  String _fxSeg = 'matches'; // fixtures hub: matches | groups | bracket | stats
   final _codeCtrl = TextEditingController();
   String _joinErr = '';
   bool _loading = true;
+  bool _pro = false;
+  String? _connectingFixture; // fixture id being resolved live-vs-replay
+  // fan stats (profile)
+  int _streakBest = 0;
+  int _matchesWatched = 0;
+  int _callsMade = 0;
+  int _callsCorrect = 0;
+  String _favTeam = '';
   Timer? _poll;
 
   @override
@@ -48,12 +64,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _boot() async {
-    _identity = await IdentityStore.getOrCreate();
-    _name = await LocalStore.displayName();
-    _walletAddr = await LocalStore.walletAddress();
+    // Paint instantly from what we already know: last-seen config + fixtures
+    // (or the complete on-device dataset). Network is only a revalidation.
+    _config = _api.cachedConfig;
+    final cached = _api.cachedFixtures();
+    _fixtures = _pickFixtures(cached ?? const []);
+    _loading = false;
+    if (mounted) setState(() {});
+
+    final prefs = await Future.wait([
+      IdentityStore.getOrCreate(),
+      LocalStore.displayName(),
+      LocalStore.walletAddress(),
+      LocalStore.isPro(),
+    ]);
+    _identity = prefs[0] as Identity;
+    _name = prefs[1] as String;
+    _walletAddr = prefs[2] as String;
+    _pro = prefs[3] as bool;
+    if (mounted) setState(() {});
+    _loadFanStats();
+
     _api.config().then((c) => mounted ? setState(() => _config = c) : null).catchError((_) {});
-    await _refresh();
-    if (mounted) setState(() => _loading = false);
+    _refresh(); // revalidate fixtures + rooms in the background
     _loadBalance();
     // poll rooms every 5s; refresh the live fixtures (scores/minutes/status)
     // every ~12s so the home updates without a manual pull-to-refresh
@@ -63,13 +96,40 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// The backend replay may only serve a slice of the tournament (e.g. group
+  /// games) — the app promises the FULL World Cup. In replay mode prefer the
+  /// complete on-device 104-match dataset; when the backend follows the real
+  /// live TxLINE feed, its fixtures are the truth and always win.
+  List<Fixture> _pickFixtures(List<Fixture> fromApi) {
+    if (_config?.mode == 'live') return fromApi;
+    return fromApi.length >= localFixtures().length ? fromApi : localFixtures();
+  }
+
   Future<void> _refreshFixturesQuiet() async {
     try {
       final f = await _api.fixtures();
-      if (f.isNotEmpty && mounted) setState(() => _fixtures = f);
+      if (f.isNotEmpty && mounted) setState(() => _fixtures = _pickFixtures(f));
     } catch (_) {
       /* keep showing the last known fixtures */
     }
+  }
+
+  Future<void> _loadFanStats() async {
+    final v = await Future.wait([
+      LocalStore.streakBest(),
+      LocalStore.matchesWatched(),
+      LocalStore.callsMade(),
+      LocalStore.callsCorrect(),
+      LocalStore.favoriteTeam(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _streakBest = v[0] as int;
+      _matchesWatched = v[1] as int;
+      _callsMade = v[2] as int;
+      _callsCorrect = v[3] as int;
+      _favTeam = v[4] as String;
+    });
   }
 
   Future<void> _loadBalance() async {
@@ -83,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // the on-device fixture list so the app is never empty.
     try {
       final f = await _api.fixtures();
-      _fixtures = f.isNotEmpty ? f : localFixtures();
+      _fixtures = _pickFixtures(f);
     } catch (_) {
       _fixtures = localFixtures();
     }
@@ -103,15 +163,40 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Watch a match live. Reuses the canonical room for that fixture if one
   /// already exists — so repeated taps never spawn duplicate rooms, and
   /// everyone watching the same match lands in the same room.
+  ///
+  /// Correctness rule: when the backend is in LIVE mode, a failure to reach it
+  /// NEVER silently drops into the on-device sim — the user explicitly picks
+  /// Retry or "Watch replay". Replay rooms are labeled and seeded from the
+  /// fixture's real score so they can't masquerade as the live match.
   Future<void> _watchLive(Fixture f) async {
+    if (f.home.code == 'TBD' || f.away.code == 'TBD') {
+      _openMatch(f);
+      return;
+    }
     final existing = _rooms.where((r) => r.fixture.id == f.id).toList();
     if (existing.isNotEmpty) {
       _openRoom(existing.first.id);
       return;
     }
-    // When the backend serves real TxLINE data, host a backend room that
-    // follows the actual live match; otherwise play it fully on-device.
-    if (_config?.mode == 'live') {
+    // Resolve the data mode before deciding — last-known config is instant;
+    // otherwise one quick (≤3s) network try with a visible indicator.
+    var cfg = _config;
+    if (cfg == null) {
+      if (mounted) {
+        setState(() => _connectingFixture = f.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Connecting to the live feed…'), duration: Duration(seconds: 2)),
+        );
+      }
+      cfg = await _api.resolveConfig();
+      if (mounted) {
+        setState(() {
+          _connectingFixture = null;
+          _config = cfg ?? _config;
+        });
+      }
+    }
+    if (cfg?.mode == 'live') {
       try {
         final id = await IdentityStore.getOrCreate();
         final res = await _api.createRoom(
@@ -128,10 +213,55 @@ class _HomeScreenState extends State<HomeScreen> {
         Navigator.push(context, fwrRoute(RoomScreen(roomId: res.roomId)));
         return;
       } catch (_) {
-        // backend hiccup — fall back to the on-device engine
+        if (mounted) _showLiveFallbackSheet(f); // explicit choice, never silent
+        return;
       }
     }
-    final engine = LiveMatchEngine(f, draftMode: true, nextSwingMode: true, myName: _name.isEmpty ? 'You' : _name);
+    _openReplayRoom(f);
+  }
+
+  /// The live room couldn't be reached — let the user choose, loudly.
+  void _showLiveFallbackSheet(Fixture f) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
+          const SizedBox(height: 16),
+          Text('COULDN\'T REACH THE LIVE ROOM', style: display(19)),
+          const SizedBox(height: 6),
+          Text(
+            'The live feed for ${f.home.code} v ${f.away.code} isn\'t responding right now. Retry, or watch a replay simulated from the real squads.',
+            style: body(color: AppColors.mut, size: 13),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton('Retry live', icon: Icons.podcasts_rounded, onTap: () {
+            Navigator.pop(ctx);
+            _watchLive(f);
+          }),
+          const SizedBox(height: 8),
+          GhostButton('Watch replay instead', expand: true, onTap: () {
+            Navigator.pop(ctx);
+            _openReplayRoom(f);
+          }),
+        ]),
+      ),
+    );
+  }
+
+  /// On-device room — clearly a REPLAY, seeded from the fixture's real score
+  /// so it starts where reality is instead of contradicting the home card.
+  void _openReplayRoom(Fixture f) {
+    final engine = LiveMatchEngine(
+      f,
+      draftMode: true,
+      nextSwingMode: true,
+      myName: _name.isEmpty ? 'You' : _name,
+      seedScore: f.score,
+    );
     if (!mounted) return;
     Navigator.push(context, fwrRoute(RoomScreen(roomId: 'local', engine: engine, autoStart: true)));
   }
@@ -175,6 +305,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openRoom(String id) => Navigator.push(context, fwrRoute(RoomScreen(roomId: id))).then((_) => _refresh());
 
+  /// FotMob-style match centre: stats, line-ups, tables, H2H for any fixture.
+  void _openMatch(Fixture f) =>
+      Navigator.push(context, fwrRoute(MatchScreen(fixture: f, onWatch: () => _watchLive(f))));
+
   void _openCreate([String? fixtureId]) =>
       Navigator.push(context, fwrRoute(CreateScreen(fixtureId: fixtureId))).then((_) => _refresh());
 
@@ -204,7 +338,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         bottomNavigationBar: BottomNav(
           active: _nav,
-          onSelect: (k) => setState(() => _nav = k),
+          onSelect: (k) {
+            setState(() => _nav = k);
+            if (k == 'you') _loadFanStats(); // counters move while watching
+          },
           onCreate: () => _openCreate(_featuredFixtureId()),
         ),
       ),
@@ -235,8 +372,23 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---- ROOMS (Browse) ----
   Widget _roomsTab() {
     final liveFixtures = _fixtures.where((f) => f.status == 'live').toList();
+    // pre-warm player-photo indexes for teams playing NOW (dedup inside warm),
+    // so faces are instant when the user opens a room
+    for (final f in liveFixtures) {
+      PlayerImages.warm(f.home.name);
+      PlayerImages.warm(f.away.name);
+    }
     final upcomingAll = _fixtures.where((f) => f.status == 'scheduled').toList()
       ..sort((a, b) => minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff)));
+    // your team plays? their match jumps the queue
+    if (_favTeam.isNotEmpty) {
+      upcomingAll.sort((a, b) {
+        final af = a.home.code == _favTeam || a.away.code == _favTeam ? 0 : 1;
+        final bf = b.home.code == _favTeam || b.away.code == _favTeam ? 0 : 1;
+        if (af != bf) return af - bf;
+        return minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff));
+      });
+    }
     // Home only surfaces genuinely-soon matches (next 24h) so "kicking off soon"
     // is honest; the full schedule lives in Fixtures. If nothing's within 24h,
     // fall back to the next few as "Next up".
@@ -262,7 +414,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _noLiveCard(upcomingAll.isNotEmpty ? upcomingAll.first : null)
         else
           ...liveFixtures.map((f) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _liveMatchCard(f))),
-        const SizedBox(height: 4),
+        TournamentPulse(fixtures: _fixtures),
+        const SizedBox(height: 12),
         Row(children: [
           Expanded(
             child: TextField(
@@ -277,6 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         if (_joinErr.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 6), child: Text(_joinErr, style: body(color: const Color(0xFFD8392B), size: 12))),
+        ..._openRoomsSection(),
         const SizedBox(height: 22),
         SectionLabel(
           soonMode ? 'Kicking off soon' : 'Next up',
@@ -304,6 +458,68 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 16),
         Center(child: Text('Powered by TxLINE · sign-in with Solana · points only, no cash staking', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11))),
       ]),
+    );
+  }
+
+  /// Fan-hosted rooms you can walk straight into — the "terraces" directory.
+  /// Only rendered when the backend is reachable and rooms actually exist.
+  List<Widget> _openRoomsSection() {
+    final open = _rooms.where((r) => r.status != 'finished').toList()
+      ..sort((a, b) => b.memberCount.compareTo(a.memberCount));
+    if (open.isEmpty) return const [];
+    return [
+      const SizedBox(height: 22),
+      SectionLabel('Open rooms', trailing: Text('${open.length} hosting now', style: label(color: AppColors.mut, size: 10.5))),
+      ...open.take(6).map(_roomRow),
+    ];
+  }
+
+  Widget _roomRow(RoomSummary r) {
+    final live = r.status == 'live';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Pressable(
+        haptic: HapticFeedbackType.medium,
+        onTap: () => _openRoom(r.id),
+        child: Container(
+          decoration: cardBox(),
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(12)),
+              alignment: Alignment.center,
+              child: Text(live ? '⚡' : '🕐', style: const TextStyle(fontSize: 19)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w800, size: 14)),
+                const SizedBox(height: 2),
+                Text(
+                  '${r.fixture.home.code} v ${r.fixture.away.code}'
+                  '${r.score != null ? " · ${r.score!.goals.home}–${r.score!.goals.away}" : ""}'
+                  ' · ${r.memberCount} ${r.memberCount == 1 ? "fan" : "fans"} in',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: body(color: AppColors.mut, size: 11.5),
+                ),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: live ? AppColors.orange : AppColors.cardAlt,
+                borderRadius: BorderRadius.circular(99),
+                border: live ? null : Border.all(color: AppColors.line),
+              ),
+              child: Text(live ? 'LIVE' : 'LOBBY', style: label(color: live ? Colors.white : AppColors.mut, size: 9.5)),
+            ),
+          ]),
+        ),
+      ),
     );
   }
 
@@ -353,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
             minute: f.score != null ? "${f.score!.minute}'" : 'LIVE',
             clockSeconds: f.score?.clockSeconds,
             clockRunning: f.score?.running ?? false,
-            pill: 'LIVE',
+            pill: _config?.mode == 'live' ? 'LIVE' : 'REPLAY',
             watching: room?.memberCount,
             onTeamTap: (t) => showTeamSheet(context, t),
           ),
@@ -369,7 +585,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 ]),
               ),
               const SizedBox(width: 10),
-              PrimaryButton(room != null ? 'Join' : 'Watch', icon: Icons.play_arrow_rounded, onTap: () => _watchLive(f)),
+              Pressable(
+                haptic: HapticFeedbackType.selection,
+                onTap: () => _openMatch(f),
+                child: Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)),
+                  child: const Icon(Icons.bar_chart_rounded, color: AppColors.ink, size: 20),
+                ),
+              ),
+              const SizedBox(width: 8),
+              PrimaryButton(
+                _connectingFixture == f.id ? 'Connecting…' : (room != null ? 'Join' : 'Watch'),
+                icon: _connectingFixture == f.id ? Icons.wifi_tethering_rounded : Icons.play_arrow_rounded,
+                onTap: _connectingFixture == null ? () => _watchLive(f) : null,
+              ),
             ]),
           ),
         ]),
@@ -379,10 +609,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   Widget _fixtureRow(Fixture f) {
+    final tbd = f.home.code == 'TBD' || f.away.code == 'TBD';
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Pressable(
-        onTap: () => _watchLive(f),
+        onTap: () => _openMatch(f),
         child: Container(
           decoration: cardBox(),
           padding: const EdgeInsets.all(10),
@@ -392,67 +623,220 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  GestureDetector(onTap: () => showTeamSheet(context, f.home), child: InlineFlag(team: f.home, size: 28)),
-                  const SizedBox(width: 6),
-                  Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
-                  Text('  v  ', style: body(color: AppColors.mut)),
-                  Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
-                  const SizedBox(width: 6),
-                  GestureDetector(onTap: () => showTeamSheet(context, f.away), child: InlineFlag(team: f.away, size: 28)),
+                  if (!tbd) ...[
+                    GestureDetector(onTap: () => showTeamSheet(context, f.home), child: InlineFlag(team: f.home, size: 28)),
+                    const SizedBox(width: 6),
+                    Text(f.home.code, style: body(weight: FontWeight.w800, size: 14)),
+                    Text('  v  ', style: body(color: AppColors.mut)),
+                    Text(f.away.code, style: body(weight: FontWeight.w800, size: 14)),
+                    const SizedBox(width: 6),
+                    GestureDetector(onTap: () => showTeamSheet(context, f.away), child: InlineFlag(team: f.away, size: 28)),
+                  ] else
+                    Flexible(
+                      child: Text('${f.home.name}  v  ${f.away.name}',
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w800, size: 12.5)),
+                    ),
                 ]),
                 const SizedBox(height: 2),
                 Text(_fxSubtitle(f), maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 11.5)),
               ]),
             ),
             const SizedBox(width: 8),
-            Pressable(
-              haptic: HapticFeedbackType.selection,
-              onTap: () => _openCreate(f.id),
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
-                child: const Icon(Icons.add, color: AppColors.ink, size: 20),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Pressable(
-              haptic: HapticFeedbackType.medium,
-              onTap: () => _watchLive(f),
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.orange,
-                  borderRadius: BorderRadius.circular(11),
-                  boxShadow: const [BoxShadow(color: Color(0x33E9531E), blurRadius: 8, offset: Offset(0, 3))],
+            if (!tbd) ...[
+              if (f.status != 'finished') ...[
+                Pressable(
+                  haptic: HapticFeedbackType.selection,
+                  onTap: () => _openCreate(f.id),
+                  child: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
+                    child: const Icon(Icons.add, color: AppColors.ink, size: 20),
+                  ),
                 ),
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
-              ),
-            ),
+                const SizedBox(width: 6),
+                Pressable(
+                  haptic: HapticFeedbackType.medium,
+                  onTap: () => _watchLive(f),
+                  child: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.orange,
+                      borderRadius: BorderRadius.circular(11),
+                      boxShadow: const [BoxShadow(color: Color(0x33E9531E), blurRadius: 8, offset: Offset(0, 3))],
+                    ),
+                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                  ),
+                ),
+              ] else
+                Pressable(
+                  haptic: HapticFeedbackType.selection,
+                  onTap: () => _openMatch(f),
+                  child: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
+                    child: const Icon(Icons.bar_chart_rounded, color: AppColors.ink, size: 19),
+                  ),
+                ),
+            ],
           ]),
         ),
       ),
     );
   }
 
-  // ---- FIXTURES ----
+  // ---- FIXTURES / COMPETITION HUB ----
   Widget _fixturesTab() {
-    final live = _fixtures.where((f) => f.status == 'live').toList();
-    final up = _fixtures.where((f) => f.status == 'scheduled').toList()
-      ..sort((a, b) => minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff)));
-    final fin = _fixtures.where((f) => f.status == 'finished').toList();
     return RefreshIndicator(
       onRefresh: _refresh,
       color: AppColors.orange,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
-        Text('FIXTURES', style: display(26)),
+        Text('WORLD CUP 2026', style: display(26)),
         const SizedBox(height: 4),
-        Text('All 48 group-stage matches. Tap + to host a room.', style: body(color: AppColors.mut, size: 13)),
-        const SizedBox(height: 16),
-        if (live.isNotEmpty) ...[const SectionLabel('Live'), ...live.map(_fixtureRow), const SizedBox(height: 12)],
-        if (up.isNotEmpty) ...[const SectionLabel('Upcoming'), ...up.map(_fixtureRow), const SizedBox(height: 12)],
-        if (fin.isNotEmpty) ...[const SectionLabel('Finished'), ...fin.map(_fixtureRow)],
+        Text('All 104 matches · groups, bracket & player stats.', style: body(color: AppColors.mut, size: 13)),
+        const SizedBox(height: 12),
+        _hubSegments(),
+        const SizedBox(height: 14),
+        ...switch (_fxSeg) {
+          'groups' => _groupsView(),
+          'bracket' => _bracketView(),
+          'stats' => _statsView(),
+          _ => _matchesView(),
+        },
       ]),
     );
+  }
+
+  Widget _hubSegments() {
+    const segs = [('matches', 'Matches'), ('groups', 'Groups'), ('bracket', 'Bracket'), ('stats', 'Stats')];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(13), border: Border.all(color: AppColors.line)),
+      child: Row(
+        children: segs.map(((String, String) s) {
+          final on = _fxSeg == s.$1;
+          return Expanded(
+            child: Pressable(
+              haptic: HapticFeedbackType.selection,
+              onTap: () => setState(() => _fxSeg = s.$1),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: on ? AppColors.ink : Colors.transparent, borderRadius: BorderRadius.circular(10)),
+                child: Text(s.$2.toUpperCase(), style: label(color: on ? AppColors.cream : AppColors.mut, size: 9.5, weight: FontWeight.w800)),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  List<Widget> _matchesView() {
+    final live = _fixtures.where((f) => f.status == 'live').toList();
+    final up = _fixtures.where((f) => f.status == 'scheduled').toList()
+      ..sort((a, b) => minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff)));
+    final fin = _fixtures.where((f) => f.status == 'finished').toList().reversed.toList();
+    return [
+      if (live.isNotEmpty) ...[const SectionLabel('Live'), ...live.map(_fixtureRow), const SizedBox(height: 12)],
+      if (up.isNotEmpty) ...[
+        SectionLabel('Upcoming', trailing: Text('${up.length} matches', style: label(color: AppColors.mut, size: 10))),
+        ...up.map(_fixtureRow),
+        const SizedBox(height: 12),
+      ],
+      if (fin.isNotEmpty) ...[
+        SectionLabel('Results', trailing: Text('${fin.length} played', style: label(color: AppColors.mut, size: 10))),
+        ...fin.map(_fixtureRow),
+      ],
+    ];
+  }
+
+  List<Widget> _groupsView() {
+    final standings = groupStandings(_fixtures.where((f) => groupOf(f) != null).toList());
+    final letters = standings.keys.toList()..sort();
+    if (letters.isEmpty) return [Text('Group tables appear when fixtures load.', style: body(color: AppColors.mut, size: 13))];
+    return [
+      for (final l in letters) ...[
+        SectionLabel('Group $l'),
+        groupTableCard(standings[l] ?? []),
+        const SizedBox(height: 14),
+      ],
+    ];
+  }
+
+  List<Widget> _bracketView() {
+    final stages = knockoutByStage(_fixtures);
+    final widgets = <Widget>[];
+    for (final s in knockoutStages) {
+      final ms = stages[s] ?? [];
+      if (ms.isEmpty) continue;
+      widgets.add(SectionLabel(s, trailing: Text('${ms.length} ${ms.length == 1 ? "tie" : "ties"}', style: label(color: AppColors.mut, size: 10))));
+      widgets.addAll(ms.map(_fixtureRow));
+      widgets.add(const SizedBox(height: 10));
+    }
+    if (widgets.isEmpty) {
+      widgets.add(Text('The knockout bracket appears once the groups finish.', style: body(color: AppColors.mut, size: 13)));
+    }
+    return widgets;
+  }
+
+  List<Widget> _statsView() {
+    final leaders = tournamentLeaders(_fixtures);
+    Widget leaderRow(int rank, PlayerTotals p, String value) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Pressable(
+          onTap: () {
+            SquadPlayer? sp;
+            for (final cand in squadFor(p.team).players) {
+              if (cand.name == p.name) sp = cand;
+            }
+            showPlayerSheet(context, p.team, sp ?? SquadPlayer(0, p.name, 'FW'));
+          },
+          child: Container(
+            decoration: cardBox(),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            child: Row(children: [
+              SizedBox(width: 24, child: Text('$rank', style: display(14, color: rank <= 3 ? AppColors.orange : AppColors.mut))),
+              InitialAvatar(name: p.name, size: 30),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w800, size: 13)),
+                  Row(children: [
+                    InlineFlag(team: p.team, size: 14),
+                    const SizedBox(width: 4),
+                    Text(p.team.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 10.5)),
+                  ]),
+                ]),
+              ),
+              Text(value, style: display(17, color: AppColors.orange)),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    final out = <Widget>[const SectionLabel('Golden Boot')];
+    if (leaders.scorers.isEmpty) {
+      out.add(Text('Goals land here as soon as matches are played.', style: body(color: AppColors.mut, size: 13)));
+    } else {
+      var rank = 0;
+      out.addAll(leaders.scorers.take(10).map((p) => leaderRow(++rank, p, '${p.goals}')));
+    }
+    if (leaders.assisters.isNotEmpty) {
+      out.add(const SizedBox(height: 12));
+      out.add(const SectionLabel('Most assists'));
+      var rank = 0;
+      out.addAll(leaders.assisters.take(10).map((p) => leaderRow(++rank, p, '${p.assists}')));
+    }
+    if (leaders.rated.isNotEmpty) {
+      out.add(const SizedBox(height: 12));
+      out.add(const SectionLabel('Best rated (2+ games)'));
+      var rank = 0;
+      out.addAll(leaders.rated.take(10).map((p) => leaderRow(++rank, p, p.avgRating.toStringAsFixed(1))));
+    }
+    return out;
   }
 
   // ---- INBOX ----
@@ -502,7 +886,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   AppColors.ink,
                   '${f.home.code} v ${f.away.code}',
                   'Kicks off ${kickoffWhen(f.kickoff)} · ${relativeKickoff(f.kickoff)}',
-                  () => _watchLive(f),
+                  () => _openMatch(f),
                 )),
             const SizedBox(height: 12),
           ],
@@ -512,8 +896,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icons.sports_score_rounded,
                   AppColors.mut,
                   'Full time — ${f.home.code} ${f.score?.home ?? 0}–${f.score?.away ?? 0} ${f.away.code}',
-                  'Tap to open the room recap',
-                  () => _watchLive(f),
+                  'Tap for stats, ratings & the full report',
+                  () => _openMatch(f),
                 )),
           ],
         ],
@@ -555,11 +939,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _youTab() {
     final connected = _walletAddr.isNotEmpty;
     final activeAddr = connected ? _walletAddr : (_identity?.pubkey ?? '');
-    final cluster = _config?.cluster ?? 'mainnet-beta';
+    final shortAddr = activeAddr.length > 12 ? '${activeAddr.substring(0, 6)}…${activeAddr.substring(activeAddr.length - 4)}' : activeAddr;
+    final favTeam = _favTeam.isEmpty ? null : _teamByCode(_favTeam);
+    final hitRate = _callsMade == 0 ? null : (_callsCorrect / _callsMade * 100).round();
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
       Text('YOU', style: display(26)),
       const SizedBox(height: 16),
-      // profile hero — ink card with avatar, name, sign-in method
+      // fan hero — who you are + your matchday record
       Container(
         decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(18)),
         padding: const EdgeInsets.all(18),
@@ -572,6 +958,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(_name.isEmpty ? 'Set your name' : _name, style: display(24, color: AppColors.cream)),
                 const SizedBox(height: 3),
                 Row(children: [
+                  if (_pro) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(color: AppColors.gold, borderRadius: BorderRadius.circular(99)),
+                      child: Text('SEASON PASS', style: label(color: AppColors.ink, size: 7.5, weight: FontWeight.w900)),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   Icon(connected ? Icons.account_balance_wallet_rounded : Icons.verified_user_rounded, size: 13, color: AppColors.orangeBright),
                   const SizedBox(width: 5),
                   Text(connected ? 'Solana wallet' : 'On-device Solana ID', style: label(color: AppColors.mutInk, size: 9.5)),
@@ -581,39 +975,52 @@ class _HomeScreenState extends State<HomeScreen> {
             GhostButton('Edit', onTap: _connect),
           ]),
           const SizedBox(height: 16),
+          // FAN STATS — your matchday record, not infra trivia
           Row(children: [
-            Expanded(child: _profileStat('◎ ${_solBalance == null ? '—' : _solBalance!.toStringAsFixed(3)}', 'SOL BALANCE')),
+            Expanded(child: _profileStat('🔥 $_streakBest', 'BEST STREAK', valueColor: AppColors.gold)),
             Container(width: 1, height: 34, color: AppColors.lineInk),
-            Expanded(child: _profileStat(cluster == 'mainnet-beta' ? 'MAINNET' : 'DEVNET', 'NETWORK')),
+            Expanded(child: _profileStat('$_matchesWatched', 'MATCHES')),
             Container(width: 1, height: 34, color: AppColors.lineInk),
-            Expanded(child: _profileStat(_config?.mode == 'live' ? 'LIVE' : 'REPLAY', 'TXLINE FEED')),
+            Expanded(child: _profileStat(hitRate == null ? '—' : '$_callsCorrect/$_callsMade', hitRate == null ? 'CALLS HIT' : 'CALLS · $hitRate%')),
           ]),
         ]),
       ),
       const SizedBox(height: 12),
-      // wallet card
-      Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.account_balance_wallet_outlined, color: AppColors.ink, size: 18),
-            const SizedBox(width: 8),
-            Text(connected ? 'CONNECTED WALLET' : 'YOUR WALLET', style: label(color: AppColors.ink, size: 10.5, weight: FontWeight.w800)),
-            const Spacer(),
-            if (!connected)
-              GhostButton('Connect', onTap: _connectWallet),
-          ]),
-          const SizedBox(height: 8),
-          SelectableText(activeAddr.isEmpty ? '—' : activeAddr, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.orange)),
-          const SizedBox(height: 6),
-          Text(connected
-              ? 'Your Phantom/Solflare wallet — used to sign in and prove room membership.'
-              : 'A secure Solana keypair was created on this device. Connect Phantom/Solflare to use your own wallet.',
-              style: body(color: AppColors.mut, size: 11.5)),
-        ]),
-      ),
+      // the commercial story — right under the hero
+      _seasonPassCard(),
       const SizedBox(height: 12),
+      // favourite team — pins their fixtures to the top of the home
+      Pressable(
+        haptic: HapticFeedbackType.selection,
+        onTap: _pickFavoriteTeam,
+        child: Container(
+          decoration: cardBox(),
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            if (favTeam != null) InlineFlag(team: favTeam, size: 30) else const Icon(Icons.favorite_border_rounded, color: AppColors.orange, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('FAVOURITE TEAM', style: label(color: AppColors.mut, size: 9.5)),
+                const SizedBox(height: 2),
+                Text(favTeam?.name ?? 'Pick your team', style: body(weight: FontWeight.w800, size: 14.5)),
+              ]),
+            ),
+            Text(favTeam != null ? 'Pinned to your home' : 'Their matches, front and centre', style: body(color: AppColors.mut, size: 10.5)),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.mut, size: 20),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 22),
+      // settings — demoted; wallet & infra live here, out of the fan story
+      const SectionLabel('Settings'),
+      _settingRow(
+        Icons.account_balance_wallet_outlined,
+        connected ? 'Wallet' : 'Wallet (on-device ID)',
+        shortAddr.isEmpty ? '—' : '$shortAddr${_solBalance != null ? ' · ◎${_solBalance!.toStringAsFixed(3)}' : ''}',
+        connected ? null : _connectWallet,
+      ),
       _settingRow(Icons.bolt_outlined, 'Data source', _config?.mode == 'live' ? 'Live TxLINE (mainnet oracle)' : 'Replay (TxLINE-shaped)', null),
       _settingRow(Icons.dns_outlined, 'Server', _api.baseUrl, () => showServerSettings(context, _api.baseUrl, (u) async {
         await _api.setBaseUrl(u);
@@ -624,8 +1031,130 @@ class _HomeScreenState extends State<HomeScreen> {
     ]);
   }
 
-  Widget _profileStat(String value, String label_) => Column(children: [
-        Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: display(17, color: AppColors.orangeBright)),
+  Team? _teamByCode(String code) {
+    for (final f in _fixtures) {
+      if (f.home.code == code) return f.home;
+      if (f.away.code == code) return f.away;
+    }
+    return null;
+  }
+
+  /// Pick the team whose matches get pinned to the top of the home.
+  void _pickFavoriteTeam() {
+    // unique teams from the fixture list, alphabetical
+    final seen = <String, Team>{};
+    for (final f in _fixtures) {
+      if (f.home.code != 'TBD') seen[f.home.code] = f.home;
+      if (f.away.code != 'TBD') seen[f.away.code] = f.away;
+    }
+    final teams = seen.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.of(ctx).size.height * 0.7,
+        child: Column(children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99))),
+          const SizedBox(height: 14),
+          Text('PICK YOUR TEAM', style: display(19)),
+          const SizedBox(height: 10),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              itemCount: teams.length,
+              itemBuilder: (_, i) {
+                final t = teams[i];
+                final sel = t.code == _favTeam;
+                return Pressable(
+                  haptic: HapticFeedbackType.selection,
+                  onTap: () async {
+                    await LocalStore.setFavoriteTeam(sel ? '' : t.code);
+                    if (mounted) setState(() => _favTeam = sel ? '' : t.code);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: sel ? const Color(0x14E9531E) : AppColors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: sel ? AppColors.orange : AppColors.line),
+                    ),
+                    child: Row(children: [
+                      InlineFlag(team: t, size: 26),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(t.name, style: body(weight: FontWeight.w700, size: 14))),
+                      if (sel) const Icon(Icons.check_circle_rounded, color: AppColors.orange, size: 18),
+                    ]),
+                  ),
+                );
+              },
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Season Pass — the product's paid tier. Active state or upsell CTA.
+  Widget _seasonPassCard() {
+    return Pressable(
+      haptic: HapticFeedbackType.medium,
+      onTap: () async {
+        if (_pro) return;
+        final unlocked = await showSeasonPassSheet(context);
+        if (unlocked && mounted) {
+          setState(() => _pro = true);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Season Pass active — enjoy the tournament 🏆')));
+        }
+      },
+      child: Container(
+        decoration: cardBox(border: _pro ? AppColors.orange : AppColors.line),
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(color: _pro ? AppColors.orange : AppColors.ink, borderRadius: BorderRadius.circular(12)),
+            alignment: Alignment.center,
+            child: const Text('🏆', style: TextStyle(fontSize: 20)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Text('SEASON PASS', style: label(color: AppColors.ink, size: 10.5, weight: FontWeight.w800)),
+                const SizedBox(width: 6),
+                if (_pro)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(99)),
+                    child: Text('ACTIVE', style: label(color: Colors.white, size: 8)),
+                  ),
+              ]),
+              const SizedBox(height: 2),
+              Text(
+                _pro
+                    ? 'Pro reactions, supporter badge & priority rooms unlocked.'
+                    : 'Pro reaction pack, supporter badge & more — \$4.99 for the whole tournament.',
+                style: body(color: AppColors.mut, size: 11.5),
+              ),
+            ]),
+          ),
+          if (!_pro) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: AppColors.mut, size: 18),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  Widget _profileStat(String value, String label_, {Color? valueColor}) => Column(children: [
+        Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: display(17, color: valueColor ?? AppColors.orangeBright)),
         const SizedBox(height: 2),
         Text(label_, style: label(color: AppColors.mutInk, size: 8)),
       ]);
@@ -667,8 +1196,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _fxSubtitle(Fixture f) {
-    if (f.status == 'finished') return 'Full time · tap to open the room';
-    if (f.status == 'live') return 'LIVE now · tap to watch';
-    return 'Kicks off ${kickoffWhen(f.kickoff)} · ${relativeKickoff(f.kickoff)}';
+    final stage = f.stage.isNotEmpty ? '${f.stage} · ' : '';
+    if (f.status == 'finished') return '${stage}FT · stats, ratings & line-ups';
+    if (f.status == 'live') return '${stage}LIVE now · tap for match centre';
+    return '${stage}Kicks off ${kickoffWhen(f.kickoff)}';
   }
 }

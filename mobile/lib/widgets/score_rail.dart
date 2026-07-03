@@ -58,6 +58,91 @@ class WinBar extends StatelessWidget {
   }
 }
 
+/// Who's turning the screw right now. -100 (away camped in the home box) to
+/// +100 (home pressure). Fills out from the centre toward whoever is on top,
+/// animating with every live tick so the room can feel the game breathing.
+class MomentumMeter extends StatelessWidget {
+  final int value; // -100 (away) .. +100 (home)
+  final Team home, away;
+  const MomentumMeter({super.key, required this.value, required this.home, required this.away});
+
+  @override
+  Widget build(BuildContext context) {
+    final homeC = teamColor(home.code);
+    final awayC = teamColor(away.code);
+    final v = value.clamp(-100, 100);
+    final leaderCode = v >= 0 ? home.code : away.code;
+    final caption = v.abs() < 12
+        ? 'Even contest'
+        : v.abs() < 45
+            ? '$leaderCode edging it'
+            : '$leaderCode turning the screw';
+    final captionColor = v.abs() < 12 ? AppColors.mut : (v >= 0 ? homeC : awayC);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: cardBox(),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Text('MOMENTUM', style: label(color: AppColors.ink, size: 11)),
+          const Spacer(),
+          Text(caption, style: label(color: captionColor, size: 10.5, weight: FontWeight.w800)),
+        ]),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 12,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: v.toDouble()),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOutCubic,
+            builder: (context, t, child) => LayoutBuilder(builder: (_, c) {
+              final w = c.maxWidth;
+              final half = w / 2;
+              final len = half * (t.abs() / 100).clamp(0.0, 1.0);
+              final isHome = t >= 0;
+              return Stack(children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.cardAlt,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                ),
+                Positioned(
+                  left: isHome ? half - len : half,
+                  top: 1.5,
+                  bottom: 1.5,
+                  width: len,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: (isHome ? homeC : awayC).withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: half - 0.75,
+                  top: 0,
+                  bottom: 0,
+                  width: 1.5,
+                  child: Container(color: const Color(0x33000000)),
+                ),
+              ]);
+            }),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(children: [
+          Text(home.code, style: label(color: homeC, size: 8.5, weight: FontWeight.w800)),
+          const Spacer(),
+          Text('attacking pressure · live', style: body(color: AppColors.mut, size: 8.5)),
+          const Spacer(),
+          Text(away.code, style: label(color: awayC, size: 8.5, weight: FontWeight.w800)),
+        ]),
+      ]),
+    );
+  }
+}
+
 /// Live win-chance timeline — the home side's win probability sampled every
 /// match-minute, so you can watch the momentum swing across the game. The area
 /// is tinted toward whoever's favoured (above/below the 50% line).

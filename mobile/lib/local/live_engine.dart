@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
 import '../util/merkle.dart';
+import 'match_facts.dart';
 import 'players.dart';
 
 /// A fully on-device live match — produces the same RoomView the UI renders,
@@ -17,13 +18,18 @@ class LiveMatchEngine extends ChangeNotifier {
   final String reactionPack;
   final bool voice, spoilerSafe;
 
+  /// The fixture's real score/minute at open time. A replay room seeded with
+  /// this starts where reality is instead of contradicting the home card.
+  final FixtureScore? seedScore;
+
   LiveMatchEngine(this.fixture,
       {required this.draftMode,
       required this.nextSwingMode,
       required this.myName,
       this.reactionPack = 'classic',
       this.voice = false,
-      this.spoilerSafe = false})
+      this.spoilerSafe = false,
+      this.seedScore})
       : _rng = Random(fixture.id.hashCode) {
     _members = [
       _M('me', myName.isEmpty ? 'You' : myName, isHost: true),
@@ -104,10 +110,87 @@ class LiveMatchEngine extends ChangeNotifier {
     status = 'live';
     _phase = 1;
     _leafPhase('kickoff', 0);
-    _system('Kick-off! The terrace is live.');
-    _addPulse('kickoff', '🟢', "We're live", '${fixture.home.name} vs ${fixture.away.name} is under way.', 'neutral', 0);
+    final seeded = _applySeed();
+    if (!seeded) {
+      _system('Kick-off! The terrace is live.');
+      _addPulse('kickoff', '🟢', "We're live", '${fixture.home.name} vs ${fixture.away.name} is under way.', 'neutral', 0);
+    }
     _timer = Timer.periodic(const Duration(milliseconds: 750), (_) => _tick());
     notifyListeners();
+  }
+
+  /// Fast-forward the sim to the fixture's real score/minute (replay rooms).
+  /// Goal/card history comes from the deterministic facts engine so the pulse
+  /// feed, final-whistle scorers and MOTM all agree with the match centre.
+  bool _applySeed() {
+    final s = seedScore;
+    if (s == null) return false;
+    final m = s.minute.clamp(0, 88); // ≥90 clamps so the room still has an ending
+    if (s.home + s.away == 0 && m <= 1) return false;
+
+    final facts = factsFor(fixture);
+    gH = s.home;
+    gA = s.away;
+    _minuteF = m < 45 ? m.toDouble() : (m.toDouble() + 0.001);
+    _phase = m < 45 ? 1 : 3;
+    if (m >= 45) _htRecap = true; // don't re-fire the HT recap for a seeded past
+
+    // goal history: real minutes + scorers from the facts engine where they
+    // line up with the seeded score; extra (untracked) goals fall back to the
+    // roster cycle so counts always match the scoreboard.
+    final factGoals = {'home': <MatchEvent>[], 'away': <MatchEvent>[]};
+    for (final e in facts.events.where((e) => e.kind == 'goal' && e.minute <= m)) {
+      factGoals[e.side]!.add(e);
+    }
+    void seedGoals(String side, int count) {
+      final fg = factGoals[side]!;
+      final team = side == 'home' ? fixture.home : fixture.away;
+      for (var i = 0; i < count; i++) {
+        final minute = i < fg.length ? fg[i].minute : (5 + (i * 17 + fixture.id.hashCode.abs()) % (m < 2 ? 1 : m - 1));
+        final name = i < fg.length ? fg[i].player : scorerName(fixture, side, i);
+        _goals.add(_GoalRec(name, minute, side, team.code));
+        if (minute <= 45) side == 'home' ? gH1++ : gA1++;
+        _leaves.add('${_seq++}:$minute:goal:$side:seed');
+        _addPulse('goal', '⚽', 'GOAL — ${team.name}', '$name struck in the ${minute}\'.', side, minute, scorer: name);
+      }
+    }
+
+    seedGoals('home', s.home);
+    seedGoals('away', s.away);
+    _goals.sort((a, b) => a.minute - b.minute);
+
+    // yellows from the facts engine (secondary, keeps the stats panel honest)
+    for (final e in facts.events.where((e) => e.kind == 'yellow' && e.minute <= m)) {
+      if (e.side == 'home') {
+        yH++;
+        if (e.minute <= 45) yH1++;
+      } else {
+        yA++;
+        if (e.minute <= 45) yA1++;
+      }
+    }
+    // corners: proportional share of the deterministic full-match total
+    cH = (facts.home.corners * m / 94).round();
+    cA = (facts.away.corners * m / 94).round();
+    cH1 = m >= 45 ? (cH * 0.55).round() : cH;
+    cA1 = m >= 45 ? (cA * 0.55).round() : cA;
+
+    // win-chance history: ramp from the pre-match baseline to the seeded state
+    _recomputeWin(m);
+    final w1 = _win.home;
+    final rh = fixture.home.rating, ra = fixture.away.rating;
+    final w0 = (42 + (rh - ra) * 0.45).clamp(5, 95).round();
+    for (var i = 0; i <= m; i++) {
+      final t = m == 0 ? 1.0 : i / m;
+      final jitter = ((i * 2654435761) % 5) - 2;
+      _winHistory.add(((w0 + (w1 - w0) * t).round() + jitter).clamp(3, 97));
+    }
+    _winSampleMinute = m;
+
+    _leafPhase('seeded:${s.home}-${s.away}@$m', m); // proof stays honest
+    _system('Joined in progress — ${fixture.home.code} $gH–$gA ${fixture.away.code}, ${m}\'.');
+    _addPulse('kickoff', '⏩', 'Joined in progress', '${fixture.home.code} $gH–$gA ${fixture.away.code} · picking it up at ${m}\'.', 'neutral', m);
+    return true;
   }
 
   void pickSide(String side) {
@@ -248,14 +331,18 @@ class LiveMatchEngine extends ChangeNotifier {
     _penNext = _now() + 1000;
 
     final side = _penTurn;
+    final kickIdx = _penKicks.where((k) => k.side == side).length;
     final scored = _rng.nextDouble() < 0.74;
     _penKicks.add(_Pen(side, scored));
     if (scored) {
       side == 'home' ? _penHome++ : _penAway++;
     }
-    final team = side == 'home' ? fixture.home : fixture.away;
-    _addPulse(scored ? 'goal' : 'chaos', scored ? '⚽' : '🧤', scored ? 'SCORED — ${team.code}' : 'MISSED — ${team.code}',
-        scored ? 'Buries it. $_penHome–$_penAway on pens.' : 'Saved! Still $_penHome–$_penAway.', side, 120);
+    final taker = penaltyTaker(fixture, side, kickIdx);
+    final keeper = keeperName(fixture, side == 'home' ? 'away' : 'home');
+    _addPulse(scored ? 'pen-goal' : 'pen-miss', scored ? '⚽' : '🧤',
+        scored ? 'SCORED — $taker' : 'MISSED — $taker',
+        scored ? '$taker buries it. $_penHome–$_penAway on pens.' : '$keeper saves! Still $_penHome–$_penAway.', side, 120,
+        scorer: taker);
     if (_rng.nextBool()) _botShout(side);
 
     _penTurn = side == 'home' ? 'away' : 'home';
@@ -308,7 +395,7 @@ class LiveMatchEngine extends ChangeNotifier {
     _leafEvent('goal', side, m);
     final team = side == 'home' ? fixture.home : fixture.away;
     final sideCount = side == 'home' ? gH : gA;
-    final name = scorerName(fixture.id, side, sideCount - 1);
+    final name = scorerName(fixture, side, sideCount - 1);
     _goals.add(_GoalRec(name, m, side, team.code));
     _addPulse('goal', '⚽', 'GOAL — ${team.name}!', 'the room erupts! ${fixture.home.code} $gH–$gA ${fixture.away.code}', side, m, scorer: name);
     for (final mem in _members) {
@@ -330,7 +417,8 @@ class LiveMatchEngine extends ChangeNotifier {
     }
     if (_rng.nextDouble() < 0.4) {
       final team = side == 'home' ? fixture.home : fixture.away;
-      _addPulse('corner-storm', '🚩', 'Corner — ${team.name}', 'Pressure building down the flank.', side, m);
+      final taker = cornerTaker(fixture, side, (side == 'home' ? cH : cA) - 1);
+      _addPulse('corner-storm', '🚩', 'Corner — ${team.name}', '$taker swings it in — pressure building.', side, m, scorer: taker);
     }
   }
 
@@ -344,7 +432,8 @@ class LiveMatchEngine extends ChangeNotifier {
     _leafEvent('yellow', side, m);
     _momentum = (_momentum + (side == 'home' ? -5 : 5)).clamp(-100, 100);
     if (_rng.nextDouble() < 0.5) {
-      _addPulse('chaos', '⚡', 'Chaos watch', 'Tempers fraying — the ref reaches for a card.', 'hot', m);
+      final booked = bookedPlayer(fixture, side, (side == 'home' ? yH : yA) - 1);
+      _addPulse('chaos', '🟨', 'Yellow — $booked', 'Into the book. One more and he walks.', side, m, scorer: booked);
     }
   }
 
@@ -568,7 +657,7 @@ class LiveMatchEngine extends ChangeNotifier {
         codes[g.name] = g.teamCode;
       }
     }
-    final pad = roster(fixture.id, winSide);
+    final pad = roster(fixture, winSide);
     var pi = 0;
     while (names.length < 3 && pi < pad.length) {
       if (!names.contains(pad[pi])) {

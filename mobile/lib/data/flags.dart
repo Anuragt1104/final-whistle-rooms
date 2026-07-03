@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../api/models.dart';
 import '../theme.dart';
@@ -78,15 +79,15 @@ class CircleFlag extends StatelessWidget {
         boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 1))],
       ),
       child: ClipOval(
-        child: Image.network(
-          flagUrl(iso, w: size > 30 ? 160 : 80),
+        child: CachedNetworkImage(
+          imageUrl: flagUrl(iso, w: size > 30 ? 160 : 80),
           width: size,
           height: size,
-          fit: BoxFit.cover,
           // flags are 3:2 — cover crops to a clean circle
-          errorBuilder: (_, __, ___) => fallback,
-          loadingBuilder: (_, child, progress) =>
-              progress == null ? child : _ColorBadge(team: team, size: size, border: null),
+          fit: BoxFit.cover,
+          fadeInDuration: const Duration(milliseconds: 120),
+          errorWidget: (_, __, ___) => fallback,
+          placeholder: (_, __) => _ColorBadge(team: team, size: size, border: null),
         ),
       ),
     );
@@ -125,12 +126,13 @@ class InlineFlag extends StatelessWidget {
     if (iso == null) return Text(team.flag, style: TextStyle(fontSize: size * 0.85));
     return ClipRRect(
       borderRadius: BorderRadius.circular(3),
-      child: Image.network(
-        flagUrl(iso, w: 80),
+      child: CachedNetworkImage(
+        imageUrl: flagUrl(iso, w: 80),
         width: size,
         height: size * 0.7,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Text(team.flag, style: TextStyle(fontSize: size * 0.85)),
+        fadeInDuration: const Duration(milliseconds: 120),
+        errorWidget: (_, __, ___) => Text(team.flag, style: TextStyle(fontSize: size * 0.85)),
       ),
     );
   }

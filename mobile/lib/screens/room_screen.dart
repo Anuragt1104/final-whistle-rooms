@@ -4,11 +4,13 @@ import 'package:share_plus/share_plus.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
+import '../data/player_images.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../state/room_controller.dart';
 import '../state/notifications.dart';
 import '../local/live_engine.dart';
+import '../local/players.dart';
 import '../theme.dart';
 import 'team_sheet.dart';
 import '../widgets/common.dart';
@@ -22,6 +24,7 @@ import '../widgets/chat_dock.dart';
 import '../widgets/recap_card.dart';
 import '../widgets/proof_sheet.dart';
 import '../widgets/motm_poll.dart';
+import '../widgets/player_avatar.dart';
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
@@ -75,6 +78,21 @@ class _RoomScreenState extends State<RoomScreen> {
     IdentityStore.getOrCreate().then((i) => _identity = i);
     LocalStore.streakBest().then((b) => mounted ? setState(() => _lifetimeBest = b) : null);
     ApiClient.instance.config().then((c) => mounted ? setState(() => _aiOn = c.recapAI) : null).catchError((_) {});
+    _warmPlayerPhotos();
+  }
+
+  bool _photosWarmed = false;
+
+  /// Pre-warm both squads' photo indexes the moment we know the fixture, so
+  /// the first GOAL card's face is already on disk before it happens.
+  void _warmPlayerPhotos() {
+    if (_photosWarmed) return;
+    final fx = _c.room?.fixture;
+    if (fx == null) return; // remote room still loading — retried from _onChange
+    _photosWarmed = true;
+    PlayerImages.warm(fx.home.name);
+    PlayerImages.warm(fx.away.name);
+    LocalStore.markWatched(fx.id); // fan stat: matches watched (once per fixture)
   }
 
   Future<void> _shareScore(RoomView room) async {
@@ -99,10 +117,14 @@ class _RoomScreenState extends State<RoomScreen> {
   int _lastGoals = 0;
   int _lastReds = 0;
   int _lastPoints = -1;
+  int _lastCorrect = -1;
   int _lifetimeBest = 0; // best Higher-or-Lower streak across all matches
+  bool _everConnected = false; // only warn about drops after a first good sync
   void _onChange() {
     if (!mounted) return;
+    if (_c.connected) _everConnected = true;
     final room = _c.room;
+    _warmPlayerPhotos(); // no-op once warmed; covers async-loading remote rooms
     // celebrate when the user's Next Swing points go up
     final myPoints = _c.me?.points ?? 0;
     if (_lastPoints >= 0 && myPoints > _lastPoints) {
@@ -116,21 +138,37 @@ class _RoomScreenState extends State<RoomScreen> {
       _lifetimeBest = st;
       LocalStore.bumpStreakBest(st);
     }
+    // fan stat: lifetime correct calls
+    final correct = _c.me?.correct ?? 0;
+    if (_lastCorrect >= 0 && correct > _lastCorrect) {
+      for (var i = _lastCorrect; i < correct; i++) {
+        LocalStore.bumpCallsCorrect();
+      }
+    }
+    _lastCorrect = correct;
     final goalCards = room?.pulse.where((p) => p.kind == 'goal').toList() ?? const [];
     final redCards = room?.pulse.where((p) => p.kind == 'red').toList() ?? const [];
     if (goalCards.length > _lastGoals) {
+      final isCatchUp = _lastGoals == 0 && goalCards.length > 1; // seeded history, not a fresh goal
       _lastGoals = goalCards.length;
-      HapticFeedback.heavyImpact();
-      // notify only for real (live TxLINE) rooms, not the on-device sim
-      if (!_c.isLocal && room != null && room.score != null) {
+      if (!isCatchUp && room != null) {
+        HapticFeedback.heavyImpact();
         final g = goalCards.last;
-        final s = room.score!;
-        final team = g.accent == 'away' ? room.fixture.away : room.fixture.home;
-        Notifications.show(
-          '⚽ GOAL — ${team.name}${g.scorer != null ? " · ${g.scorer}" : ""}',
-          "${room.fixture.home.name} ${s.goals.home}–${s.goals.away} ${room.fixture.away.name}   ·   ${s.minute}'",
-          subText: '${room.fixture.stage} · ${room.name}',
-        );
+        final side = g.accent == 'away' ? 'away' : 'home';
+        final team = side == 'away' ? room.fixture.away : room.fixture.home;
+        // same deterministic attribution as the pulse feed
+        final nth = goalCards.where((c) => c.accent == g.accent).length - 1;
+        final scorer = g.scorer ?? scorerName(room.fixture, side, nth < 0 ? 0 : nth);
+        _goalBanner(team, scorer, g.minute);
+        // system notification only for real (live TxLINE) rooms, not replays
+        if (!_c.isLocal && room.score != null) {
+          final s = room.score!;
+          Notifications.show(
+            '⚽ GOAL — ${team.name} · $scorer',
+            "${room.fixture.home.name} ${s.goals.home}–${s.goals.away} ${room.fixture.away.name}   ·   ${s.minute}'",
+            subText: '${room.fixture.stage} · ${room.name}',
+          );
+        }
       }
     }
     if (redCards.length > _lastReds) {
@@ -171,6 +209,11 @@ class _RoomScreenState extends State<RoomScreen> {
     return "${s.minute}'";
   }
 
+  /// True when this room does NOT follow the real live feed — the on-device
+  /// engine, or a backend running in simulation mode. Honesty rule: a replay
+  /// must never wear the LIVE badge.
+  bool get _isReplay => _c.isLocal || (ApiClient.instance.cachedConfig?.mode != 'live');
+
   /// Pill text reflects the actual MATCH state, not just the room status — a
   /// not-yet-kicked-off match must not read "LIVE".
   String _pillText(RoomView r) {
@@ -192,14 +235,24 @@ class _RoomScreenState extends State<RoomScreen> {
       case 8:
         return 'PENALTIES';
       default:
-        return 'LIVE';
+        return _isReplay ? 'REPLAY' : 'LIVE';
     }
   }
 
-  List<String> _scorers(RoomView r) => r.pulse
-      .where((c) => c.kind == 'goal')
-      .map((c) => "${c.scorer ?? (c.accent == 'home' ? r.fixture.home.code : r.fixture.away.code)} ${c.minute}'")
-      .toList();
+  /// Goal records for the final-whistle hero — (team, scorer, minute), with
+  /// the same deterministic attribution as the pulse feed when the feed only
+  /// gave us the team.
+  List<(Team, String, int)> _scorers(RoomView r) {
+    final out = <(Team, String, int)>[];
+    final count = {'home': 0, 'away': 0};
+    for (final c in r.pulse.where((c) => c.kind == 'goal')) {
+      final side = c.accent == 'away' ? 'away' : 'home';
+      final team = side == 'away' ? r.fixture.away : r.fixture.home;
+      out.add((team, c.scorer ?? scorerName(r.fixture, side, count[side]!), c.minute));
+      count[side] = count[side]! + 1;
+    }
+    return out;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -249,13 +302,16 @@ class _RoomScreenState extends State<RoomScreen> {
               clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room) && (room.score?.phase ?? 0) != 0,
               onTeamTap: (t) => showTeamSheet(context, t),
               pill: _pillText(room),
-              pillColor: const {'LIVE', 'EXTRA TIME', 'PENALTIES'}.contains(_pillText(room)) ? AppColors.orange : AppColors.inkSoft,
+              pillColor: _pillText(room) == 'REPLAY'
+                  ? AppColors.gold
+                  : (const {'LIVE', 'EXTRA TIME', 'PENALTIES'}.contains(_pillText(room)) ? AppColors.orange : AppColors.inkSoft),
               watching: room.members.length,
               onBack: () => Navigator.of(context).maybePop(),
               topRadius: 0,
               topInset: MediaQuery.of(context).padding.top,
             ),
           ),
+          _connectionBanner(),
           Expanded(
             child: ListView(controller: _scroll, padding: EdgeInsets.fromLTRB(16, 12, 16, _seg == 0 ? 88 : 16), children: [
               _controls(room),
@@ -269,10 +325,14 @@ class _RoomScreenState extends State<RoomScreen> {
                 if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
                 if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
                 if (room.shootout != null && !_hidden(room)) ...[
-                  ShootoutCard(s: room.shootout!, home: room.fixture.home, away: room.fixture.away),
+                  ShootoutCard(s: room.shootout!, fixture: room.fixture, home: room.fixture.home, away: room.fixture.away),
                   const SizedBox(height: 12),
                 ],
                 if (room.score != null && !_hidden(room)) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
+                if (room.score != null && room.status == 'live' && !_hidden(room) && (room.score!.phase != 0)) ...[
+                  MomentumMeter(value: room.momentum, home: room.fixture.home, away: room.fixture.away),
+                  const SizedBox(height: 12),
+                ],
                 if (room.score != null && !_hidden(room) && room.winHistory.length >= 3) ...[
                   WinTimeline(history: room.winHistory, home: room.fixture.home, away: room.fixture.away),
                   const SizedBox(height: 12),
@@ -293,7 +353,7 @@ class _RoomScreenState extends State<RoomScreen> {
                   const SizedBox(height: 12),
                 ],
                 if (latestRecap != null) ...[RecapCard(recap: latestRecap, aiOn: _aiOn), const SizedBox(height: 12)],
-                PulseFeed(pulse: room.pulse),
+                PulseFeed(pulse: room.pulse, fixture: room.fixture),
                 const SizedBox(height: 16),
                 Row(children: [Text('THE TERRACE', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)), const Spacer(), Text('${room.chat.where((c) => c.kind != "system").length} shouts', style: body(color: AppColors.mut, size: 11))]),
                 const SizedBox(height: 8),
@@ -334,8 +394,37 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
+  /// Slim "reconnecting" strip so nobody mistakes a stale room for a live one.
+  /// Only appears after the SSE stream has synced once and then dropped.
+  Widget _connectionBanner() {
+    final dropped = !_c.isLocal && _everConnected && !_c.connected;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      child: dropped
+          ? Container(
+              width: double.infinity,
+              color: const Color(0xFFB8860B),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const SizedBox(
+                  width: 11,
+                  height: 11,
+                  child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
+                ),
+                const SizedBox(width: 8),
+                Text('RECONNECTING TO LIVE FEED…', style: label(color: Colors.white, size: 9.5, weight: FontWeight.w800)),
+              ]),
+            )
+          : const SizedBox(width: double.infinity),
+    );
+  }
+
   Widget _controls(RoomView room) {
     final extras = <Widget>[];
+    if (_isReplay && room.status == 'live') {
+      extras.add(AppChip('▶ REPLAY — simulated from real squads', color: AppColors.gold));
+    }
     if (room.voice) {
       extras.add(AppChip('🎙 Voice room on', color: AppColors.orange, bg: const Color(0x14E9531E)));
     }
@@ -539,7 +628,26 @@ class _RoomScreenState extends State<RoomScreen> {
               ]),
               if (_scorers(room).isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 2, children: _scorers(room).map((x) => Text(x, style: body(color: AppColors.mutInk, size: 11.5, weight: FontWeight.w600))).toList()),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: _scorers(room)
+                      .map((g) => Container(
+                            padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.inkSoft,
+                              borderRadius: BorderRadius.circular(99),
+                              border: Border.all(color: AppColors.lineInk),
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              PlayerAvatar(team: g.$1, name: g.$2, size: 22),
+                              const SizedBox(width: 6),
+                              Text("${g.$2} ${g.$3}'", style: body(color: AppColors.cream, size: 11.5, weight: FontWeight.w700)),
+                            ]),
+                          ))
+                      .toList(),
+                ),
               ],
             ]),
           ),
@@ -547,8 +655,8 @@ class _RoomScreenState extends State<RoomScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           child: Column(children: [
-            if (room.shootout != null) ...[ShootoutCard(s: room.shootout!, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 14)],
-            if (room.motm != null) ...[MotmPollCard(poll: room.motm!, onVote: (k) => _c.voteMotm(k)), const SizedBox(height: 14)],
+            if (room.shootout != null) ...[ShootoutCard(s: room.shootout!, fixture: room.fixture, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 14)],
+            if (room.motm != null) ...[MotmPollCard(poll: room.motm!, fixture: room.fixture, onVote: (k) => _c.voteMotm(k)), const SizedBox(height: 14)],
             if (recap != null) ...[RecapCard(recap: recap, aiOn: _aiOn), const SizedBox(height: 14)],
             Leaderboard(room: room, meId: _c.memberId),
             const SizedBox(height: 14),
@@ -704,6 +812,64 @@ class _RoomScreenState extends State<RoomScreen> {
                 );
               },
             ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+  }
+
+  /// Broadcast-style GOAL banner — the scorer's face front and center. Slides
+  /// down from the top, holds a beat, slides away. Fires for local AND remote
+  /// rooms (attribution is deterministic per goal index).
+  void _goalBanner(Team team, String scorer, int minute) {
+    final overlay = Overlay.of(context);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        top: MediaQuery.of(ctx).padding.top + 8,
+        left: 16,
+        right: 16,
+        child: IgnorePointer(
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 2600),
+            onEnd: () => entry.remove(),
+            builder: (_, t, __) {
+              // slide in (0-0.12), hold (0.12-0.85), slide out (0.85-1)
+              final inT = Curves.easeOutBack.transform((t / 0.12).clamp(0, 1));
+              final outT = t < 0.85 ? 0.0 : Curves.easeIn.transform((t - 0.85) / 0.15);
+              return Opacity(
+                opacity: (1 - outT).clamp(0, 1),
+                child: Transform.translate(
+                  offset: Offset(0, -90 * (1 - inT) - 30 * outT),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.ink,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border(left: BorderSide(color: teamColor(team.code), width: 5)),
+                        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 24, offset: Offset(0, 10))],
+                      ),
+                      child: Row(children: [
+                        PlayerAvatar(team: team, name: scorer, size: 46, ringColor: AppColors.orangeBright),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                            Text('GOAL — ${team.name.toUpperCase()}', style: display(16, color: AppColors.orangeBright)),
+                            const SizedBox(height: 2),
+                            Text("$scorer · $minute'", style: body(color: AppColors.cream, size: 13, weight: FontWeight.w700)),
+                          ]),
+                        ),
+                        const Text('⚽', style: TextStyle(fontSize: 24)),
+                      ]),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),

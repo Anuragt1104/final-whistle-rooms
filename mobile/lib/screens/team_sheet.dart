@@ -1,8 +1,12 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../api/models.dart';
 import '../data/flags.dart';
 import '../data/sportsdb.dart';
+import '../local/squads.dart';
 import '../theme.dart';
+import '../widgets/common.dart';
+import '../widgets/player_sheet.dart';
 
 /// Bottom-sheet team profile — official badge, info and squad with player
 /// photos (TheSportsDB). Falls back to the flag + a note if a lookup misses.
@@ -52,15 +56,16 @@ class _TeamSheetState extends State<_TeamSheet> {
                 ]),
               ),
               if (info?.badge != null)
-                Image.network(info!.badge!, width: 46, height: 46, errorBuilder: (_, __, ___) => const SizedBox()),
+                CachedNetworkImage(imageUrl: info!.badge!, width: 46, height: 46, errorWidget: (_, __, ___) => const SizedBox()),
             ]),
             if (info?.description != null && info!.description!.isNotEmpty) ...[
               const SizedBox(height: 14),
               Text(info.description!, maxLines: 4, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 13)),
             ],
             const SizedBox(height: 20),
+            ..._tournamentSquad(),
             Row(children: [
-              Text('SQUAD', style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
+              Text('PLAYER GALLERY', style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
               const Spacer(),
               if (info != null && info.squad.isNotEmpty) Text('${info.squad.length} players', style: body(color: AppColors.mut, size: 11.5)),
             ]),
@@ -89,6 +94,45 @@ class _TeamSheetState extends State<_TeamSheet> {
     );
   }
 
+  /// On-device tournament squad — works offline; tap any player for their
+  /// World Cup stats profile.
+  List<Widget> _tournamentSquad() {
+    if (widget.team.code == 'TBD') return const [];
+    final sq = squadFor(widget.team);
+    Widget row(SquadPlayer p, {bool starter = false}) => Pressable(
+          haptic: HapticFeedbackType.selection,
+          onTap: () => showPlayerSheet(context, widget.team, p),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(children: [
+              SizedBox(width: 26, child: Text('${p.number}', style: display(13, color: AppColors.orange))),
+              Expanded(child: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(size: 13, weight: starter ? FontWeight.w800 : FontWeight.w600))),
+              Text(positionLabel(p.pos), style: label(color: AppColors.mut, size: 8.5)),
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.mut, size: 16),
+            ]),
+          ),
+        );
+    return [
+      Row(children: [
+        Text('WORLD CUP SQUAD', style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
+        const Spacer(),
+        Text('${sq.formation} · ${sq.coach}', style: body(color: AppColors.mut, size: 11.5)),
+      ]),
+      const SizedBox(height: 10),
+      Container(
+        decoration: cardBox(),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(children: [
+          ...sq.startingXI.map((p) => row(p, starter: true)),
+          Container(height: 1, color: AppColors.line, margin: const EdgeInsets.symmetric(vertical: 4)),
+          ...sq.bench.map(row),
+        ]),
+      ),
+      const SizedBox(height: 20),
+    ];
+  }
+
   Widget _playerCard(PlayerInfo p) {
     return Container(
       decoration: cardBox(),
@@ -97,11 +141,12 @@ class _TeamSheetState extends State<_TeamSheet> {
         Expanded(
           child: Container(
             color: AppColors.cardAlt,
-            child: Image.network(
-              p.photo,
+            child: CachedNetworkImage(
+              imageUrl: p.photo,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.person, color: AppColors.mut, size: 36)),
-              loadingBuilder: (_, child, prog) => prog == null ? child : const Center(child: Icon(Icons.person_outline, color: AppColors.line, size: 30)),
+              fadeInDuration: const Duration(milliseconds: 150),
+              errorWidget: (_, __, ___) => const Center(child: Icon(Icons.person, color: AppColors.mut, size: 36)),
+              placeholder: (_, __) => const Center(child: Icon(Icons.person_outline, color: AppColors.line, size: 30)),
             ),
           ),
         ),

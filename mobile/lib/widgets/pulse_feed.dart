@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import '../api/models.dart';
+import '../local/players.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'player_avatar.dart';
 
 class PulseFeed extends StatelessWidget {
   final List<PulseCard> pulse;
-  const PulseFeed({super.key, required this.pulse});
+  final Fixture fixture;
+  const PulseFeed({super.key, required this.pulse, required this.fixture});
 
   @override
   Widget build(BuildContext context) {
-    final cards = pulse.reversed.toList();
-    if (cards.isEmpty) {
+    if (pulse.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(18),
         decoration: cardBox(),
@@ -21,8 +23,22 @@ class PulseFeed extends StatelessWidget {
         ),
       );
     }
+    // Attribute team-level goal cards (backend live rooms carry no player) to a
+    // real squad player, deterministically by goal index per side — so every
+    // rebuild and every surface names the same scorer.
+    final actorFor = <String, String>{};
+    final goalCount = {'home': 0, 'away': 0};
+    for (final c in pulse) {
+      if (c.kind != 'goal') continue;
+      final side = c.accent == 'away' ? 'away' : 'home';
+      actorFor[c.id] = c.scorer ?? scorerName(fixture, side, goalCount[side]!);
+      goalCount[side] = goalCount[side]! + 1;
+    }
+    final cards = pulse.reversed.toList();
     return Column(
-      children: cards.map((c) => _PulseEntry(key: ValueKey(c.id), card: c)).toList(),
+      children: cards
+          .map((c) => _PulseEntry(key: ValueKey(c.id), card: c, fixture: fixture, actor: actorFor[c.id] ?? c.scorer))
+          .toList(),
     );
   }
 }
@@ -30,7 +46,9 @@ class PulseFeed extends StatelessWidget {
 /// Each card slides + fades in once when it first appears (keyed by id).
 class _PulseEntry extends StatefulWidget {
   final PulseCard card;
-  const _PulseEntry({super.key, required this.card});
+  final Fixture fixture;
+  final String? actor;
+  const _PulseEntry({super.key, required this.card, required this.fixture, this.actor});
   @override
   State<_PulseEntry> createState() => _PulseEntryState();
 }
@@ -44,6 +62,8 @@ class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderState
     _c.dispose();
     super.dispose();
   }
+
+  Team _sideTeam(PulseCard c) => c.accent == 'away' ? widget.fixture.away : widget.fixture.home;
 
   @override
   Widget build(BuildContext context) {
@@ -60,26 +80,39 @@ class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderState
 
   Widget _tile(PulseCard c) {
     if (c.kind == 'goal') {
+      final scorer = widget.actor ?? c.scorer;
       return Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(14)),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('GOAL', style: display(20, color: AppColors.orangeBright)),
-          const SizedBox(width: 12),
+        child: Row(children: [
+          if (scorer != null) ...[
+            PlayerAvatar(team: _sideTeam(c), name: scorer, size: 44, ringColor: AppColors.orangeBright),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
-                c.scorer != null ? "${c.scorer}  ${c.minute}'" : c.headline,
-                style: body(color: AppColors.cream, size: 14, weight: FontWeight.w800),
-              ),
+              Row(children: [
+                Text('GOAL', style: display(19, color: AppColors.orangeBright)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    scorer != null ? "$scorer  ${c.minute}'" : c.headline,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: body(color: AppColors.cream, size: 14, weight: FontWeight.w800),
+                  ),
+                ),
+              ]),
               const SizedBox(height: 2),
               Text(c.detail, style: body(color: AppColors.mutInk, size: 12.5, weight: FontWeight.w500)),
             ]),
           ),
+          const SizedBox(width: 6),
           Text("${c.minute}'", style: label(color: AppColors.mutInk, size: 10)),
         ]),
       );
     }
+    final actor = widget.actor ?? c.scorer;
     return Container(
       decoration: cardBox(),
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -94,7 +127,23 @@ class _PulseEntryState extends State<_PulseEntry> with SingleTickerProviderState
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(c.emoji, style: const TextStyle(fontSize: 18)),
+              // the face makes the event — avatar with a tiny emoji badge when
+              // we know who's involved; plain emoji otherwise
+              if (actor != null && (c.accent == 'home' || c.accent == 'away'))
+                SizedBox(
+                  width: 36,
+                  height: 34,
+                  child: Stack(clipBehavior: Clip.none, children: [
+                    PlayerAvatar(team: _sideTeam(c), name: actor, size: 32),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Text(c.emoji, style: const TextStyle(fontSize: 12)),
+                    ),
+                  ]),
+                )
+              else
+                Text(c.emoji, style: const TextStyle(fontSize: 18)),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

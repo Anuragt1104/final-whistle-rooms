@@ -435,6 +435,8 @@ const Map<String, List<String>> reactionPacks = {
   'classic': ['🔥', '⚽', '😱', '👏', '🎉', '😤'],
   'party': ['🎟️', '🍺', '🎉', '🥳', '🙌', '🎊'],
   'drama': ['😂', '❤️', '😱', '😭', '🤯', '💔'],
+  // Pro-only pack (Season Pass) — richer set unlocked by the entitlement.
+  'pro': ['🔥', '⚽', '🚀', '🐐', '🤯', '💎', '🫡', '🥶', '👑', '💯'],
 };
 List<String> packEmojis(String pack) => reactionPacks[pack] ?? reactionPacks['classic']!;
 

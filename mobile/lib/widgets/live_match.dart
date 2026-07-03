@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api/models.dart';
+import '../local/players.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'player_avatar.dart';
 
 /// Second-precision match clock. The backend sends the authoritative
 /// `clockSeconds` + `running`; this widget ticks locally every second between
@@ -220,26 +222,27 @@ class _MatchStatsPanelState extends State<MatchStatsPanel> {
 /// Penalty shootout scoreboard — kick-by-kick, running tally, sudden-death, winner.
 class ShootoutCard extends StatelessWidget {
   final ShootoutView s;
+  final Fixture fixture;
   final Team home, away;
-  const ShootoutCard({super.key, required this.s, required this.home, required this.away});
+  const ShootoutCard({super.key, required this.s, required this.fixture, required this.home, required this.away});
 
   @override
   Widget build(BuildContext context) {
+    // full ink — the shootout is the broadcast moment
     return Container(
-      decoration: cardBox(),
+      decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(18)),
       clipBehavior: Clip.antiAlias,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          color: AppColors.ink,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
           child: Row(children: [
             Text('🎯 PENALTY SHOOTOUT', style: label(color: AppColors.cream, size: 11.5, weight: FontWeight.w800)),
             const Spacer(),
-            Text('${s.home}–${s.away}', style: display(18, color: AppColors.orangeBright)),
+            Text('${s.home}–${s.away}', style: display(20, color: AppColors.orangeBright)),
           ]),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
           child: Column(children: [
             _teamRow(home, 'home'),
             const SizedBox(height: 10),
@@ -255,7 +258,7 @@ class ShootoutCard extends StatelessWidget {
                     style: label(color: Colors.white, size: 11.5, weight: FontWeight.w900)),
               )
             else
-              Text(_statusLine(), textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11.5)),
+              Text(_statusLine(), textAlign: TextAlign.center, style: body(color: AppColors.mutInk, size: 11.5)),
           ]),
         ),
       ]),
@@ -273,35 +276,48 @@ class ShootoutCard extends StatelessWidget {
     final c = teamColor(t.code);
     final kicks = s.kicks.where((k) => k.side == side).toList();
     return Row(children: [
-      SizedBox(width: 46, child: Text(t.code, style: label(color: c, size: 12.5, weight: FontWeight.w800))),
-      const SizedBox(width: 8),
+      SizedBox(width: 40, child: Text(t.code, style: label(color: AppColors.cream, size: 12.5, weight: FontWeight.w800))),
+      const SizedBox(width: 6),
       Expanded(
-        child: Wrap(spacing: 5, runSpacing: 5, children: [
-          for (final k in kicks) _dot(scored: k.scored, color: c),
-          for (int i = kicks.length; i < 5; i++) _dot(empty: true),
+        child: Wrap(spacing: 6, runSpacing: 6, children: [
+          // taken kicks: the taker's face, badged with the outcome
+          for (var i = 0; i < kicks.length; i++) _kickFace(t, side, i, kicks[i].scored, c),
+          for (int i = kicks.length; i < 5; i++) _emptyDot(),
         ]),
       ),
     ]);
   }
 
-  Widget _dot({bool scored = false, bool empty = false, Color? color}) {
-    if (empty) {
-      return Container(
-        width: 16, height: 16,
-        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: AppColors.line, width: 1.5)),
-      );
-    }
-    if (!scored) {
-      return Container(
-        width: 16, height: 16,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: AppColors.line.withValues(alpha: 0.5)),
-        child: const Icon(Icons.close_rounded, size: 12, color: AppColors.mut),
-      );
-    }
-    return Container(
-      width: 16, height: 16,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-      child: const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+  Widget _kickFace(Team t, String side, int kickIdx, bool scored, Color c) {
+    return SizedBox(
+      width: 36,
+      height: 34,
+      child: Stack(clipBehavior: Clip.none, children: [
+        PlayerAvatar(team: t, name: penaltyTaker(fixture, side, kickIdx), size: 32, ringColor: scored ? c : AppColors.lineInk),
+        Positioned(
+          right: -2,
+          bottom: -2,
+          child: Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: scored ? const Color(0xFF1F7A3D) : const Color(0xFFD8392B),
+              border: Border.all(color: AppColors.ink, width: 1.5),
+            ),
+            child: Icon(scored ? Icons.check_rounded : Icons.close_rounded, size: 9, color: Colors.white),
+          ),
+        ),
+      ]),
     );
   }
+
+  Widget _emptyDot() => Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: AppColors.lineInk, width: 1.5)),
+        ),
+      );
 }

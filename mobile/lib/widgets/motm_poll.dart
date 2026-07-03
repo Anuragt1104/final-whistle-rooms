@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import '../api/models.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'player_avatar.dart';
 
 class MotmPollCard extends StatelessWidget {
   final MotmPoll poll;
+  final Fixture fixture;
   final void Function(String key) onVote;
-  const MotmPollCard({super.key, required this.poll, required this.onVote});
+  const MotmPollCard({super.key, required this.poll, required this.fixture, required this.onVote});
+
+  Team _teamOf(MotmCandidate c) => c.teamCode == fixture.away.code ? fixture.away : fixture.home;
 
   @override
   Widget build(BuildContext context) {
@@ -57,9 +61,11 @@ class MotmPollCard extends StatelessWidget {
                 ),
                 Container(
                   height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: mine ? AppColors.orange : AppColors.line)),
                   child: Row(children: [
+                    PlayerAvatar(team: _teamOf(c), name: c.name, size: 30),
+                    const SizedBox(width: 8),
                     Text(c.name, style: body(size: 14, weight: FontWeight.w800, color: (mine || lead) ? Colors.white : AppColors.ink)),
                     const SizedBox(width: 6),
                     Text(c.teamCode, style: label(color: (mine || lead) ? Colors.white70 : AppColors.mut, size: 9)),

@@ -98,6 +98,7 @@ class RoomController extends ChangeNotifier {
   }
 
   Future<void> predict(String promptId, String key) async {
+    LocalStore.bumpCallsMade(); // fan stat: lifetime calls
     if (isLocal) {
       engine!.predict(promptId, key);
       return;

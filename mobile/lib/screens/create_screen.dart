@@ -8,8 +8,10 @@ import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../local/live_engine.dart';
 import '../theme.dart';
+import '../local/fixtures.dart';
 import '../widgets/app_header.dart';
 import '../widgets/common.dart';
+import '../widgets/season_pass_sheet.dart';
 import '../widgets/ticket.dart';
 import 'room_screen.dart';
 
@@ -30,6 +32,7 @@ class _CreateScreenState extends State<CreateScreen> {
   String _visibility = 'public';
   String _reactionPack = 'classic';
   bool _voice = true, _spoiler = false;
+  bool _pro = false;
   String _err = '';
 
   @override
@@ -41,7 +44,20 @@ class _CreateScreenState extends State<CreateScreen> {
 
   Future<void> _boot() async {
     _nameCtrl.text = await LocalStore.displayName();
-    final f = await _api.fixtures();
+    _pro = await LocalStore.isPro();
+    // Never leave the host staring at an empty (or partial) picker: if the
+    // backend is down or serves fewer matches than the on-device 104-game
+    // World Cup, use the full local schedule. Hosting a local-only fixture
+    // still works — creation falls back to the on-device engine.
+    List<Fixture> f;
+    try {
+      f = await _api.fixtures();
+      if (f.length < localFixtures().length) f = localFixtures();
+    } catch (_) {
+      f = localFixtures();
+    }
+    // knockout placeholders can't host a room yet
+    f = f.where((x) => x.home.code != 'TBD' && x.away.code != 'TBD').toList();
     if (!mounted) return;
     setState(() {
       _fixtures = f;
@@ -147,11 +163,43 @@ class _CreateScreenState extends State<CreateScreen> {
       if (!mounted) return;
       Navigator.pushReplacement(context, fwrRoute(RoomScreen(roomId: res.roomId)));
     } catch (_) {
-      // No backend reachable — host a local room (always works).
+      // Backend unreachable — never silently fake it; the host chooses.
       if (!mounted) return;
-      final engine = LiveMatchEngine(fx,
-          draftMode: _draft, nextSwingMode: _nextSwing, myName: name, reactionPack: _reactionPack, voice: _voice, spoilerSafe: _spoiler);
-      Navigator.pushReplacement(context, fwrRoute(RoomScreen(roomId: 'local', engine: engine)));
+      setState(() => _busy = false);
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: AppColors.card,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+        builder: (ctx) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
+            const SizedBox(height: 16),
+            Text('COULDN\'T REACH THE SERVER', style: display(19)),
+            const SizedBox(height: 6),
+            Text('Multiplayer rooms need the backend. Retry, or host an offline replay room (simulated from the real squads — friends can\'t join).',
+                style: body(color: AppColors.mut, size: 13)),
+            const SizedBox(height: 16),
+            PrimaryButton('Retry', icon: Icons.refresh_rounded, onTap: () {
+              Navigator.pop(ctx);
+              _create();
+            }),
+            const SizedBox(height: 8),
+            GhostButton('Host offline replay room', expand: true, onTap: () {
+              Navigator.pop(ctx);
+              final engine = LiveMatchEngine(fx,
+                  draftMode: _draft,
+                  nextSwingMode: _nextSwing,
+                  myName: name,
+                  reactionPack: _reactionPack,
+                  voice: _voice,
+                  spoilerSafe: _spoiler,
+                  seedScore: fx.score);
+              Navigator.pushReplacement(context, fwrRoute(RoomScreen(roomId: 'local', engine: engine)));
+            }),
+          ]),
+        ),
+      );
     }
   }
 
@@ -247,13 +295,44 @@ class _CreateScreenState extends State<CreateScreen> {
 
   Widget _packCard(String k) {
     final on = _reactionPack == k;
+    final locked = k == 'pro' && !_pro;
     return GestureDetector(
-      onTap: () => setState(() => _reactionPack = k),
+      onTap: () async {
+        if (!locked) {
+          setState(() => _reactionPack = k);
+          return;
+        }
+        // Season Pass gate — the pro pack is the paid tier's flagship perk.
+        final unlocked = await showSeasonPassSheet(context);
+        if (unlocked && mounted) {
+          setState(() {
+            _pro = true;
+            _reactionPack = k;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Season Pass active — Pro pack unlocked 💎')));
+        }
+      },
       child: Container(
         decoration: cardBox(border: on ? AppColors.orange : AppColors.line),
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
         alignment: Alignment.center,
-        child: Text(packEmojis(k).take(3).join('  '), style: const TextStyle(fontSize: 19)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Opacity(
+            opacity: locked ? 0.45 : 1,
+            child: Text(packEmojis(k).take(3).join('  '), style: const TextStyle(fontSize: 19)),
+          ),
+          if (k == 'pro') ...[
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: locked ? AppColors.ink : AppColors.orange,
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(locked ? '🔒 PRO' : 'PRO', style: label(color: Colors.white, size: 8)),
+            ),
+          ],
+        ]),
       ),
     );
   }
