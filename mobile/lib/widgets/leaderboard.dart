@@ -6,7 +6,8 @@ import 'common.dart';
 class Leaderboard extends StatelessWidget {
   final RoomView room;
   final String? meId;
-  const Leaderboard({super.key, required this.room, required this.meId});
+  final bool meIsPro; // Season Pass — supporter badge on your row
+  const Leaderboard({super.key, required this.room, required this.meId, this.meIsPro = false});
 
   String _sideCode(MemberView m) =>
       m.side == 'home' ? room.fixture.home.code : m.side == 'away' ? room.fixture.away.code : '';
@@ -51,6 +52,7 @@ class Leaderboard extends StatelessWidget {
                     if (_sideCode(m).isNotEmpty) ...[const SizedBox(width: 5), _tag(_sideCode(m), AppColors.ink)],
                     if (m.isHost) ...[const SizedBox(width: 4), _tag('HOST', AppColors.orange)],
                     if (isMe) ...[const SizedBox(width: 4), _tag('YOU', AppColors.orange)],
+                    if (isMe && meIsPro) ...[const SizedBox(width: 4), _tag('★ PRO', AppColors.gold)],
                   ]),
                   const SizedBox(height: 5),
                   // mini standings bar

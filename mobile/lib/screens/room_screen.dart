@@ -77,6 +77,7 @@ class _RoomScreenState extends State<RoomScreen> {
     }
     IdentityStore.getOrCreate().then((i) => _identity = i);
     LocalStore.streakBest().then((b) => mounted ? setState(() => _lifetimeBest = b) : null);
+    LocalStore.isPro().then((p) => mounted ? setState(() => _isPro = p) : null);
     ApiClient.instance.config().then((c) => mounted ? setState(() => _aiOn = c.recapAI) : null).catchError((_) {});
     _warmPlayerPhotos();
   }
@@ -118,6 +119,7 @@ class _RoomScreenState extends State<RoomScreen> {
   int _lastReds = 0;
   int _lastPoints = -1;
   int _lastCorrect = -1;
+  bool _isPro = false; // Season Pass — unlocks the pro reaction pack
   int _lifetimeBest = 0; // best Higher-or-Lower streak across all matches
   bool _everConnected = false; // only warn about drops after a first good sync
   void _onChange() {
@@ -359,7 +361,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 const SizedBox(height: 8),
                 ChatFeed(chat: room.chat, hostId: room.hostId),
               ] else ...[
-                Leaderboard(room: room, meId: _c.memberId),
+                Leaderboard(room: room, meId: _c.memberId, meIsPro: _isPro),
                 if (room.recaps.isNotEmpty) const SizedBox(height: 12),
                 ...room.recaps.reversed.map((r) => Padding(padding: const EdgeInsets.only(bottom: 10), child: RecapCard(recap: r, aiOn: _aiOn))),
               ],
@@ -385,7 +387,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 onTap: _scrollToChat,
                 onReact: _c.react,
                 disabled: !_c.joined,
-                emojis: packEmojis(room.reactionPack),
+                emojis: packEmojis(_isPro ? 'pro' : room.reactionPack),
               ),
             ),
           ),
@@ -658,7 +660,7 @@ class _RoomScreenState extends State<RoomScreen> {
             if (room.shootout != null) ...[ShootoutCard(s: room.shootout!, fixture: room.fixture, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 14)],
             if (room.motm != null) ...[MotmPollCard(poll: room.motm!, fixture: room.fixture, onVote: (k) => _c.voteMotm(k)), const SizedBox(height: 14)],
             if (recap != null) ...[RecapCard(recap: recap, aiOn: _aiOn), const SizedBox(height: 14)],
-            Leaderboard(room: room, meId: _c.memberId),
+            Leaderboard(room: room, meId: _c.memberId, meIsPro: _isPro),
             const SizedBox(height: 14),
             Row(children: [
               _statTile(compactNum(room.members.length), 'Peak in room'),

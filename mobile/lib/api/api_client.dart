@@ -51,6 +51,12 @@ class ApiClient {
   /// decisions fast; a background revalidate keeps it fresh.
   AppConfig? cachedConfig;
   List<Fixture>? _cachedFixtures;
+  int _cachedFixturesTs = 0;
+
+  /// Age of the cached fixtures — a stale cache must not flash a dead "live"
+  /// match at boot.
+  Duration cachedFixturesAge() =>
+      Duration(milliseconds: DateTime.now().millisecondsSinceEpoch - _cachedFixturesTs);
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -70,6 +76,7 @@ class ApiClient {
     if (fx != null) {
       try {
         _cachedFixtures = ((jsonDecode(fx) as List)).map((f) => Fixture.fromJson(f)).toList();
+        _cachedFixturesTs = prefs.getInt('cached_fixtures_at') ?? 0;
       } catch (_) {}
     }
   }
@@ -136,7 +143,11 @@ class ApiClient {
     final list = raw.map((f) => Fixture.fromJson(f)).toList();
     if (list.isNotEmpty) {
       _cachedFixtures = list;
-      SharedPreferences.getInstance().then((p) => p.setString('cached_fixtures', jsonEncode(raw)));
+      _cachedFixturesTs = DateTime.now().millisecondsSinceEpoch;
+      SharedPreferences.getInstance().then((p) {
+        p.setString('cached_fixtures', jsonEncode(raw));
+        p.setInt('cached_fixtures_at', _cachedFixturesTs);
+      });
     }
     return list;
   }

@@ -6,12 +6,14 @@ import 'package:flutter/services.dart';
 
 import '../api/models.dart';
 import '../data/flags.dart';
+import '../data/player_images.dart';
 import '../local/fixtures.dart';
 import '../local/match_facts.dart';
 import '../local/squads.dart';
 import '../local/tournament.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/player_avatar.dart';
 import '../widgets/player_sheet.dart';
 import '../widgets/ticket.dart';
 import 'team_sheet.dart';
@@ -39,6 +41,9 @@ class _MatchScreenState extends State<MatchScreen> {
   void initState() {
     super.initState();
     _refresh();
+    // faces ready before the user reaches the Line-ups tab
+    PlayerImages.warm(widget.fixture.home.name);
+    PlayerImages.warm(widget.fixture.away.name);
     // keep live minute/score honest while the page is open
     _tick = Timer.periodic(const Duration(seconds: 20), (_) => _refresh());
   }
@@ -550,11 +555,18 @@ class _MatchScreenState extends State<MatchScreen> {
         onTap: () => showPlayerSheet(context, team, p),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Stack(clipBehavior: Clip.none, children: [
-            Container(
-              width: 34, height: 34,
-              decoration: BoxDecoration(color: teamColor(team.code), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.6)),
-              alignment: Alignment.center,
-              child: Text('${p.number}', style: const TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
+            // official face on the pitch (initials fallback), shirt number badged
+            PlayerAvatar(team: team, name: p.name, size: 38, ringColor: Colors.white),
+            Positioned(
+              left: -5,
+              bottom: -3,
+              child: Container(
+                width: 15,
+                height: 15,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: teamColor(team.code), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1)),
+                child: Text('${p.number}', style: const TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: 8)),
+              ),
             ),
             if (rating != null)
               Positioned(right: -12, top: -6, child: ratingBadge(rating)),

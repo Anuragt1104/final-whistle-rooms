@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _callsMade = 0;
   int _callsCorrect = 0;
   String _favTeam = '';
+  List<Fixture> _apiFixtures = []; // real backend feed (live mode) — live strip + watch flow
   Timer? _poll;
 
   @override
@@ -69,6 +70,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _config = _api.cachedConfig;
     final cached = _api.cachedFixtures();
     _fixtures = _pickFixtures(cached ?? const []);
+    // Only trust a cached feed's "live" statuses when it's fresh — a stale
+    // cache must not flash a dead live match at boot and then vanish.
+    if (cached != null && _api.cachedFixturesAge() < const Duration(minutes: 10)) {
+      _apiFixtures = cached;
+    }
     _loading = false;
     if (mounted) setState(() {});
 
@@ -96,19 +102,29 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// The backend replay may only serve a slice of the tournament (e.g. group
-  /// games) — the app promises the FULL World Cup. In replay mode prefer the
-  /// complete on-device 104-match dataset; when the backend follows the real
-  /// live TxLINE feed, its fixtures are the truth and always win.
+  /// `_fixtures` is the FULL World Cup knowledge layer (progress bar, groups,
+  /// bracket, golden boot, schedule) — it must always be the complete 104-match
+  /// dataset, never a partial backend slice. The live TxLINE feed (real ids,
+  /// real scores) lives separately in `_apiFixtures` and drives the LIVE strip
+  /// and the watch flow in live mode.
   List<Fixture> _pickFixtures(List<Fixture> fromApi) {
-    if (_config?.mode == 'live') return fromApi;
     return fromApi.length >= localFixtures().length ? fromApi : localFixtures();
   }
+
+  /// Matches that are genuinely live right now. In live mode that's the real
+  /// feed; in replay mode the on-device schedule.
+  List<Fixture> get _liveNow =>
+      (_config?.mode == 'live' ? _apiFixtures : _fixtures).where((f) => f.status == 'live').toList();
 
   Future<void> _refreshFixturesQuiet() async {
     try {
       final f = await _api.fixtures();
-      if (f.isNotEmpty && mounted) setState(() => _fixtures = _pickFixtures(f));
+      if (f.isNotEmpty && mounted) {
+        setState(() {
+          _apiFixtures = f;
+          _fixtures = _pickFixtures(f);
+        });
+      }
     } catch (_) {
       /* keep showing the last known fixtures */
     }
@@ -143,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // the on-device fixture list so the app is never empty.
     try {
       final f = await _api.fixtures();
+      _apiFixtures = f;
       _fixtures = _pickFixtures(f);
     } catch (_) {
       _fixtures = localFixtures();
@@ -196,7 +213,10 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
-    if (cfg?.mode == 'live') {
+    // the backend can only host rooms for fixtures IT knows (the real feed) —
+    // local schedule fixtures go straight to a replay room, no failure detour
+    final backendKnowsFixture = _apiFixtures.any((x) => x.id == f.id);
+    if (cfg?.mode == 'live' && backendKnowsFixture) {
       try {
         final id = await IdentityStore.getOrCreate();
         final res = await _api.createRoom(
@@ -206,6 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
           nextSwing: true,
           hostName: _name.isEmpty ? 'You' : _name,
           hostWallet: id.pubkey,
+          visibility: 'invite', // watch-alongs are personal — don't flood "Open rooms"
         );
         await LocalStore.setMemberId(res.roomId, res.hostId);
         await _api.start(res.roomId, res.hostId); // begin streaming the real feed
@@ -349,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String? _featuredFixtureId() {
-    final live = _fixtures.where((f) => f.status == 'live');
+    final live = _liveNow;
     if (live.isNotEmpty) return live.first.id;
     final up = _fixtures.where((f) => f.status == 'scheduled');
     if (up.isNotEmpty) return up.first.id;
@@ -371,7 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---- ROOMS (Browse) ----
   Widget _roomsTab() {
-    final liveFixtures = _fixtures.where((f) => f.status == 'live').toList();
+    final liveFixtures = _liveNow;
     // pre-warm player-photo indexes for teams playing NOW (dedup inside warm),
     // so faces are instant when the user opens a room
     for (final f in liveFixtures) {
@@ -841,7 +862,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---- INBOX ----
   Widget _inboxTab() {
-    final live = _fixtures.where((f) => f.status == 'live').toList();
+    final live = _liveNow;
     final up = _fixtures.where((f) => f.status == 'scheduled').toList()
       ..sort((a, b) => a.kickoff.compareTo(b.kickoff));
     final fin = _fixtures.where((f) => f.status == 'finished').toList();
