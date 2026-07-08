@@ -62,6 +62,9 @@ export function HomeClient() {
               + Create a room
             </Link>
           </div>
+          <Link href="/explorer" className="mt-2 block text-center text-xs text-[var(--color-mut)] hover:text-[var(--color-lime)]">
+            Feed Explorer — see every field the oracle publishes →
+          </Link>
 
           <div className="mt-3 flex gap-2">
             <input

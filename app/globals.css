@@ -172,3 +172,9 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Feed Explorer is a desktop tool — it escapes the phone-frame shell */
+.app-shell:has(.explorer-root) {
+  max-width: none;
+  padding: 0;
+}
