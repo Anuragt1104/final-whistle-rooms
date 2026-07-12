@@ -195,3 +195,17 @@ functional with **no environment variables at all**.
 
 See [`SUBMISSION.md`](SUBMISSION.md) for the demo-video script, business model,
 and our TxLINE API feedback.
+
+---
+
+## Moment Cards + card game (in progress)
+
+Product evolution toward Merkle-backed **Moments**, playable **Player/Skill** cards,
+and between-match **Duels**. Domain language, decisions, and MVP plan:
+
+| Doc | Purpose |
+| --- | --- |
+| [`CONTEXT.md`](CONTEXT.md) | Ubiquitous language |
+| [`docs/adr/`](docs/adr/) | Architectural decisions |
+| [`docs/plans/moment-cards-mvp.md`](docs/plans/moment-cards-mvp.md) | Implementation plan + GitHub tickets |
+| [PRD #1](https://github.com/Anuragt1104/final-whistle-rooms/issues/1) | Spec + user stories |
