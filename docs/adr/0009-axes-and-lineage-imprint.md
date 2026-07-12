@@ -1,0 +1,3 @@
+# Player Card Axes are fixed roster Base Stats plus Lineage Imprint
+
+Every Player Card exposes five Axes — Finishing, Chaos, Clutch, Market Shock, Aura (0–99). Packs use authored Base Stats from a fixed demo roster. When a card is minted from Moment context (Pack tied to an event, or Craft), a Lineage Imprint permanently boosts the Axis that matches the Moment kind (goal → Finishing, cards/chaos → Chaos, late drama → Clutch, odds swing → Market Shock, otherwise Aura). Rejected live TxLINE-updating stats (unstable for Duels, heavy) and a 3-axis set (too little Skill design space) so cards stay readable, collectible, and Moment-linked.

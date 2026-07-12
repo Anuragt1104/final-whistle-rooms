@@ -83,16 +83,36 @@ A 1v1 contest between Fans using Player Cards and optional Skill Cards.
 _Avoid_: Battle, match (ambiguous with Fixture), game
 
 **Trump Duel**:
-The default Duel mode: best-of rounds where an attacker picks an axis and higher value wins (Top Trumps / Adrenalyn-style).
+The default Duel mode: best of three Rounds. Each Fan brings a Hand of three Player Cards; the Attacker picks an Axis each Round; higher value wins the Round; optional one Skill Card per Round.
 _Avoid_: Stat fight, Top Trumps (reference only)
+
+**Hand**:
+The three Player Cards a Fan selects to bring into a Trump Duel.
+_Avoid_: Deck, lineup, squad, loadout (loadout OK informally for Arena)
+
+**Round**:
+One Axis comparison inside a Trump Duel (or one claim resolution step inside Moment Arena when scored round-wise).
+_Avoid_: Turn, trick
+
+**Attacker**:
+The Fan who chooses the Axis for the current Round in a Trump Duel. Round winner becomes the next Attacker.
+_Avoid_: Leader, picker
 
 **Moment Arena**:
 A featured Duel mode seeded by a recent Merkle-backed Moment; loadouts score by how well they claim that Moment.
 _Avoid_: Ranked arena, claim mode
 
 **Axis**:
-A numeric stat on a Player Card compared during a Trump Duel (e.g. Finishing, Chaos, Clutch, Market Shock, Aura).
+One of five numeric stats on a Player Card compared in a Trump Duel: Finishing, Chaos, Clutch, Market Shock, Aura (each 0–99).
 _Avoid_: Stat, attribute (OK informally)
+
+**Base Stats**:
+The authored 0–99 Axis values on a Player Card from the demo roster before any Lineage imprint.
+_Avoid_: Default stats, card template
+
+**Lineage Imprint**:
+A lasting Axis boost applied when a Player Card is minted from Moment context (e.g. goal Moment → Finishing; market-swing Moment → Market Shock).
+_Avoid_: Stat mutate, live update, XP
 
 ### Trust
 

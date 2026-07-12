@@ -11,5 +11,7 @@ Architectural decisions for Final Whistle Rooms (Moment Cards + card game evolut
 | [0005](./0005-parties-optional-drop-multipliers.md) | Parties optional drop multipliers |
 | [0006](./0006-merkle-moments-and-lineage.md) | Merkle Moments + Lineage |
 | [0007](./0007-full-player-likenesses.md) | Full player likenesses |
+| [0008](./0008-trump-duel-bo3-hand.md) | Trump Duel Bo3 + three-card Hand |
+| [0009](./0009-axes-and-lineage-imprint.md) | Five Axes + Lineage Imprint |
 
 See also: [CONTEXT.md](../../CONTEXT.md), [plans/moment-cards-mvp.md](../plans/moment-cards-mvp.md)
