@@ -207,7 +207,8 @@ function scoreFromSnapshot(arr: TxScores[], seq: number): ScoreSnapshot {
   return s;
 }
 
-function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
+/** Normalize a raw TxLINE/TxODDS scores record into a ScoreSnapshot. */
+export function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
   const fixtureId = String(s.FixtureId ?? s.fixtureId ?? "");
   const p1Home = s.Participant1IsHome !== false;
   const stats = s.Stats ?? {};

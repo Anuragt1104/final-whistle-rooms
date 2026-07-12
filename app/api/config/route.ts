@@ -11,5 +11,7 @@ export async function GET() {
     anchorCluster: anchorCluster(),
     recapAI: !!process.env.ANTHROPIC_API_KEY,
     cluster: process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet",
+    cardEconomy: true,
+    historicalReplay: true,
   });
 }

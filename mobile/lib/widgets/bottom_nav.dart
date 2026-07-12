@@ -23,7 +23,7 @@ class BottomNav extends StatelessWidget {
         Expanded(child: Align(heightFactor: 1, child: _item('rooms', Icons.confirmation_num_outlined, 'Rooms'))),
         Expanded(child: Align(heightFactor: 1, child: _item('fixtures', Icons.grid_view_rounded, 'Fixtures'))),
         Expanded(child: Align(heightFactor: 1, child: _create())),
-        Expanded(child: Align(heightFactor: 1, child: _item('inbox', Icons.notifications_none_rounded, 'Inbox'))),
+        Expanded(child: Align(heightFactor: 1, child: _item('cards', Icons.style_outlined, 'Cards'))),
         Expanded(child: Align(heightFactor: 1, child: _item('you', Icons.person_outline_rounded, 'You'))),
       ]),
     );

@@ -161,10 +161,18 @@ class _MatchScreenState extends State<MatchScreen> {
   Widget _overviewTab() {
     final children = <Widget>[];
 
-    if (_fx.status != 'finished' && widget.onWatch != null && _fx.home.code != 'TBD') {
+    if (widget.onWatch != null && _fx.home.code != 'TBD') {
       children.addAll([
-        PrimaryButton(_fx.status == 'live' ? 'Watch live in a room' : 'Open the watch-along room',
-            icon: Icons.play_arrow_rounded, expand: true, onTap: widget.onWatch),
+        PrimaryButton(
+          _fx.status == 'live'
+              ? 'Watch live in a room'
+              : _fx.status == 'finished'
+                  ? 'Watch verified replay'
+                  : 'Open the watch-along room',
+          icon: Icons.play_arrow_rounded,
+          expand: true,
+          onTap: widget.onWatch,
+        ),
         const SizedBox(height: 14),
       ]);
     }

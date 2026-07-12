@@ -16,15 +16,21 @@ services:
       - key: TXLINE_COMPETITION_ID
         value: "72"                  # FIFA World Cup competition id
       - key: NEXT_PUBLIC_SOLANA_CLUSTER
-        value: mainnet-beta          # mainnet identity/anchor display
+        value: mainnet-beta          # identity display cluster
       - key: NEXT_PUBLIC_SOLANA_RPC
         value: https://api.mainnet-beta.solana.com
+      - key: SOLANA_ANCHOR_CLUSTER
+        value: devnet                # proofs/anchors on Solana devnet
+      - key: SOLANA_ANCHOR_RPC
+        value: https://api.devnet.solana.com
+      - key: SIM_SECONDS_PER_MATCH_MINUTE
+        value: "1.2"                 # paced historical replay
       # SECRET — Render prompts you to paste this during Blueprint setup.
       # Copy the value from your local .env.local (the TXLINE_API_TOKEN=... line).
       - key: TXLINE_API_TOKEN
         sync: false
-      # Optional extras:
-      # - key: SOLANA_ANCHOR_SECRET_KEY  (anchor room proofs on-chain)
-      #   sync: false
-      # - key: ANTHROPIC_API_KEY         (Claude-written recaps)
+      - key: SOLANA_ANCHOR_SECRET_KEY
+        sync: false
+      # Optional:
+      # - key: ANTHROPIC_API_KEY
       #   sync: false

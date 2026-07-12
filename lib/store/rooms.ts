@@ -26,6 +26,12 @@ import { generateRecap } from "@/lib/recap/generate";
 import { getSource, sourceMode } from "@/lib/txline/source";
 import { buildMerkleTree } from "@/lib/util/merkle";
 import { shareCode, uid } from "@/lib/util/id";
+import {
+  mintForRoomFans,
+  partyDropMultiplier,
+  sandwichFromWin,
+  stampCalledIt,
+} from "@/lib/cards/economy";
 import type {
   ChatView,
   MemberView,
@@ -322,7 +328,13 @@ export async function startMatch(id: string, memberId: string): Promise<{ error?
   system(rt, "Kick-off! The room is live.");
 
   if (sourceMode() === "live") {
-    await startLiveDriver(rt);
+    const { shouldReplayFixture } = await import("@/lib/txline/historical");
+    if (shouldReplayFixture(rt.fixture)) {
+      system(rt, "▶ REPLAY — pacing verified TxLINE match history.");
+      await startHistoricalDriver(rt);
+    } else {
+      await startLiveDriver(rt);
+    }
   } else {
     rt.sim = new MatchSimulation(rt.fixture);
     rt.interval = setInterval(() => simTick(rt), TICK_MS);
@@ -397,6 +409,26 @@ async function startLiveDriver(rt: RoomRuntime) {
   });
 }
 
+/** Historical driver — paces TxLINE historical/updates log through applyTick. */
+async function startHistoricalDriver(rt: RoomRuntime) {
+  const { openHistoricalMatchFeed } = await import("@/lib/txline/historical");
+  rt.closeLiveFeed = await openHistoricalMatchFeed(rt.fixture, {
+    onScore: (s) => {
+      const prev = rt.liveScore;
+      rt.liveScore = s;
+      const events = prev ? diffToEvents(prev, s) : [];
+      const odds = rt.liveOdds ?? rt.odds;
+      applyTick(rt, s, odds, events);
+      if (s.phase === GamePhase.HalfTime && !rt.htRecapDone) void doRecap(rt, "half-time");
+      if (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished) finishMatch(rt);
+    },
+    onError: (e) => system(rt, `Replay notice: ${String(e).slice(0, 100)}`),
+    onDone: () => {
+      if (rt.status === "live") finishMatch(rt);
+    },
+  });
+}
+
 /** Synthesize discrete events by diffing two live score snapshots. */
 function diffToEvents(prev: ScoreSnapshot, next: ScoreSnapshot): MatchEvent[] {
   const out: MatchEvent[] = [];
@@ -436,7 +468,17 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
     if (rt.pulse.length > 60) rt.pulse = rt.pulse.slice(-60);
   }
 
-  // 2) merkle leaves + team bonuses
+  // 2) merkle leaves + team bonuses + Moment mint
+  const beforeWin = {
+    home: rt.win.home / 100,
+    draw: rt.win.draw / 100,
+    away: rt.win.away / 100,
+  };
+  const afterWin = {
+    home: win.home / 100,
+    draw: win.draw / 100,
+    away: win.away / 100,
+  };
   for (const e of newEvents) {
     if (e.kind === "kickoff" || e.kind === "half-time" || e.kind === "full-time") {
       rt.merkleLeaves.push(`${e.seq}:${e.minute}:${e.kind}`);
@@ -449,6 +491,51 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
     for (const m of rt.members.values()) {
       if (m.side) m.points += teamBonusForEvent(e, m.side);
     }
+
+    // Card Economy: mint Moments for significant events (ADR-0001)
+    if (e.kind === "goal" || e.kind === "red" || e.kind === "yellow" || e.kind === "corner") {
+      let fanIds = [...rt.members.values()].map((m) => m.walletPubkey ?? m.id);
+      if (fanIds.length === 0) fanIds = [...rt.members.keys()];
+      const sandwich = sandwichFromWin(beforeWin, afterWin);
+      const minted = mintForRoomFans(fanIds, {
+        fixtureId: rt.fixture.id,
+        matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
+        roomId: rt.id,
+        partyMultiplier: partyDropMultiplier(rt.members.size),
+        event: {
+          kind: e.kind,
+          side: e.side,
+          minute: e.minute,
+          seq: e.seq,
+          label: e.label || `${e.kind} — ${e.side ?? "?"}`,
+        },
+        oddsSandwich: sandwich,
+        priorHomeProb: beforeWin.home,
+      });
+      if (minted.length) {
+        system(rt, `✦ ${minted[0].rarity}★ Moment minted — ${minted[0].label} (${minted.length} fans)`);
+      }
+    }
+  }
+
+  // market-swing Moments from pulse cards
+  for (const c of cards) {
+    if (c.kind !== "market-swing") continue;
+    const fanIds = [...rt.members.values()].map((m) => m.walletPubkey ?? m.id);
+    mintForRoomFans(fanIds, {
+      fixtureId: rt.fixture.id,
+      matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
+      roomId: rt.id,
+      partyMultiplier: partyDropMultiplier(rt.members.size),
+      event: {
+        kind: "market-swing",
+        minute: score.minute,
+        seq: score.seq,
+        label: c.headline ?? "Market swing",
+      },
+      oddsSandwich: sandwichFromWin(beforeWin, afterWin),
+      priorHomeProb: beforeWin.home,
+    });
   }
 
   // 3) Next Swing — generate, lock, resolve
@@ -499,7 +586,7 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
   // nothing relevant happened in the window — close it out without scoring or
   // resetting anyone's streak (a fair "no result").
   if (winningKey === "__void__") {
-    system(rt, "Next Swing — no result that window, no points lost.");
+    system(rt, "Micro-Play — no result that window, no points lost.");
     return;
   }
   let winners = 0;
@@ -512,12 +599,21 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       m.bestStreak = Math.max(m.bestStreak, m.streak);
       m.correct += 1;
       winners++;
+      // Called It → stamp related Moments + pack weight (ADR-0004)
+      const fanId = m.walletPubkey ?? m.id;
+      const stamped = stampCalledIt(fanId, {
+        fixtureId: rt.fixture.id,
+        sinceMinute: Math.max(0, prompt.locksAtMinute - 8),
+      });
+      if (stamped.length) {
+        system(rt, `✓ ${m.name} Called It — ${stamped.length} Moment${stamped.length > 1 ? "s" : ""} sealed`);
+      }
     } else {
       m.streak = 0;
     }
   }
   const opt = prompt.options.find((o) => o.key === winningKey);
-  system(rt, `Next Swing settled — ${opt?.label ?? winningKey}. ${winners} called it right.`);
+  system(rt, `Micro-Play settled — ${opt?.label ?? winningKey}. ${winners} called it right.`);
 }
 
 function finishMatch(rt: RoomRuntime) {

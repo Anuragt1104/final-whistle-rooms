@@ -7,14 +7,24 @@ import 'models.dart';
 
 class AppConfig {
   final String mode, cluster, anchorCluster;
-  final bool anchorConfigured, recapAI;
-  AppConfig({required this.mode, required this.cluster, required this.anchorCluster, required this.anchorConfigured, required this.recapAI});
+  final bool anchorConfigured, recapAI, cardEconomy, historicalReplay;
+  AppConfig({
+    required this.mode,
+    required this.cluster,
+    required this.anchorCluster,
+    required this.anchorConfigured,
+    required this.recapAI,
+    this.cardEconomy = false,
+    this.historicalReplay = false,
+  });
   factory AppConfig.fromJson(Map<String, dynamic> j) => AppConfig(
         mode: j['mode'] ?? 'simulation',
         cluster: j['cluster'] ?? 'devnet',
         anchorCluster: j['anchorCluster'] ?? 'devnet',
         anchorConfigured: j['anchorConfigured'] ?? false,
         recapAI: j['recapAI'] ?? false,
+        cardEconomy: j['cardEconomy'] == true,
+        historicalReplay: j['historicalReplay'] == true,
       );
   Map<String, dynamic> toJson() => {
         'mode': mode,
@@ -22,6 +32,8 @@ class AppConfig {
         'anchorCluster': anchorCluster,
         'anchorConfigured': anchorConfigured,
         'recapAI': recapAI,
+        'cardEconomy': cardEconomy,
+        'historicalReplay': historicalReplay,
       };
 }
 
@@ -222,6 +234,61 @@ class ApiClient {
   /// Anchor an arbitrary on-device Merkle root (solo rooms have no server room).
   Future<Map<String, dynamic>> anchorRoot(String root, {String? tag}) async =>
       (await _post('/api/anchor', {'root': root, if (tag != null) 'tag': tag})) as Map<String, dynamic>;
+
+  // ── Card Economy ──────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> inventory(String fanId) async =>
+      (await _get('/api/inventory?fanId=${Uri.encodeComponent(fanId)}')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> openPack(String fanId, String packId) async =>
+      (await _post('/api/packs/open', {'fanId': fanId, 'packId': packId})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> craft(String fanId, List<String> momentIds) async =>
+      (await _post('/api/craft', {'fanId': fanId, 'momentIds': momentIds})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> momentDetail(String id) async =>
+      (await _get('/api/moments/$id')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> createDuel({
+    required String fanId,
+    required List<String> hand,
+    bool vsBot = true,
+  }) async =>
+      (await _post('/api/duels', {
+        'action': 'create',
+        'fanId': fanId,
+        'hand': hand,
+        'vsBot': vsBot,
+      })) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> createArena({
+    required String fanId,
+    required String seedMomentId,
+    required List<String> hand,
+  }) async =>
+      (await _post('/api/duels', {
+        'action': 'arena',
+        'fanId': fanId,
+        'seedMomentId': seedMomentId,
+        'hand': hand,
+      })) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> playDuelRound({
+    required String duelId,
+    required String fanId,
+    required String axis,
+    required String cardId,
+    String? skillId,
+  }) async =>
+      (await _post('/api/duels/$duelId', {
+        'fanId': fanId,
+        'axis': axis,
+        'cardId': cardId,
+        if (skillId != null) 'skillId': skillId,
+      })) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> getDuel(String id) async =>
+      (await _get('/api/duels/$id')) as Map<String, dynamic>;
 }
 
 class ApiException implements Exception {

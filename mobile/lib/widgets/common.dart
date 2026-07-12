@@ -71,8 +71,9 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
 class Pressable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final HapticFeedbackType haptic;
-  const Pressable({super.key, required this.child, this.onTap, this.haptic = HapticFeedbackType.light});
+  const Pressable({super.key, required this.child, this.onTap, this.onLongPress, this.haptic = HapticFeedbackType.light});
   @override
   State<Pressable> createState() => _PressableState();
 }
@@ -106,15 +107,20 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    final enabled = widget.onTap != null;
     return GestureDetector(
-      onTapDown: enabled ? (_) => _down() : null,
-      onTapUp: enabled ? (_) => _up() : null,
-      onTapCancel: enabled ? _up : null,
-      onTap: enabled
+      onTapDown: widget.onTap != null ? (_) => _down() : null,
+      onTapUp: widget.onTap != null ? (_) => _up() : null,
+      onTapCancel: widget.onTap != null ? _up : null,
+      onTap: widget.onTap != null
           ? () {
               _fire();
               widget.onTap!();
+            }
+          : null,
+      onLongPress: widget.onLongPress != null
+          ? () {
+              HapticFeedback.mediumImpact();
+              widget.onLongPress!();
             }
           : null,
       child: ScaleTransition(scale: _c, child: widget.child),

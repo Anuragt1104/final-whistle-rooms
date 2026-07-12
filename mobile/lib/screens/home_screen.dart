@@ -25,6 +25,7 @@ import 'create_screen.dart';
 import 'match_screen.dart';
 import 'room_screen.dart';
 import 'team_sheet.dart';
+import 'album_screen.dart';
 import '../widgets/player_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -177,26 +178,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Watch a match live. Reuses the canonical room for that fixture if one
-  /// already exists — so repeated taps never spawn duplicate rooms, and
-  /// everyone watching the same match lands in the same room.
-  ///
-  /// Correctness rule: when the backend is in LIVE mode, a failure to reach it
-  /// NEVER silently drops into the on-device sim — the user explicitly picks
-  /// Retry or "Watch replay". Replay rooms are labeled and seeded from the
-  /// fixture's real score so they can't masquerade as the live match.
+  /// Watch a match live or replay a finished fixture through the backend.
+  /// Finished fixtures in live mode use TxLINE historical pacing so Moments mint.
   Future<void> _watchLive(Fixture f) async {
     if (f.home.code == 'TBD' || f.away.code == 'TBD') {
       _openMatch(f);
       return;
     }
-    final existing = _rooms.where((r) => r.fixture.id == f.id).toList();
+    final existing = _rooms.where((r) => r.fixture.id == f.id && r.status != 'finished').toList();
     if (existing.isNotEmpty) {
       _openRoom(existing.first.id);
       return;
     }
-    // Resolve the data mode before deciding — last-known config is instant;
-    // otherwise one quick (≤3s) network try with a visible indicator.
     var cfg = _config;
     if (cfg == null) {
       if (mounted) {
@@ -213,28 +206,30 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
-    // the backend can only host rooms for fixtures IT knows (the real feed) —
-    // local schedule fixtures go straight to a replay room, no failure detour
     final backendKnowsFixture = _apiFixtures.any((x) => x.id == f.id);
+    // Live OR finished historical replay — both need the backend room engine
     if (cfg?.mode == 'live' && backendKnowsFixture) {
       try {
         final id = await IdentityStore.getOrCreate();
+        final isReplay = f.status == 'finished';
         final res = await _api.createRoom(
-          name: '${f.home.name} watch-along',
+          name: isReplay
+              ? '${f.home.code} vs ${f.away.code} replay'
+              : '${f.home.name} watch-along',
           fixtureId: f.id,
           draft: true,
           nextSwing: true,
           hostName: _name.isEmpty ? 'You' : _name,
           hostWallet: id.pubkey,
-          visibility: 'invite', // watch-alongs are personal — don't flood "Open rooms"
+          visibility: 'invite',
         );
         await LocalStore.setMemberId(res.roomId, res.hostId);
-        await _api.start(res.roomId, res.hostId); // begin streaming the real feed
+        await _api.start(res.roomId, res.hostId);
         if (!mounted) return;
         Navigator.push(context, fwrRoute(RoomScreen(roomId: res.roomId)));
         return;
       } catch (_) {
-        if (mounted) _showLiveFallbackSheet(f); // explicit choice, never silent
+        if (mounted) _showLiveFallbackSheet(f);
         return;
       }
     }
@@ -382,7 +377,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'fixtures':
         return _fixturesTab();
       case 'inbox':
-        return _inboxTab();
+      case 'cards':
+        return const AlbumScreen();
       case 'you':
         return _youTab();
       default:
