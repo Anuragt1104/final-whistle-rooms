@@ -249,6 +249,10 @@ class ApiClient {
   Future<Map<String, dynamic>> inventory(String fanId) async =>
       (await _get('/api/inventory?fanId=${Uri.encodeComponent(fanId)}')) as Map<String, dynamic>;
 
+  /// Fill empty inventory with demo Moments / Packs / Players for Album testing.
+  Future<Map<String, dynamic>> seedInventory(String fanId) async =>
+      (await _post('/api/inventory/seed', {'fanId': fanId})) as Map<String, dynamic>;
+
   Future<Map<String, dynamic>> openPack(String fanId, String packId) async =>
       (await _post('/api/packs/open', {'fanId': fanId, 'packId': packId})) as Map<String, dynamic>;
 

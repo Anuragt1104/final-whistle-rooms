@@ -126,6 +126,31 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
     }
   }
 
+  bool get _albumEmpty {
+    final inv = _inv;
+    if (inv == null) return true;
+    return inv.moments.isEmpty && inv.players.isEmpty && inv.packs.isEmpty;
+  }
+
+  Future<void> _seedDemo() async {
+    try {
+      final fanId = await _fanId();
+      final res = await _api.seedInventory(fanId);
+      await _load();
+      if (!mounted) return;
+      final seeded = res['seeded'] == true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(seeded
+              ? 'Demo cards loaded — Moments, Packs, Players ready'
+              : 'Album already has cards (seed skipped)'),
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
   Future<void> _verify(MomentCard m) async {
     try {
       final detail = await _api.momentDetail(m.id);
@@ -333,7 +358,24 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
               ),
             ]),
           ),
+          TextButton(
+            onPressed: _seedDemo,
+            child: Text('Demo', style: label(size: 10, color: AppColors.orange, weight: FontWeight.w800)),
+          ),
           PrimaryButton('Pass', onTap: _openPass),
+        ]),
+      ),
+    );
+  }
+
+  Widget _emptyDemoPrompt({required String hint}) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(hint, textAlign: TextAlign.center, style: body(color: AppColors.mut)),
+          const SizedBox(height: 16),
+          PrimaryButton('Load demo cards', expand: true, onTap: _seedDemo),
         ]),
       ),
     );
@@ -342,12 +384,10 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
   Widget _momentsTab() {
     final moments = _inv?.moments ?? [];
     if (moments.isEmpty) {
-      return Center(
-        child: Text(
-          'Watch a live or replay room — goals mint Moments here.',
-          textAlign: TextAlign.center,
-          style: body(color: AppColors.mut),
-        ),
+      return _emptyDemoPrompt(
+        hint: _albumEmpty
+            ? 'No Moments yet. Load a demo set to try Craft, Packs, and Duels — or watch a replay to mint live.'
+            : 'Watch a live or replay room — goals mint Moments here.',
       );
     }
     return ListView(padding: const EdgeInsets.all(12), children: [
@@ -410,7 +450,9 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
   Widget _packsTab() {
     final packs = (_inv?.packs ?? []).where((p) => !p.opened).toList();
     if (packs.isEmpty) {
-      return Center(child: Text('No unopened packs — earn Moments or buy in Shop', style: body(color: AppColors.mut)));
+      return _albumEmpty
+          ? _emptyDemoPrompt(hint: 'No packs yet. Load demo cards to get unopened packs.')
+          : Center(child: Text('No unopened packs — earn Moments or buy in Shop', style: body(color: AppColors.mut)));
     }
     return ListView(
       padding: const EdgeInsets.all(12),
@@ -441,7 +483,9 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
     final players = _inv?.players ?? [];
     final skills = _inv?.skills ?? [];
     if (players.isEmpty && skills.isEmpty) {
-      return Center(child: Text('Open a pack to get Player Cards', style: body(color: AppColors.mut)));
+      return _albumEmpty
+          ? _emptyDemoPrompt(hint: 'No Player Cards yet. Load demo cards to duel and list on Market.')
+          : Center(child: Text('Open a pack to get Player Cards', style: body(color: AppColors.mut)));
     }
     return ListView(padding: const EdgeInsets.all(12), children: [
       ...players.map((p) => Container(
@@ -485,6 +529,9 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
 
   Widget _duelsTab() {
     final players = _inv?.players ?? [];
+    if (players.length < 3 && _albumEmpty) {
+      return _emptyDemoPrompt(hint: 'Need 3 Player Cards to duel. Load the demo set first.');
+    }
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

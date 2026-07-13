@@ -11,6 +11,7 @@ import {
   momentProof,
   openPack,
   partyDropMultiplier,
+  seedDemoInventory,
   stampCalledIt,
 } from "../lib/cards/economy.ts";
 import {
@@ -208,4 +209,18 @@ test("partyDropMultiplier scales with fans", () => {
   assert.equal(partyDropMultiplier(1), 1);
   assert.equal(partyDropMultiplier(2), 1.25);
   assert.equal(partyDropMultiplier(4), 1.5);
+});
+
+test("seedDemoInventory fills empty album and is idempotent", () => {
+  __resetCardEconomyForTests();
+  const first = seedDemoInventory("demo-fan");
+  assert.equal(first.seeded, true);
+  assert.equal(first.inventory.moments.length, 5);
+  assert.equal(first.inventory.packs.filter((p) => !p.opened).length, 2);
+  assert.equal(first.inventory.players.length, 3);
+  assert.equal(first.inventory.skills.length, 1);
+  const second = seedDemoInventory("demo-fan");
+  assert.equal(second.seeded, false);
+  assert.equal(second.inventory.moments.length, 5);
+  assert.equal(second.inventory.players.length, 3);
 });

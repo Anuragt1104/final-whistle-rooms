@@ -3,9 +3,9 @@
  * mintFromEvent / openPack / craft / inventoryOf / Called It / pack weights.
  */
 import { buildMerkleTree, verifyMerkleProof } from "@/lib/util/merkle";
+import { pickRosterWeighted, SKILL_TEMPLATES, ROSTER } from "./roster";
 import { applyLineageImprint } from "./lineage";
 import { marketRarity, momentPackWeight } from "./rarity";
-import { pickRosterWeighted, SKILL_TEMPLATES } from "./roster";
 import type {
   Card,
   FanInventory,
@@ -362,6 +362,179 @@ export function sandwichFromWin(
   after: { home: number; draw: number; away: number },
 ): OddsSandwich {
   return { before, after };
+}
+
+/**
+ * Demo / test seed — fills an empty fan inventory so Album, Craft, and Duels
+ * are playable without waiting for a live match mint. Idempotent: if the fan
+ * already has any cards/packs, returns the existing inventory unchanged.
+ */
+export function seedDemoInventory(fanId: string): { inventory: FanInventory; seeded: boolean } {
+  const inv = inventoryOf(fanId);
+  if (inv.moments.length > 0 || inv.players.length > 0 || inv.packs.length > 0) {
+    return { inventory: inv, seeded: false };
+  }
+
+  const fixtureId = "demo-fixture";
+  const matchLabel = "FRA vs ARG (demo)";
+  const roomId = "demo-room";
+  const leafKey = roomId;
+  const leaves: string[] = [];
+
+  const specs: Array<{
+    kind: MomentKind;
+    side: "home" | "away";
+    minute: number;
+    label: string;
+    prior: number;
+    sandwich: OddsSandwich;
+    calledIt?: boolean;
+  }> = [
+    {
+      kind: "goal",
+      side: "home",
+      minute: 12,
+      label: "Goal — France",
+      prior: 0.48,
+      sandwich: sandwichFromWin(
+        { home: 0.48, draw: 0.28, away: 0.24 },
+        { home: 0.62, draw: 0.22, away: 0.16 },
+      ),
+    },
+    {
+      kind: "goal",
+      side: "away",
+      minute: 34,
+      label: "Goal — Argentina",
+      prior: 0.22,
+      sandwich: sandwichFromWin(
+        { home: 0.55, draw: 0.25, away: 0.2 },
+        { home: 0.4, draw: 0.28, away: 0.32 },
+      ),
+      calledIt: true,
+    },
+    {
+      kind: "red",
+      side: "away",
+      minute: 51,
+      label: "Red card — Argentina",
+      prior: 0.12,
+      sandwich: sandwichFromWin(
+        { home: 0.5, draw: 0.27, away: 0.23 },
+        { home: 0.68, draw: 0.2, away: 0.12 },
+      ),
+    },
+    {
+      kind: "corner",
+      side: "home",
+      minute: 67,
+      label: "Corner storm — France",
+      prior: 0.55,
+      sandwich: sandwichFromWin(
+        { home: 0.55, draw: 0.25, away: 0.2 },
+        { home: 0.57, draw: 0.24, away: 0.19 },
+      ),
+    },
+    {
+      kind: "market-swing",
+      side: "home",
+      minute: 78,
+      label: "Market swing",
+      prior: 0.35,
+      sandwich: sandwichFromWin(
+        { home: 0.35, draw: 0.3, away: 0.35 },
+        { home: 0.58, draw: 0.24, away: 0.18 },
+      ),
+      calledIt: true,
+    },
+  ];
+
+  const momentIds: string[] = [];
+  specs.forEach((s, i) => {
+    const rarity = marketRarity(s.kind, s.prior, s.sandwich);
+    const leafData = ["moment", fixtureId, i + 1, s.minute, s.kind, s.side, rarity, fanId].join(":");
+    const moment: Moment = {
+      id: uid("mom"),
+      type: "moment",
+      ownerId: fanId,
+      fixtureId,
+      matchLabel,
+      kind: s.kind,
+      side: s.side,
+      minute: s.minute,
+      label: s.label,
+      rarity,
+      oddsSandwich: s.sandwich,
+      calledIt: !!s.calledIt,
+      leafData,
+      roomId,
+      createdAt: Date.now() - (specs.length - i) * 60_000,
+    };
+    inv.moments.push(moment);
+    momentIndex.set(moment.id, moment);
+    cardIndex.set(moment.id, moment);
+    leaves.push(leafData);
+    momentIds.push(moment.id);
+  });
+  momentLeaves.set(leafKey, leaves);
+
+  // Exactly 2 unopened packs (tied to first two moments)
+  for (let i = 0; i < 2; i++) {
+    const m = inv.moments[i];
+    inv.packs.push({
+      id: uid("pack"),
+      ownerId: fanId,
+      weight: momentPackWeight(m.rarity, m.calledIt) + (i === 1 ? 1 : 0),
+      momentIds: [m.id],
+      opened: false,
+      cards: [],
+      createdAt: Date.now(),
+      roomId,
+    });
+  }
+
+  // 3 ready Player Cards for Trump Duel
+  const starters = [ROSTER[0], ROSTER[1], ROSTER[2]]; // Mbappé, Messi, Bellingham
+  starters.forEach((roster, i) => {
+    const parent = inv.moments[i];
+    const axes = applyLineageImprint({ ...roster.axes }, parent.kind);
+    const leafData = ["lineage", roster.id, parent.id, fanId, Date.now()].join(":");
+    const player: PlayerCard = {
+      id: uid("plr"),
+      type: "player",
+      ownerId: fanId,
+      playerId: roster.id,
+      name: roster.name,
+      teamCode: roster.teamCode,
+      teamName: roster.teamName,
+      position: roster.position,
+      imageUrl: roster.imageUrl,
+      axes,
+      lineageMomentId: parent.id,
+      leafData,
+      createdAt: Date.now(),
+    };
+    inv.players.push(player);
+    cardIndex.set(player.id, player);
+    leaves.push(leafData);
+  });
+
+  const tmpl = SKILL_TEMPLATES[0];
+  const skill: SkillCard = {
+    id: uid("skl"),
+    type: "skill",
+    ownerId: fanId,
+    name: tmpl.name,
+    description: tmpl.description,
+    effect: tmpl.effect,
+    leafData: `skill:${tmpl.id}:${fanId}:demo`,
+    createdAt: Date.now(),
+  };
+  inv.skills.push(skill);
+  cardIndex.set(skill.id, skill);
+  inv.packWeightBonus = 0.5;
+
+  return { inventory: inv, seeded: true };
 }
 
 /** Test helper — wipe in-memory store. */
