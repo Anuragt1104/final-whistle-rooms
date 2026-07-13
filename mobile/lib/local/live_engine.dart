@@ -464,21 +464,130 @@ class LiveMatchEngine extends ChangeNotifier {
     if (open >= 2 || m - _lastPromptMinute < 5) return;
     _lastPromptMinute = m;
     final lock = min(m + 5, 90);
-    final menu = <_PromptDef>[
-      _PromptDef('What happens first?', [_opt('goal', 'A goal ⚽'), _opt('card', 'A card 🟨')], 120, lock, _Resolver.firstEvent),
-      _PromptDef('Who wins the next corner?', [_opt('home', fixture.home.code), _opt('away', fixture.away.code)], 100, lock, _Resolver.nextCorner),
-      _PromptDef('Next goal before ${min(m + 15, 90)}\'?', [_opt('home', fixture.home.code, '${_win.home}%'), _opt('none', 'No goal'), _opt('away', fixture.away.code, '${_win.away}%')], 140, lock, _Resolver.nextGoal, min(m + 15, 90)),
-    ];
-    // ⭐ the signature HIGHER OR LOWER call on the favourite's live win-chance —
-    // the one stat that swings both ways. Featured most often; events are variety.
     final homeLeads = _win.home >= _win.away;
     final leaderCode = homeLeads ? fixture.home.code : fixture.away.code;
     final leaderPct = homeLeads ? _win.home : _win.away;
-    final winSwing = _PromptDef(
-      '$leaderCode $leaderPct% to win — higher or lower?',
-      [_opt('up', 'Higher', '📈'), _opt('down', 'Lower', '📉')],
-      100 + (50 - leaderPct).abs(), min(m + 8, 90), _Resolver.winSwing, min(m + 12, 90), leaderPct, homeLeads ? 0 : 1);
-    final def = _rng.nextDouble() < 0.55 ? winSwing : menu[_rng.nextInt(menu.length)];
+    final totalGoals = gH + gA;
+    final leadTarget = min(max(m + 20, 70), 90);
+    final goalTarget = totalGoals + 1 + (_rng.nextDouble() < 0.45 ? 1 : 0);
+    final goalsDeadline = min(max(m + 25, 75), 90);
+    final cornerHint = cH == cA
+        ? 'even so far'
+        : cH > cA
+            ? '${fixture.home.code} lead corners $cH–$cA'
+            : '${fixture.away.code} lead corners $cA–$cH';
+
+    final weighted = <(_PromptDef, double)>[
+      (
+        _PromptDef(
+          'Favourite $leaderCode at $leaderPct% — call the swing in 5\'',
+          [_opt('up', 'Higher', '📈'), _opt('down', 'Lower', '📉')],
+          110 + (50 - leaderPct).abs(),
+          min(m + 2, 90),
+          _Resolver.winSwing,
+          min(m + 5, 90),
+          leaderPct,
+          homeLeads ? 0 : 1,
+        ),
+        3.2,
+      ),
+      (
+        _PromptDef(
+          '${fixture.home.code} win% is ${_win.home} — clear ${_win.home} by ${min(m + 6, 90)}\'?',
+          [_opt('yes', 'Yes — rises'), _opt('no', 'No — stalls/falls')],
+          130,
+          min(m + 2, 90),
+          _Resolver.oddsRise,
+          min(m + 6, 90),
+          _win.home,
+        ),
+        2.4,
+      ),
+      (
+        _PromptDef(
+          'Who gets the next yellow? (${fixture.home.code} $yH · ${fixture.away.code} $yA)',
+          [
+            _opt('home', fixture.home.code, yH >= yA ? 'hot' : 'cooler'),
+            _opt('away', fixture.away.code, yA >= yH ? 'hot' : 'cooler'),
+          ],
+          125,
+          lock,
+          _Resolver.nextCard,
+        ),
+        2.6,
+      ),
+      (
+        _PromptDef(
+          'Next corner — who wins it? ($cornerHint)',
+          [_opt('home', fixture.home.code), _opt('away', fixture.away.code)],
+          105,
+          lock,
+          _Resolver.nextCorner,
+        ),
+        2.2,
+      ),
+      (
+        _PromptDef(
+          'Will either side lead by 2+ at $leadTarget\'? (now $gH–$gA)',
+          [_opt('yes', 'Yes — 2-goal cushion'), _opt('no', 'No — stays tight')],
+          140,
+          min(m + 3, 90),
+          _Resolver.leadByTwo,
+          leadTarget,
+        ),
+        2.0,
+      ),
+      (
+        _PromptDef(
+          'Will total goals hit $goalTarget by $goalsDeadline\'? (now $totalGoals)',
+          [_opt('yes', 'Yes — reach $goalTarget'), _opt('no', 'No — stay under')],
+          135,
+          min(m + 3, 90),
+          _Resolver.totalGoals,
+          goalsDeadline,
+          goalTarget,
+        ),
+        2.0,
+      ),
+      (
+        _PromptDef(
+          'Next goal before ${min(m + 15, 90)}\'?',
+          [
+            _opt('home', fixture.home.code, '${_win.home}%'),
+            _opt('none', 'No goal'),
+            _opt('away', fixture.away.code, '${_win.away}%'),
+          ],
+          140,
+          lock,
+          _Resolver.nextGoal,
+          min(m + 15, 90),
+        ),
+        1.4,
+      ),
+      (
+        _PromptDef(
+          'What happens first — goal or card?',
+          [_opt('goal', 'A goal'), _opt('card', 'A card')],
+          100,
+          lock,
+          _Resolver.firstEvent,
+        ),
+        0.55,
+      ),
+    ];
+
+    final totalW = weighted.fold<double>(0, (s, e) => s + e.$2);
+    var roll = _rng.nextDouble() * totalW;
+    late _PromptDef def;
+    for (final item in weighted) {
+      roll -= item.$2;
+      if (roll <= 0) {
+        def = item.$1;
+        break;
+      }
+      def = item.$1;
+    }
+
     final id = _id('sw');
     _prompts[id] = PromptView(id: id, question: def.q, options: def.options, basePoints: def.pts, locksAtMinute: def.lock, status: 'open', winningKey: null, createdAt: _now(), tally: {for (final o in def.options) o.key: 0});
     _res[id] = def.resolver;
@@ -528,6 +637,9 @@ class LiveMatchEngine extends ChangeNotifier {
       case _Resolver.nextCorner:
         if (_lastEvent == 'corner') return _lastSide;
         return null;
+      case _Resolver.nextCard:
+        if (_lastEvent == 'card') return _lastSide;
+        return null;
       case _Resolver.nextGoal:
         if (_lastEvent == 'goal') return _lastSide;
         if (m >= meta[0]) return 'none';
@@ -540,6 +652,16 @@ class LiveMatchEngine extends ChangeNotifier {
           final cur = (meta.length > 2 && meta[2] == 1) ? _win.away : _win.home;
           return cur > meta[1] ? 'up' : 'down';
         }
+        return null;
+      case _Resolver.leadByTwo:
+        if (m >= meta[0] || _phase >= 4) {
+          return (gH - gA).abs() >= 2 ? 'yes' : 'no';
+        }
+        return null;
+      case _Resolver.totalGoals:
+        final target = meta.length > 1 ? meta[1] : 1;
+        if (gH + gA >= target) return 'yes';
+        if (m >= meta[0] || _phase >= 4) return 'no';
         return null;
     }
   }
@@ -837,7 +959,7 @@ class _GoalRec {
   _GoalRec(this.name, this.minute, this.side, this.teamCode);
 }
 
-enum _Resolver { firstEvent, nextCorner, nextGoal, oddsRise, winSwing }
+enum _Resolver { firstEvent, nextCorner, nextCard, nextGoal, oddsRise, winSwing, leadByTwo, totalGoals }
 
 class _Pen {
   final String side; // 'home' | 'away'

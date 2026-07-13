@@ -116,10 +116,20 @@ class _HomeScreenState extends State<HomeScreen> {
     return fromApi.length >= localFixtures().length ? fromApi : localFixtures();
   }
 
+  /// Home Live / Soon / Next strips: TxLINE only when live mode has data.
+  /// Local 104-match set stays for Fixtures hub + offline fallback.
+  List<Fixture> get _stripFixtures {
+    if (_config?.mode == 'live' && _apiFixtures.isNotEmpty) return _apiFixtures;
+    return _fixtures;
+  }
+
   /// Matches that are genuinely live right now. In live mode that's the real
   /// feed; in replay mode the on-device schedule.
   List<Fixture> get _liveNow =>
-      (_config?.mode == 'live' ? _apiFixtures : _fixtures).where((f) => f.status == 'live').toList();
+      _stripFixtures.where((f) => f.status == 'live').toList();
+
+  List<Fixture> get _finishedReplay =>
+      _stripFixtures.where((f) => f.status == 'finished' && f.home.code != 'TBD' && f.away.code != 'TBD').toList();
 
   Future<void> _refreshFixturesQuiet() async {
     try {
@@ -225,17 +235,28 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
-    final backendKnowsFixture = _apiFixtures.any((x) => x.id == f.id);
+    // Prefer TxLINE id when the home strip knows this pairing (local knockout
+    // phantoms must not open offline rooms that never mint Moments).
+    Fixture? apiMatch;
+    for (final x in _apiFixtures) {
+      if (x.id == f.id || (x.home.code == f.home.code && x.away.code == f.away.code)) {
+        apiMatch = x;
+        break;
+      }
+    }
+    final fixtureId = apiMatch?.id ?? f.id;
+    final status = apiMatch?.status ?? f.status;
+    final backendKnowsFixture = apiMatch != null;
     // Live OR finished historical replay — both need the backend room engine
     if (cfg?.mode == 'live' && backendKnowsFixture) {
       try {
         final id = await IdentityStore.getOrCreate();
-        final isReplay = f.status == 'finished';
+        final isReplay = status == 'finished';
         final res = await _api.createRoom(
           name: isReplay
               ? '${f.home.code} vs ${f.away.code} replay'
               : '${f.home.name} watch-along',
-          fixtureId: f.id,
+          fixtureId: fixtureId,
           draft: true,
           nextSwing: true,
           hostName: _name.isEmpty ? 'You' : _name,
@@ -245,7 +266,19 @@ class _HomeScreenState extends State<HomeScreen> {
         await LocalStore.setMemberId(res.roomId, res.hostId);
         await _api.start(res.roomId, res.hostId);
         if (!mounted) return;
-        Navigator.push(context, fwrRoute(RoomScreen(roomId: res.roomId)));
+        final result = await Navigator.push(context, fwrRoute(RoomScreen(roomId: res.roomId)));
+        if (!mounted) return;
+        if (isReplay || result == 'finished') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Cards updated — open Album'),
+              action: SnackBarAction(
+                label: 'Album',
+                onPressed: () => setState(() => _nav = 'cards'),
+              ),
+            ),
+          );
+        }
         return;
       } catch (_) {
         if (mounted) _showLiveFallbackSheet(f);
@@ -414,7 +447,8 @@ class _HomeScreenState extends State<HomeScreen> {
       PlayerImages.warm(f.home.name);
       PlayerImages.warm(f.away.name);
     }
-    final upcomingAll = _fixtures.where((f) => f.status == 'scheduled').toList()
+    final strip = _stripFixtures;
+    final upcomingAll = strip.where((f) => f.status == 'scheduled').toList()
       ..sort((a, b) => minutesUntilKickoff(a.kickoff).compareTo(minutesUntilKickoff(b.kickoff)));
     // your team plays? their match jumps the queue
     if (_favTeam.isNotEmpty) {
@@ -431,6 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final soon = upcomingAll.where((f) => minutesUntilKickoff(f.kickoff) <= 24 * 60).toList();
     final soonMode = soon.isNotEmpty;
     final shownUpcoming = soonMode ? soon : upcomingAll.take(3).toList();
+    final finished = _finishedReplay.reversed.take(4).toList();
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -450,7 +485,12 @@ class _HomeScreenState extends State<HomeScreen> {
           _noLiveCard(upcomingAll.isNotEmpty ? upcomingAll.first : null)
         else
           ...liveFixtures.map((f) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _liveMatchCard(f))),
-        TournamentPulse(fixtures: _fixtures),
+        // Tournament pulse uses local 104 for WC narrative; live mode strips above are TxLINE-only.
+        if (_config?.mode != 'live' || _apiFixtures.isEmpty) TournamentPulse(fixtures: _fixtures),
+        if (_config?.mode == 'live' && _apiFixtures.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text('Schedule from TxLINE live feed', style: body(color: AppColors.mut, size: 11)),
+        ],
         const SizedBox(height: 12),
         Row(children: [
           Expanded(
@@ -490,6 +530,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: body(color: AppColors.mut, size: 12)),
             ),
           ...shownUpcoming.map(_fixtureRow),
+        ],
+        if (finished.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const SectionLabel('Replay & mint Moments'),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('Finished TxLINE matches — watch the historical room to mint cards.',
+                style: body(color: AppColors.mut, size: 12)),
+          ),
+          ...finished.map(_fixtureRow),
         ],
         const SizedBox(height: 16),
         Center(child: Text('Powered by TxLINE · sign-in with Solana · points only, no cash staking', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11))),
@@ -679,7 +729,31 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(width: 8),
             if (!tbd) ...[
-              if (f.status != 'finished') ...[
+              if (f.status == 'finished') ...[
+                Pressable(
+                  haptic: HapticFeedbackType.selection,
+                  onTap: () => _openMatch(f),
+                  child: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
+                    child: const Icon(Icons.bar_chart_rounded, color: AppColors.ink, size: 19),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Pressable(
+                  haptic: HapticFeedbackType.medium,
+                  onTap: () => _watchLive(f),
+                  child: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.orange,
+                      borderRadius: BorderRadius.circular(11),
+                      boxShadow: const [BoxShadow(color: Color(0x33E9531E), blurRadius: 8, offset: Offset(0, 3))],
+                    ),
+                    child: const Icon(Icons.replay_rounded, color: Colors.white, size: 20),
+                  ),
+                ),
+              ] else ...[
                 Pressable(
                   haptic: HapticFeedbackType.selection,
                   onTap: () => _openCreate(f.id),
@@ -703,16 +777,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
                   ),
                 ),
-              ] else
-                Pressable(
-                  haptic: HapticFeedbackType.selection,
-                  onTap: () => _openMatch(f),
-                  child: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(11), border: Border.all(color: AppColors.line)),
-                    child: const Icon(Icons.bar_chart_rounded, color: AppColors.ink, size: 19),
-                  ),
-                ),
+              ],
             ],
           ]),
         ),
@@ -878,9 +943,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---- INBOX ----
   Widget _inboxTab() {
     final live = _liveNow;
-    final up = _fixtures.where((f) => f.status == 'scheduled').toList()
+    final strip = _stripFixtures;
+    final up = strip.where((f) => f.status == 'scheduled').toList()
       ..sort((a, b) => a.kickoff.compareTo(b.kickoff));
-    final fin = _fixtures.where((f) => f.status == 'finished').toList();
+    final fin = strip.where((f) => f.status == 'finished').toList();
     final hasAny = live.isNotEmpty || up.isNotEmpty || fin.isNotEmpty;
     return RefreshIndicator(
       onRefresh: _refresh,

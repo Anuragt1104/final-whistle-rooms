@@ -1,9 +1,6 @@
 /**
- * Next Swing — bite-sized, skill-based live prediction prompts tied strictly to
- * documented TxLINE primitives (goals, cards, corners, phase, odds movement).
- * No cash staking: players build points and streaks. Prompts open with a short
- * betting window, lock, then settle automatically as the match unfolds — so the
- * same logic works on simulated and live data.
+ * Next Swing — skill/knowledge Micro-Plays tied to TxLINE score, discipline,
+ * corners, and odds. Bias toward reading the match over coin-flip prompts.
  */
 import type { MatchEvent, OddsSnapshot, ScoreSnapshot, StatPair } from "@/lib/txline/types";
 import type { WinChance } from "@/lib/engine/pulse";
@@ -27,7 +24,13 @@ export type SwingResolver =
   /** Does the home win-chance move up/down by `delta` before `minute`? */
   | { kind: "odds-move"; baseline: number; minute: number }
   /** HIGHER or LOWER: is the side's win-chance above `baseline` by `minute`? */
-  | { kind: "win-swing"; side: "home" | "away"; baseline: number; minute: number };
+  | { kind: "win-swing"; side: "home" | "away"; baseline: number; minute: number }
+  /** Which side picks up the next yellow/red (discipline read). */
+  | { kind: "next-card-side" }
+  /** Will either side lead by 2+ when the clock hits `minute` (or FT). */
+  | { kind: "lead-by-two"; minute: number }
+  /** Will total goals reach `target` by `minute`. */
+  | { kind: "total-goals"; target: number; minute: number };
 
 export type SwingStatus = "open" | "locked" | "settled";
 
@@ -68,92 +71,197 @@ export function generatePrompt(
   const home = labelOf(odds, "home");
   const away = labelOf(odds, "away");
   const lock = Math.min(minute + 5, 90);
+  const totalGoals = score.goals.home + score.goals.away;
+  const yellowH = score.yellow.home;
+  const yellowA = score.yellow.away;
 
-  // weight the menu by what's live and dramatic
-  const menu: Array<() => SwingPrompt> = [];
+  // Skill / knowledge menu — weighted, not equal coin-flips
+  type Weighted = { w: number; make: () => SwingPrompt };
+  const menu: Weighted[] = [];
 
-  menu.push(() => ({
-    id: pid(),
-    question: "What happens first?",
-    options: [
-      { key: "goal", label: "A goal ⚽" },
-      { key: "card", label: "A card 🟨" },
-    ],
-    resolver: { kind: "next-event", map: { goal: "goal", card: "card" } },
-    basePoints: 120,
-    locksAtMinute: lock,
-    status: "open",
-    createdAt: Date.now(),
-  }));
-
-  menu.push(() => ({
-    id: pid(),
-    question: "Who wins the next corner?",
-    options: [
-      { key: "home", label: home },
-      { key: "away", label: away },
-    ],
-    resolver: { kind: "next-corner-side" },
-    basePoints: 100,
-    locksAtMinute: lock,
-    status: "open",
-    createdAt: Date.now(),
-  }));
-
-  menu.push(() => ({
-    id: pid(),
-    question: `Next goal before ${Math.min(minute + 15, 90)}'?`,
-    options: [
-      { key: "home", label: home, hint: pctHint(win.home) },
-      { key: "none", label: "No goal" },
-      { key: "away", label: away, hint: pctHint(win.away) },
-    ],
-    resolver: { kind: "next-goal-before", minute: Math.min(minute + 15, 90) },
-    basePoints: 140,
-    locksAtMinute: lock,
-    status: "open",
-    createdAt: Date.now(),
-  }));
-
-  // first-half level prompt, only when relevant
-  if (minute < 40) {
-    menu.push(() => ({
-      id: pid(),
-      question: "Is it level at half-time?",
-      options: [
-        { key: "yes", label: "Level 🤝" },
-        { key: "no", label: "Someone leads" },
-      ],
-      resolver: { kind: "half-level", endMinute: 45 },
-      basePoints: 100,
-      locksAtMinute: 44,
-      status: "open",
-      createdAt: Date.now(),
-    }));
-  }
-
-  // ⭐ The signature HIGHER OR LOWER call — predict the win-chance swing. This
-  // is the headline game (the one stat that genuinely moves both ways), so it
-  // plays most often; the event prompts above are variety.
+  // Market literacy — featured Higher/Lower with explicit favourite %
   const leader = win.home >= win.away ? home : away;
   const leaderPct = Math.max(win.home, win.away);
-  const winSwing = (): SwingPrompt => ({
-    id: pid(),
-    question: `${leader} ${leaderPct}% to win — higher or lower in 5'?`,
-    options: [
-      { key: "up", label: "Higher", hint: "📈" },
-      { key: "down", label: "Lower", hint: "📉" },
-    ],
-    resolver: { kind: "win-swing", side: win.home >= win.away ? "home" : "away", baseline: leaderPct, minute: Math.min(minute + 5, 90) },
-    basePoints: 100 + Math.round(Math.abs(50 - leaderPct)), // tighter calls pay a touch more
-    locksAtMinute: Math.min(minute + 2, 90),
-    status: "open",
-    createdAt: Date.now(),
+  const leaderSide: "home" | "away" = win.home >= win.away ? "home" : "away";
+  menu.push({
+    w: 3.2,
+    make: () => ({
+      id: pid(),
+      question: `Favourite ${leader} at ${leaderPct}% — call the swing in 5'`,
+      options: [
+        { key: "up", label: "Higher", hint: "📈 market firm" },
+        { key: "down", label: "Lower", hint: "📉 market soft" },
+      ],
+      resolver: { kind: "win-swing", side: leaderSide, baseline: leaderPct, minute: Math.min(minute + 5, 90) },
+      basePoints: 110 + Math.round(Math.abs(50 - leaderPct)),
+      locksAtMinute: Math.min(minute + 2, 90),
+      status: "open",
+      createdAt: Date.now(),
+    }),
   });
 
-  if (rand() < 0.55) return winSwing();
-  const pick = menu[Math.floor(rand() * menu.length)];
-  return pick();
+  // Odds-move: will home win% clear the baseline?
+  menu.push({
+    w: 2.4,
+    make: () => ({
+      id: pid(),
+      question: `${home} win% is ${win.home} — clear ${win.home} by ${Math.min(minute + 6, 90)}'?`,
+      options: [
+        { key: "yes", label: "Yes — rises", hint: pctHint(win.home) },
+        { key: "no", label: "No — stalls/falls" },
+      ],
+      resolver: { kind: "odds-move", baseline: win.home, minute: Math.min(minute + 6, 90) },
+      basePoints: 130,
+      locksAtMinute: Math.min(minute + 2, 90),
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  // Pressure / discipline read
+  menu.push({
+    w: 2.6,
+    make: () => ({
+      id: pid(),
+      question: `Who gets the next yellow? (${home} ${yellowH} · ${away} ${yellowA})`,
+      options: [
+        { key: "home", label: home, hint: yellowH >= yellowA ? "hot" : "cooler" },
+        { key: "away", label: away, hint: yellowA >= yellowH ? "hot" : "cooler" },
+      ],
+      resolver: { kind: "next-card-side" },
+      basePoints: 125,
+      locksAtMinute: lock,
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  // Set-piece IQ — corner side with form hint
+  const cornerHint =
+    score.corners.home === score.corners.away
+      ? "even so far"
+      : score.corners.home > score.corners.away
+        ? `${home} lead corners ${score.corners.home}–${score.corners.away}`
+        : `${away} lead corners ${score.corners.away}–${score.corners.home}`;
+  menu.push({
+    w: 2.2,
+    make: () => ({
+      id: pid(),
+      question: `Next corner — who wins it? (${cornerHint})`,
+      options: [
+        { key: "home", label: home },
+        { key: "away", label: away },
+      ],
+      resolver: { kind: "next-corner-side" },
+      basePoints: 105,
+      locksAtMinute: lock,
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  // Scoreboard literacy — lead by 2+
+  const leadTarget = Math.min(Math.max(minute + 20, 70), 90);
+  menu.push({
+    w: 2.0,
+    make: () => ({
+      id: pid(),
+      question: `Will either side lead by 2+ at ${leadTarget}'? (now ${score.goals.home}–${score.goals.away})`,
+      options: [
+        { key: "yes", label: "Yes — 2-goal cushion" },
+        { key: "no", label: "No — stays tight" },
+      ],
+      resolver: { kind: "lead-by-two", minute: leadTarget },
+      basePoints: 140,
+      locksAtMinute: Math.min(minute + 3, 90),
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  // Total goals literacy
+  const goalTarget = totalGoals + 1 + (rand() < 0.45 ? 1 : 0);
+  const goalsDeadline = Math.min(Math.max(minute + 25, 75), 90);
+  menu.push({
+    w: 2.0,
+    make: () => ({
+      id: pid(),
+      question: `Will total goals hit ${goalTarget} by ${goalsDeadline}'? (now ${totalGoals})`,
+      options: [
+        { key: "yes", label: `Yes — reach ${goalTarget}` },
+        { key: "no", label: `No — stay under` },
+      ],
+      resolver: { kind: "total-goals", target: goalTarget, minute: goalsDeadline },
+      basePoints: 135,
+      locksAtMinute: Math.min(minute + 3, 90),
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  // Next goal before — still skill (who scores) but lower weight
+  menu.push({
+    w: 1.4,
+    make: () => ({
+      id: pid(),
+      question: `Next goal before ${Math.min(minute + 15, 90)}'?`,
+      options: [
+        { key: "home", label: home, hint: pctHint(win.home) },
+        { key: "none", label: "No goal" },
+        { key: "away", label: away, hint: pctHint(win.away) },
+      ],
+      resolver: { kind: "next-goal-before", minute: Math.min(minute + 15, 90) },
+      basePoints: 140,
+      locksAtMinute: lock,
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  if (minute < 40) {
+    menu.push({
+      w: 1.2,
+      make: () => ({
+        id: pid(),
+        question: "Is it level at half-time?",
+        options: [
+          { key: "yes", label: "Level" },
+          { key: "no", label: "Someone leads" },
+        ],
+        resolver: { kind: "half-level", endMinute: 45 },
+        basePoints: 100,
+        locksAtMinute: 44,
+        status: "open",
+        createdAt: Date.now(),
+      }),
+    });
+  }
+
+  // Rare variety: goal vs card — heavily down-weighted vs skill prompts
+  menu.push({
+    w: 0.55,
+    make: () => ({
+      id: pid(),
+      question: "What happens first — goal or card?",
+      options: [
+        { key: "goal", label: "A goal" },
+        { key: "card", label: "A card" },
+      ],
+      resolver: { kind: "next-event", map: { goal: "goal", card: "card" } },
+      basePoints: 100,
+      locksAtMinute: lock,
+      status: "open",
+      createdAt: Date.now(),
+    }),
+  });
+
+  const totalW = menu.reduce((s, m) => s + m.w, 0);
+  let roll = rand() * totalW;
+  for (const item of menu) {
+    roll -= item.w;
+    if (roll <= 0) return item.make();
+  }
+  return menu[menu.length - 1].make();
 }
 
 /**
@@ -180,6 +288,10 @@ export function tryResolve(
       const corner = events.find((e) => e.kind === "corner");
       return corner?.side ?? null;
     }
+    case "next-card-side": {
+      const card = events.find((e) => e.kind === "yellow" || e.kind === "red");
+      return card?.side ?? null;
+    }
     case "next-goal-before": {
       const goal = events.find((e) => e.kind === "goal");
       if (goal?.side) return goal.side;
@@ -203,6 +315,18 @@ export function tryResolve(
         const cur = r.side === "home" ? win.home : win.away;
         return cur > r.baseline ? "up" : "down";
       }
+      return null;
+    }
+    case "lead-by-two": {
+      if (score.minute >= r.minute || score.phase >= 4) {
+        return Math.abs(score.goals.home - score.goals.away) >= 2 ? "yes" : "no";
+      }
+      return null;
+    }
+    case "total-goals": {
+      const tot = score.goals.home + score.goals.away;
+      if (tot >= r.target) return "yes";
+      if (score.minute >= r.minute || score.phase >= 4) return "no";
       return null;
     }
   }
@@ -230,15 +354,26 @@ export function forceResolve(prompt: SwingPrompt, score: ScoreSnapshot, win: Win
   const dGoalsA = ls ? score.goals.away - ls.goals.away : score.goals.away;
   const dCornH = ls ? score.corners.home - ls.corners.home : 0;
   const dCornA = ls ? score.corners.away - ls.corners.away : 0;
-  const dCards = ls ? score.yellow.home + score.red.home + score.yellow.away + score.red.away - ls.cards.home - ls.cards.away : 0;
+  const cardsNow = score.yellow.home + score.red.home + score.yellow.away + score.red.away;
+  const cardsLock = ls ? ls.cards.home + ls.cards.away : 0;
+  const dCardsH = ls
+    ? score.yellow.home + score.red.home - ls.cards.home
+    : score.yellow.home + score.red.home;
+  const dCardsA = ls
+    ? score.yellow.away + score.red.away - ls.cards.away
+    : score.yellow.away + score.red.away;
   switch (r.kind) {
     case "next-event":
       if (dGoalsH + dGoalsA > 0) return r.map.goal ?? "__void__";
-      if (dCards > 0) return r.map.card ?? "__void__";
+      if (cardsNow - cardsLock > 0) return r.map.card ?? "__void__";
       return "__void__";
     case "next-corner-side":
       if (dCornH > dCornA) return "home";
       if (dCornA > dCornH) return "away";
+      return "__void__";
+    case "next-card-side":
+      if (dCardsH > dCardsA) return "home";
+      if (dCardsA > dCardsH) return "away";
       return "__void__";
     case "next-goal-before":
       if (dGoalsH > dGoalsA) return "home";
@@ -253,6 +388,10 @@ export function forceResolve(prompt: SwingPrompt, score: ScoreSnapshot, win: Win
       const cur = r.side === "home" ? win.home : win.away;
       return cur > r.baseline ? "up" : "down";
     }
+    case "lead-by-two":
+      return Math.abs(score.goals.home - score.goals.away) >= 2 ? "yes" : "no";
+    case "total-goals":
+      return score.goals.home + score.goals.away >= r.target ? "yes" : "no";
   }
 }
 

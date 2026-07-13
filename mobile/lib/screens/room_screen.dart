@@ -676,6 +676,13 @@ class _RoomScreenState extends State<RoomScreen> {
               Expanded(child: PrimaryButton('Highlights', icon: Icons.play_arrow_rounded, onTap: () => _showHighlights(room))),
             ]),
             const SizedBox(height: 10),
+            PrimaryButton(
+              'Cards updated — open Album',
+              icon: Icons.style_rounded,
+              expand: true,
+              onTap: () => Navigator.of(context).pop('finished'),
+            ),
+            const SizedBox(height: 10),
             GhostButton('Back to rooms', expand: true, onTap: () => Navigator.of(context).maybePop()),
           ]),
         ),

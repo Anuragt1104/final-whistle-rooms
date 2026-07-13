@@ -7,6 +7,7 @@ import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/gyro_card.dart';
 import 'duel_screen.dart';
 import 'pass_screen.dart';
 import 'platform_hq_screen.dart';
@@ -134,20 +135,25 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
 
   Future<void> _seedDemo() async {
     try {
+      setState(() => _loading = true);
       final fanId = await _fanId();
       final res = await _api.seedInventory(fanId);
       await _load();
       if (!mounted) return;
       final seeded = res['seeded'] == true;
+      _tabs.animateTo(0);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(seeded
-              ? 'Demo cards loaded — Moments, Packs, Players ready'
+              ? 'Demo cards loaded — swipe the Moments'
               : 'Album already has cards (seed skipped)'),
         ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -390,61 +396,68 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
             : 'Watch a live or replay room — goals mint Moments here.',
       );
     }
-    return ListView(padding: const EdgeInsets.all(12), children: [
-      if (_craftSel.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: PrimaryButton(
-            'Craft ${_craftSel.length} Moments → Player',
-            onTap: _craftSel.length >= 2 ? _craft : null,
+    return CustomScrollView(
+      slivers: [
+        if (_craftSel.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: PrimaryButton(
+                'Craft ${_craftSel.length} Moments → Player',
+                onTap: _craftSel.length >= 2 ? _craft : null,
+              ),
+            ),
+          ),
+        SliverPadding(
+          padding: const EdgeInsets.all(12),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 12,
+              childAspectRatio: 2.5 / 3.5,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, i) {
+                final m = moments[i];
+                final sel = _craftSel.contains(m.id);
+                return GyroTiltCard(
+                  selected: sel,
+                  borderColor: rarityBorder(m.rarity),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      if (sel) {
+                        _craftSel.remove(m.id);
+                      } else {
+                        _craftSel.add(m.id);
+                      }
+                    });
+                  },
+                  onLongPress: () => _verify(m),
+                  child: MomentCardFace(
+                    title: m.label,
+                    matchLabel: m.matchLabel,
+                    kind: m.kind,
+                    rarity: m.rarity,
+                    minute: m.minute,
+                    calledIt: m.calledIt,
+                  ),
+                );
+              },
+              childCount: moments.length,
+            ),
           ),
         ),
-      ...moments.map((m) {
-        final sel = _craftSel.contains(m.id);
-        return Pressable(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            setState(() {
-              if (sel) {
-                _craftSel.remove(m.id);
-              } else {
-                _craftSel.add(m.id);
-              }
-            });
-          },
-          onLongPress: () => _verify(m),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.card,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: sel ? AppColors.orange : AppColors.line, width: sel ? 2 : 1),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Text('★' * m.rarity, style: const TextStyle(color: AppColors.orange)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(m.label, style: label(weight: FontWeight.w700))),
-                if (m.calledIt)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.orange.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('CALLED IT', style: label(size: 9, color: AppColors.orange, weight: FontWeight.w800)),
-                  ),
-              ]),
-              const SizedBox(height: 4),
-              Text('${m.matchLabel} · ${m.minute}\' · ${m.kind}', style: body(size: 12, color: AppColors.mut)),
-              const SizedBox(height: 4),
-              Text('Long-press to Verify · tap to select for Craft', style: body(size: 11, color: AppColors.mut)),
-            ]),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            child: Text('Long-press to Verify · tap to select for Craft · tilt the device',
+                textAlign: TextAlign.center, style: body(size: 11, color: AppColors.mut)),
           ),
-        );
-      }),
-    ]);
+        ),
+      ],
+    );
   }
 
   Widget _packsTab() {
@@ -487,44 +500,66 @@ class _AlbumScreenState extends State<AlbumScreen> with SingleTickerProviderStat
           ? _emptyDemoPrompt(hint: 'No Player Cards yet. Load demo cards to duel and list on Market.')
           : Center(child: Text('Open a pack to get Player Cards', style: body(color: AppColors.mut)));
     }
-    return ListView(padding: const EdgeInsets.all(12), children: [
-      ...players.map((p) => Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.card,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.line),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${p.name} · ${p.teamCode} · ${p.position}', style: label(weight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: p.axes.entries
-                    .map((e) => Text('${e.key[0].toUpperCase()}${e.key.substring(1)} ${e.value}',
-                        style: body(size: 11, color: AppColors.mut)))
-                    .toList(),
+    return CustomScrollView(
+      slivers: [
+        if (players.isNotEmpty)
+          SliverPadding(
+            padding: const EdgeInsets.all(12),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 14,
+                crossAxisSpacing: 12,
+                childAspectRatio: 2.5 / 3.5,
               ),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(child: GhostButton('List for sale', onTap: () => _listForSale(p))),
-                const SizedBox(width: 8),
-                Expanded(child: GhostButton('Mint NFT', onTap: () => _mint(p))),
-              ]),
-            ]),
-          )),
-      if (skills.isNotEmpty) ...[
-        const SizedBox(height: 8),
-        Text('SKILLS', style: label(weight: FontWeight.w800)),
-        ...skills.map((s) => ListTile(
-              dense: true,
-              title: Text(s.name),
-              subtitle: Text(s.description),
-            )),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) {
+                  final p = players[i];
+                  return GyroTiltCard(
+                    borderColor: teamColor(p.teamCode),
+                    onLongPress: () => _listForSale(p),
+                    onTap: () => _mint(p),
+                    child: PlayerCardFace(
+                      name: p.name,
+                      teamCode: p.teamCode,
+                      position: p.position,
+                      imageUrl: p.imageUrl,
+                      axes: p.axes,
+                    ),
+                  );
+                },
+                childCount: players.length,
+              ),
+            ),
+          ),
+        if (players.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('Tap to Mint NFT · long-press to list on Market',
+                  textAlign: TextAlign.center, style: body(size: 11, color: AppColors.mut)),
+            ),
+          ),
+        if (skills.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text('SKILLS', style: label(weight: FontWeight.w800)),
+            ),
+          ),
+        if (skills.isNotEmpty)
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, i) {
+                final s = skills[i];
+                return ListTile(dense: true, title: Text(s.name), subtitle: Text(s.description));
+              },
+              childCount: skills.length,
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
       ],
-    ]);
+    );
   }
 
   Widget _duelsTab() {
