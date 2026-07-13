@@ -32,6 +32,8 @@ import {
   sandwichFromWin,
   stampCalledIt,
 } from "@/lib/cards/economy";
+import { EARN, earn as earnCredits } from "@/lib/platform/ledger";
+import { addXp as addPassXp, XP as PASS_XP } from "@/lib/platform/pass";
 import type {
   ChatView,
   MemberView,
@@ -514,6 +516,10 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
       });
       if (minted.length) {
         system(rt, `✦ ${minted[0].rarity}★ Moment minted — ${minted[0].label} (${minted.length} fans)`);
+        for (const mm of minted) {
+          earnCredits(mm.ownerId, EARN.momentMinted, "moment minted");
+          addPassXp(mm.ownerId, PASS_XP.momentMinted, "moment minted");
+        }
       }
     }
   }
@@ -522,7 +528,7 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
   for (const c of cards) {
     if (c.kind !== "market-swing") continue;
     const fanIds = [...rt.members.values()].map((m) => m.walletPubkey ?? m.id);
-    mintForRoomFans(fanIds, {
+    const minted = mintForRoomFans(fanIds, {
       fixtureId: rt.fixture.id,
       matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
       roomId: rt.id,
@@ -536,6 +542,10 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
       oddsSandwich: sandwichFromWin(beforeWin, afterWin),
       priorHomeProb: beforeWin.home,
     });
+    for (const mm of minted) {
+      earnCredits(mm.ownerId, EARN.momentMinted, "market-swing moment");
+      addPassXp(mm.ownerId, PASS_XP.momentMinted, "market-swing moment");
+    }
   }
 
   // 3) Next Swing — generate, lock, resolve
@@ -601,6 +611,9 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       winners++;
       // Called It → stamp related Moments + pack weight (ADR-0004)
       const fanId = m.walletPubkey ?? m.id;
+      // platform loops: FC + World Cup Pass XP for skill (streaks pay extra)
+      earnCredits(fanId, EARN.correctCall + (m.streak >= 3 ? EARN.streakBonus : 0), "correct call");
+      addPassXp(fanId, PASS_XP.correctCall, "correct call");
       const stamped = stampCalledIt(fanId, {
         fixtureId: rt.fixture.id,
         sinceMinute: Math.max(0, prompt.locksAtMinute - 8),

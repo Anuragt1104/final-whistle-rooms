@@ -142,6 +142,15 @@ class ApiClient {
     return data;
   }
 
+  Future<dynamic> _delete(String path, {Duration timeout = const Duration(seconds: 8)}) async {
+    final res = await _http.delete(_uri(path)).timeout(timeout);
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : {};
+    if (res.statusCode >= 400) {
+      throw ApiException(data is Map ? (data['error'] ?? 'Request failed') : 'Request failed');
+    }
+    return data;
+  }
+
   Future<AppConfig> config() async {
     final c = AppConfig.fromJson(await _get('/api/config', timeout: const Duration(seconds: 3)));
     cachedConfig = c;
@@ -289,6 +298,45 @@ class ApiClient {
 
   Future<Map<String, dynamic>> getDuel(String id) async =>
       (await _get('/api/duels/$id')) as Map<String, dynamic>;
+
+  // ---- platform economy (Fan Credits, Pass, Market, Shop, Mint, HQ) ----
+
+  Future<Map<String, dynamic>> platformWallet(String fanId) async =>
+      (await _get('/api/platform/wallet?fanId=${Uri.encodeComponent(fanId)}')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> platformHq() async =>
+      (await _get('/api/platform/hq')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> passState(String fanId) async =>
+      (await _get('/api/pass?fanId=${Uri.encodeComponent(fanId)}')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> passClaim(String fanId, int tier, String lane) async =>
+      (await _post('/api/pass/claim', {'fanId': fanId, 'tier': tier, 'lane': lane})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> passUnlock(String fanId) async =>
+      (await _post('/api/pass/unlock', {'fanId': fanId})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> marketBrowse(String fanId) async =>
+      (await _get('/api/market?fanId=${Uri.encodeComponent(fanId)}')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> marketList(String fanId, String sellerName, String cardId, int priceFC) async =>
+      (await _post('/api/market', {'fanId': fanId, 'sellerName': sellerName, 'cardId': cardId, 'priceFC': priceFC})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> marketBuy(String fanId, String name, String listingId) async =>
+      (await _post('/api/market/buy', {'fanId': fanId, 'name': name, 'listingId': listingId})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> marketCancel(String fanId, String listingId) async =>
+      (await _delete(
+        '/api/market?fanId=${Uri.encodeComponent(fanId)}&listingId=${Uri.encodeComponent(listingId)}',
+      )) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> shopTiers() async => (await _get('/api/shop')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> shopBuy(String fanId, String tierId) async =>
+      (await _post('/api/shop', {'fanId': fanId, 'tierId': tierId})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> mintCard(String fanId, String cardId) async =>
+      (await _post('/api/mint', {'fanId': fanId, 'cardId': cardId})) as Map<String, dynamic>;
 }
 
 class ApiException implements Exception {

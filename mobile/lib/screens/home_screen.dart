@@ -26,6 +26,7 @@ import 'match_screen.dart';
 import 'room_screen.dart';
 import 'team_sheet.dart';
 import 'album_screen.dart';
+import 'pass_screen.dart';
 import '../widgets/player_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -58,6 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String _favTeam = '';
   List<Fixture> _apiFixtures = []; // real backend feed (live mode) — live strip + watch flow
   Timer? _poll;
+  int _fcCredits = 0;
+  int _passTier = 0;
+  int _passXp = 0;
 
   @override
   void initState() {
@@ -147,6 +151,21 @@ class _HomeScreenState extends State<HomeScreen> {
       _callsCorrect = v[3] as int;
       _favTeam = v[4] as String;
     });
+    // Platform FC + World Cup Pass (best-effort)
+    try {
+      final id = await IdentityStore.getOrCreate();
+      final w = await _api.platformWallet(id.pubkey);
+      final wallet = w['wallet'];
+      final pass = w['pass'];
+      if (!mounted) return;
+      setState(() {
+        if (wallet is Map && wallet['credits'] is num) _fcCredits = (wallet['credits'] as num).toInt();
+        if (pass is Map) {
+          if (pass['tier'] is num) _passTier = (pass['tier'] as num).toInt();
+          if (pass['xp'] is num) _passXp = (pass['xp'] as num).toInt();
+        }
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadBalance() async {
@@ -983,6 +1002,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 6),
                   ],
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    decoration: BoxDecoration(color: AppColors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(99)),
+                    child: Text('$_fcCredits FC · T$_passTier', style: label(color: AppColors.orangeBright, size: 7.5, weight: FontWeight.w900)),
+                  ),
+                  const SizedBox(width: 6),
                   Icon(connected ? Icons.account_balance_wallet_rounded : Icons.verified_user_rounded, size: 13, color: AppColors.orangeBright),
                   const SizedBox(width: 5),
                   Text(connected ? 'Solana wallet' : 'On-device Solana ID', style: label(color: AppColors.mutInk, size: 9.5)),
@@ -1003,7 +1028,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
       ),
       const SizedBox(height: 12),
-      // the commercial story — right under the hero
+      // World Cup Pass (platform) — primary CTA
+      _worldCupPassCard(),
+      const SizedBox(height: 12),
+      // local pro reactions upsell — kept separate from platform pass
       _seasonPassCard(),
       const SizedBox(height: 12),
       // favourite team — pins their fixtures to the top of the home
@@ -1116,6 +1144,39 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// World Cup Pass — platform battle pass (XP from calls, moments, packs, duels).
+  Widget _worldCupPassCard() {
+    return Pressable(
+      haptic: HapticFeedbackType.medium,
+      onTap: () => Navigator.push(context, fwrRoute(const PassScreen())).then((_) => _loadFanStats()),
+      child: Container(
+        decoration: cardBox(border: AppColors.orange),
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(12)),
+            alignment: Alignment.center,
+            child: const Text('🎫', style: TextStyle(fontSize: 20)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('WORLD CUP PASS', style: label(color: AppColors.ink, size: 10.5, weight: FontWeight.w800)),
+              const SizedBox(height: 2),
+              Text(
+                '$_fcCredits FC · Tier $_passTier · $_passXp XP — claim track rewards',
+                style: body(color: AppColors.mut, size: 11.5),
+              ),
+            ]),
+          ),
+          const Icon(Icons.chevron_right, color: AppColors.mut, size: 18),
+        ]),
+      ),
+    );
+  }
+
   /// Season Pass — the product's paid tier. Active state or upsell CTA.
   Widget _seasonPassCard() {
     return Pressable(
@@ -1143,7 +1204,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Text('SEASON PASS', style: label(color: AppColors.ink, size: 10.5, weight: FontWeight.w800)),
+                Text('PRO REACTIONS', style: label(color: AppColors.ink, size: 10.5, weight: FontWeight.w800)),
                 const SizedBox(width: 6),
                 if (_pro)
                   Container(
@@ -1156,7 +1217,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 _pro
                     ? 'Pro reactions, supporter badge & priority rooms unlocked.'
-                    : 'Pro reaction pack, supporter badge & more — \$4.99 for the whole tournament.',
+                    : 'Optional local pro pack for reactions — separate from World Cup Pass.',
                 style: body(color: AppColors.mut, size: 11.5),
               ),
             ]),

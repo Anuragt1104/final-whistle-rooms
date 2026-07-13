@@ -54,6 +54,32 @@ export function registerCard(card: Card) {
   cardIndex.set(card.id, card);
 }
 
+/**
+ * Move a card between fan inventories (marketplace settlement). Returns the
+ * card with its new owner, or null when the seller doesn't hold it.
+ */
+export function transferCard(cardId: string, fromFanId: string, toFanId: string): Card | null {
+  const from = inventoryOf(fromFanId);
+  const to = inventoryOf(toFanId);
+  const pull = <T extends Card>(arr: T[]): T | null => {
+    const i = arr.findIndex((c) => c.id === cardId);
+    return i >= 0 ? arr.splice(i, 1)[0] : null;
+  };
+  const card: Card | null = pull(from.moments) ?? pull(from.players) ?? pull(from.skills);
+  if (!card) return null;
+  const moved = { ...card, ownerId: toFanId } as Card;
+  if (moved.type === "moment") to.moments.push(moved);
+  else if (moved.type === "player") to.players.push(moved);
+  else to.skills.push(moved);
+  cardIndex.set(moved.id, moved);
+  return moved;
+}
+
+/** Grant pack-weight (World Cup Pass "bonus pack" rewards). */
+export function grantPackWeight(fanId: string, amount: number) {
+  inventoryOf(fanId).packWeightBonus += amount;
+}
+
 function significantKind(kind: string): MomentKind | null {
   if (kind === "goal" || kind === "red" || kind === "yellow" || kind === "corner") return kind;
   if (kind === "market-swing" || kind === "chaos") return kind;
@@ -175,6 +201,12 @@ export function openPack(fanId: string, packId: string, rand: () => number = Mat
   const pack = inv.packs.find((p) => p.id === packId);
   if (!pack) return { error: "Pack not found" };
   if (pack.opened) return { error: "Pack already opened" };
+
+  // Fold Fan pack-weight bonus (Called It / Pass rewards) into this open, then consume it.
+  if (inv.packWeightBonus > 0) {
+    pack.weight += inv.packWeightBonus;
+    inv.packWeightBonus = 0;
+  }
 
   const parentMoment = pack.momentIds[0] ? momentIndex.get(pack.momentIds[0]) : undefined;
   const roster = pickRosterWeighted(rand);

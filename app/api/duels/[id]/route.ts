@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDuel, playTrumpRound } from "@/lib/cards/duel";
 import type { Axis } from "@/lib/cards/types";
+import { EARN, earn } from "@/lib/platform/ledger";
+import { addXp, XP } from "@/lib/platform/pass";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +33,16 @@ export async function POST(
     botSkillId: body.opponentSkillId ? String(body.opponentSkillId) : undefined,
   });
   if ("error" in result) return NextResponse.json(result, { status: 400 });
+  // duel just finished on this round → settle platform rewards (fires once)
+  if (result.status === "finished") {
+    const players = [result.challengerId, result.opponentId].filter(
+      (p): p is string => !!p && p !== "bot",
+    );
+    for (const p of players) {
+      const won = result.winnerId === p;
+      earn(p, won ? EARN.duelWin : EARN.duelLoss, won ? "duel win" : "duel played");
+      addXp(p, won ? XP.duelWin : XP.duelLoss, "duel");
+    }
+  }
   return NextResponse.json(result);
 }

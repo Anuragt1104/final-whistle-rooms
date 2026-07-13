@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { craft } from "@/lib/cards/economy";
+import { EARN, earn } from "@/lib/platform/ledger";
+import { addXp, XP } from "@/lib/platform/pass";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +15,7 @@ export async function POST(req: NextRequest) {
   }
   const result = craft(fanId, momentIds);
   if ("error" in result) return NextResponse.json(result, { status: 400 });
+  earn(fanId, EARN.craft, "craft");
+  addXp(fanId, XP.craft, "craft");
   return NextResponse.json(result);
 }
