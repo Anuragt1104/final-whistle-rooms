@@ -42,49 +42,98 @@ ThemeData buildTheme() {
 }
 
 /// Heavy condensed display text (Anton).
-TextStyle display(double size, {Color color = AppColors.ink, double spacing = 0}) => TextStyle(
-      fontFamily: kDisplay,
-      fontSize: size,
-      color: color,
-      height: 1.0,
-      letterSpacing: spacing,
-    );
+TextStyle display(
+  double size, {
+  Color color = AppColors.ink,
+  double spacing = 0,
+}) => TextStyle(
+  fontFamily: kDisplay,
+  fontSize: size,
+  color: color,
+  height: 1.0,
+  letterSpacing: spacing,
+);
 
 /// Small uppercase label (Archivo, tracked).
-TextStyle label({Color color = AppColors.mut, double size = 11, FontWeight weight = FontWeight.w700}) =>
-    TextStyle(
-      fontFamily: kBody,
-      fontSize: size,
-      color: color,
-      fontWeight: weight,
-      letterSpacing: 1.4,
-    );
+TextStyle label({
+  Color color = AppColors.mut,
+  double size = 11,
+  FontWeight weight = FontWeight.w700,
+}) => TextStyle(
+  fontFamily: kBody,
+  fontSize: size,
+  color: color,
+  fontWeight: weight,
+  letterSpacing: 1.4,
+);
 
-TextStyle body({Color color = AppColors.ink, double size = 14, FontWeight weight = FontWeight.w500}) =>
-    TextStyle(fontFamily: kBody, fontSize: size, color: color, fontWeight: weight, height: 1.35);
+TextStyle body({
+  Color color = AppColors.ink,
+  double size = 14,
+  FontWeight weight = FontWeight.w500,
+}) => TextStyle(
+  fontFamily: kBody,
+  fontSize: size,
+  color: color,
+  fontWeight: weight,
+  height: 1.35,
+);
 
 /// Cream card with warm border + soft shadow.
-BoxDecoration cardBox({Color? color, Color? border, double radius = 18}) => BoxDecoration(
+BoxDecoration cardBox({Color? color, Color? border, double radius = 18}) =>
+    BoxDecoration(
       color: color ?? AppColors.card,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(color: border ?? AppColors.line, width: 1),
       boxShadow: const [
-        BoxShadow(color: Color(0x14000000), blurRadius: 14, offset: Offset(0, 6)),
+        BoxShadow(
+          color: Color(0x14000000),
+          blurRadius: 14,
+          offset: Offset(0, 6),
+        ),
       ],
     );
 
 /// Team identity colour for the badge circles (keyed by 3-letter code).
 const _teamColors = <String, int>{
-  'ARG': 0xFF5BA3D0, 'BRA': 0xFF2BB673, 'FRA': 0xFF1B3A8C, 'ESP': 0xFFD8392B,
-  'GER': 0xFF1A1A1A, 'ENG': 0xFFD8392B, 'POR': 0xFF1F7A3D, 'NED': 0xFFEB6A1E,
-  'BEL': 0xFFD8392B, 'CRO': 0xFFD8392B, 'URU': 0xFF5BA3D0, 'MEX': 0xFF1F7A3D,
-  'USA': 0xFF1B3A8C, 'JPN': 0xFFD8392B, 'MAR': 0xFFB4232A, 'SEN': 0xFF1F7A3D,
-  'DEN': 0xFFD8392B, 'SUI': 0xFFD8392B, 'SRB': 0xFF8C2832, 'POL': 0xFFD8392B,
-  'KOR': 0xFF1B3A8C, 'CAN': 0xFFD8392B, 'COL': 0xFFF2C300, 'NGA': 0xFF1F7A3D,
-  'ECU': 0xFFF2C300, 'GHA': 0xFF1A1A1A, 'CMR': 0xFF1F7A3D, 'AUS': 0xFFC2A000,
+  'ARG': 0xFF5BA3D0,
+  'BRA': 0xFF2BB673,
+  'FRA': 0xFF1B3A8C,
+  'ESP': 0xFFD8392B,
+  'GER': 0xFF1A1A1A,
+  'ENG': 0xFFD8392B,
+  'POR': 0xFF1F7A3D,
+  'NED': 0xFFEB6A1E,
+  'BEL': 0xFFD8392B,
+  'CRO': 0xFFD8392B,
+  'URU': 0xFF5BA3D0,
+  'MEX': 0xFF1F7A3D,
+  'USA': 0xFF1B3A8C,
+  'JPN': 0xFFD8392B,
+  'MAR': 0xFFB4232A,
+  'SEN': 0xFF1F7A3D,
+  'DEN': 0xFFD8392B,
+  'SUI': 0xFFD8392B,
+  'SRB': 0xFF8C2832,
+  'POL': 0xFFD8392B,
+  'KOR': 0xFF1B3A8C,
+  'CAN': 0xFFD8392B,
+  'COL': 0xFFF2C300,
+  'NGA': 0xFF1F7A3D,
+  'ECU': 0xFFF2C300,
+  'GHA': 0xFF1A1A1A,
+  'CMR': 0xFF1F7A3D,
+  'AUS': 0xFFC2A000,
 };
 
-const _palette = [0xFFD8392B, 0xFF1B3A8C, 0xFF1F7A3D, 0xFFEB6A1E, 0xFF6A3FA0, 0xFF0E8C8C];
+const _palette = [
+  0xFFD8392B,
+  0xFF1B3A8C,
+  0xFF1F7A3D,
+  0xFFEB6A1E,
+  0xFF6A3FA0,
+  0xFF0E8C8C,
+];
 
 Color teamColor(String code) {
   final hit = _teamColors[code.toUpperCase()];

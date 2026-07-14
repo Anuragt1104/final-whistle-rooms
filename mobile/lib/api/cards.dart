@@ -3,7 +3,14 @@ library;
 
 class MomentCard {
   final String id, fixtureId, matchLabel, kind, label, leafData;
-  final String? side, roomId;
+  final String? side,
+      roomId,
+      sourceEventId,
+      playerId,
+      playerName,
+      teamCode,
+      imageUrl,
+      artKey;
   final int rarity, minute, createdAt;
   final bool calledIt;
   final Map<String, dynamic> oddsSandwich;
@@ -22,23 +29,35 @@ class MomentCard {
     required this.oddsSandwich,
     this.side,
     this.roomId,
+    this.sourceEventId,
+    this.playerId,
+    this.playerName,
+    this.teamCode,
+    this.imageUrl,
+    this.artKey,
   });
 
   factory MomentCard.fromJson(Map<String, dynamic> j) => MomentCard(
-        id: j['id'] ?? '',
-        fixtureId: j['fixtureId'] ?? '',
-        matchLabel: j['matchLabel'] ?? '',
-        kind: j['kind'] ?? '',
-        label: j['label'] ?? '',
-        leafData: j['leafData'] ?? '',
-        rarity: (j['rarity'] as num?)?.toInt() ?? 1,
-        minute: (j['minute'] as num?)?.toInt() ?? 0,
-        createdAt: (j['createdAt'] as num?)?.toInt() ?? 0,
-        calledIt: j['calledIt'] == true,
-        oddsSandwich: Map<String, dynamic>.from(j['oddsSandwich'] ?? {}),
-        side: j['side'],
-        roomId: j['roomId'],
-      );
+    id: j['id'] ?? '',
+    fixtureId: j['fixtureId'] ?? '',
+    matchLabel: j['matchLabel'] ?? '',
+    kind: j['kind'] ?? '',
+    label: j['label'] ?? '',
+    leafData: j['leafData'] ?? '',
+    rarity: (j['rarity'] as num?)?.toInt() ?? 1,
+    minute: (j['minute'] as num?)?.toInt() ?? 0,
+    createdAt: (j['createdAt'] as num?)?.toInt() ?? 0,
+    calledIt: j['calledIt'] == true,
+    oddsSandwich: Map<String, dynamic>.from(j['oddsSandwich'] ?? {}),
+    side: j['side'],
+    roomId: j['roomId'],
+    sourceEventId: j['sourceEventId'],
+    playerId: j['playerId'],
+    playerName: j['playerName'],
+    teamCode: j['teamCode'],
+    imageUrl: j['imageUrl'],
+    artKey: j['artKey'],
+  );
 }
 
 class PlayerCardModel {
@@ -94,13 +113,13 @@ class SkillCardModel {
   });
 
   factory SkillCardModel.fromJson(Map<String, dynamic> j) => SkillCardModel(
-        id: j['id'] ?? '',
-        name: j['name'] ?? '',
-        description: j['description'] ?? '',
-        leafData: j['leafData'] ?? '',
-        effect: Map<String, dynamic>.from(j['effect'] ?? {}),
-        createdAt: (j['createdAt'] as num?)?.toInt() ?? 0,
-      );
+    id: j['id'] ?? '',
+    name: j['name'] ?? '',
+    description: j['description'] ?? '',
+    leafData: j['leafData'] ?? '',
+    effect: Map<String, dynamic>.from(j['effect'] ?? {}),
+    createdAt: (j['createdAt'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class PackModel {
@@ -119,12 +138,14 @@ class PackModel {
   });
 
   factory PackModel.fromJson(Map<String, dynamic> j) => PackModel(
-        id: j['id'] ?? '',
-        weight: (j['weight'] as num?)?.toDouble() ?? 1,
-        opened: j['opened'] == true,
-        momentIds: ((j['momentIds'] ?? []) as List).map((e) => e.toString()).toList(),
-        cards: (j['cards'] ?? []) as List,
-      );
+    id: j['id'] ?? '',
+    weight: (j['weight'] as num?)?.toDouble() ?? 1,
+    opened: j['opened'] == true,
+    momentIds: ((j['momentIds'] ?? []) as List)
+        .map((e) => e.toString())
+        .toList(),
+    cards: (j['cards'] ?? []) as List,
+  );
 }
 
 class FanInventory {
@@ -145,13 +166,21 @@ class FanInventory {
   });
 
   factory FanInventory.fromJson(Map<String, dynamic> j) => FanInventory(
-        fanId: j['fanId'] ?? '',
-        moments: ((j['moments'] ?? []) as List).map((e) => MomentCard.fromJson(e)).toList(),
-        players: ((j['players'] ?? []) as List).map((e) => PlayerCardModel.fromJson(e)).toList(),
-        skills: ((j['skills'] ?? []) as List).map((e) => SkillCardModel.fromJson(e)).toList(),
-        packs: ((j['packs'] ?? []) as List).map((e) => PackModel.fromJson(e)).toList(),
-        packWeightBonus: (j['packWeightBonus'] as num?)?.toDouble() ?? 0,
-      );
+    fanId: j['fanId'] ?? '',
+    moments: ((j['moments'] ?? []) as List)
+        .map((e) => MomentCard.fromJson(e))
+        .toList(),
+    players: ((j['players'] ?? []) as List)
+        .map((e) => PlayerCardModel.fromJson(e))
+        .toList(),
+    skills: ((j['skills'] ?? []) as List)
+        .map((e) => SkillCardModel.fromJson(e))
+        .toList(),
+    packs: ((j['packs'] ?? []) as List)
+        .map((e) => PackModel.fromJson(e))
+        .toList(),
+    packWeightBonus: (j['packWeightBonus'] as num?)?.toDouble() ?? 0,
+  );
 }
 
 class TrumpDuelModel {
@@ -175,16 +204,20 @@ class TrumpDuelModel {
   });
 
   factory TrumpDuelModel.fromJson(Map<String, dynamic> j) => TrumpDuelModel(
-        id: j['id'] ?? '',
-        code: j['code'] ?? '',
-        mode: j['mode'] ?? 'trump',
-        status: j['status'] ?? '',
-        challengerId: j['challengerId'] ?? '',
-        opponentId: j['opponentId'],
-        winnerId: j['winnerId'],
-        seedMomentId: j['seedMomentId'],
-        challengerHand: ((j['challengerHand'] ?? []) as List).map((e) => e.toString()).toList(),
-        opponentHand: ((j['opponentHand'] ?? []) as List).map((e) => e.toString()).toList(),
-        rounds: (j['rounds'] ?? []) as List,
-      );
+    id: j['id'] ?? '',
+    code: j['code'] ?? '',
+    mode: j['mode'] ?? 'trump',
+    status: j['status'] ?? '',
+    challengerId: j['challengerId'] ?? '',
+    opponentId: j['opponentId'],
+    winnerId: j['winnerId'],
+    seedMomentId: j['seedMomentId'],
+    challengerHand: ((j['challengerHand'] ?? []) as List)
+        .map((e) => e.toString())
+        .toList(),
+    opponentHand: ((j['opponentHand'] ?? []) as List)
+        .map((e) => e.toString())
+        .toList(),
+    rounds: (j['rounds'] ?? []) as List,
+  );
 }

@@ -4,7 +4,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 /// Local notifications for live match moments (goals, red cards). Fired while
 /// the app is watching a live TxLINE room.
 class Notifications {
-  static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
   static bool _inited = false;
   static int _id = 1000;
 
@@ -16,13 +17,19 @@ class Notifications {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-    await _plugin.initialize(settings: const InitializationSettings(android: android, iOS: ios));
+    await _plugin.initialize(
+      settings: const InitializationSettings(android: android, iOS: ios),
+    );
     try {
       await _plugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.requestNotificationsPermission();
       await _plugin
-          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
     } catch (_) {}
     _inited = true;
@@ -54,17 +61,22 @@ class Notifications {
             htmlFormatBigText: true,
             contentTitle: '<b>$title</b>',
             htmlFormatContentTitle: true,
-            summaryText: subText ?? 'FINAL WHISTLE ROOMS',
+            summaryText: subText ?? 'FINAL WHISTLE',
             htmlFormatSummaryText: true,
           ),
         ),
         iOS: DarwinNotificationDetails(
-          subtitle: subText ?? 'Final Whistle Rooms',
+          subtitle: subText ?? 'Final Whistle',
           presentBanner: true,
           presentSound: true,
         ),
       );
-      await _plugin.show(id: _id++, title: title, body: body, notificationDetails: details);
+      await _plugin.show(
+        id: _id++,
+        title: title,
+        body: body,
+        notificationDetails: details,
+      );
     } catch (_) {
       // notifications are best-effort
     }

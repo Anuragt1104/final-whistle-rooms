@@ -89,130 +89,231 @@ class TicketScoreboard extends StatelessWidget {
       child: Container(
         color: AppColors.ink,
         padding: EdgeInsets.fromLTRB(16, 14 + topInset, 16, tall ? 30 : 22),
-        child: Column(children: [
-          Row(children: [
-            if (onBack != null)
-              Pressable(
-                haptic: HapticFeedbackType.selection,
-                onTap: onBack,
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(color: AppColors.inkSoft, borderRadius: BorderRadius.circular(9)),
-                  child: const Icon(Icons.chevron_left, color: AppColors.cream, size: 20),
-                ),
-              )
-            else
-              const SizedBox(width: 30),
-            const Spacer(),
-            if (pill != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: pillColor, borderRadius: BorderRadius.circular(99)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (pill == 'LIVE')
-                    Container(
-                      width: 6, height: 6,
-                      margin: const EdgeInsets.only(right: 5),
-                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                if (onBack != null)
+                  Pressable(
+                    haptic: HapticFeedbackType.selection,
+                    onTap: onBack,
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: AppColors.inkSoft,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Icon(
+                        Icons.chevron_left,
+                        color: AppColors.cream,
+                        size: 20,
+                      ),
                     ),
-                  Text(pill!, style: label(color: Colors.white, size: 10.5, weight: FontWeight.w800)),
-                ]),
-              ),
-            const Spacer(),
-            SizedBox(
-              width: 44,
-              child: watching != null
-                  ? Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                      const Icon(Icons.visibility_outlined, size: 13, color: AppColors.mutInk),
-                      const SizedBox(width: 3),
-                      Text(_compact(watching!), style: label(color: AppColors.mutInk, size: 10.5)),
-                    ])
-                  : const SizedBox(),
-            ),
-          ]),
-          const SizedBox(height: 12),
-          Text(league.toUpperCase(),
-              textAlign: TextAlign.center, style: label(color: AppColors.mutInk, size: 10.5)),
-          const SizedBox(height: 12),
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Expanded(child: _side(home)),
-            Column(mainAxisSize: MainAxisSize.min, children: [
-              // score pops with an elastic bounce whenever it changes (a goal!)
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 420),
-                transitionBuilder: (child, anim) => ScaleTransition(
-                  scale: CurvedAnimation(parent: anim, curve: Curves.elasticOut),
-                  child: FadeTransition(opacity: anim, child: child),
-                ),
-                child: Text(score ?? 'VS',
-                    key: ValueKey(score ?? 'VS'),
-                    style: display(score != null ? 46 : 30, color: AppColors.orangeBright, spacing: 1)),
-              ),
-              if (clockRunning && clockSeconds != null) ...[
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: AppColors.orange, borderRadius: BorderRadius.circular(99)),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Container(
-                      width: 5, height: 5,
-                      margin: const EdgeInsets.only(right: 5),
-                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                  )
+                else
+                  const SizedBox(width: 30),
+                const Spacer(),
+                if (pill != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
                     ),
-                    LiveClock(
-                      clockSeconds: clockSeconds!,
-                      running: clockRunning,
-                      style: label(color: Colors.white, size: 11, weight: FontWeight.w800),
+                    decoration: BoxDecoration(
+                      color: pillColor,
+                      borderRadius: BorderRadius.circular(99),
                     ),
-                  ]),
-                ),
-              ] else if (minute != null) ...[
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: AppColors.inkSoft, borderRadius: BorderRadius.circular(99)),
-                  child: Text(minute!, style: label(color: AppColors.cream, size: 10)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (pill == 'LIVE')
+                          Container(
+                            width: 6,
+                            height: 6,
+                            margin: const EdgeInsets.only(right: 5),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        Text(
+                          pill!,
+                          style: label(
+                            color: Colors.white,
+                            size: 10.5,
+                            weight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const Spacer(),
+                SizedBox(
+                  width: 44,
+                  child: watching != null
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            const Icon(
+                              Icons.visibility_outlined,
+                              size: 13,
+                              color: AppColors.mutInk,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              _compact(watching!),
+                              style: label(color: AppColors.mutInk, size: 10.5),
+                            ),
+                          ],
+                        )
+                      : const SizedBox(),
                 ),
               ],
-            ]),
-            Expanded(child: _side(away)),
-          ]),
-          if (scorers.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 14,
-              runSpacing: 2,
-              children: scorers
-                  .map((s) => Text(s, style: body(color: AppColors.mutInk, size: 11.5, weight: FontWeight.w600)))
-                  .toList(),
             ),
+            const SizedBox(height: 12),
+            Text(
+              league.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: label(color: AppColors.mutInk, size: 10.5),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: _side(home)),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // score pops with an elastic bounce whenever it changes (a goal!)
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 420),
+                      transitionBuilder: (child, anim) => ScaleTransition(
+                        scale: CurvedAnimation(
+                          parent: anim,
+                          curve: Curves.elasticOut,
+                        ),
+                        child: FadeTransition(opacity: anim, child: child),
+                      ),
+                      child: Text(
+                        score ?? 'VS',
+                        key: ValueKey(score ?? 'VS'),
+                        style: display(
+                          score != null ? 46 : 30,
+                          color: AppColors.orangeBright,
+                          spacing: 1,
+                        ),
+                      ),
+                    ),
+                    if (clockRunning && clockSeconds != null) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.orange,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 5,
+                              height: 5,
+                              margin: const EdgeInsets.only(right: 5),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            LiveClock(
+                              clockSeconds: clockSeconds!,
+                              running: clockRunning,
+                              style: label(
+                                color: Colors.white,
+                                size: 11,
+                                weight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else if (minute != null) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.inkSoft,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          minute!,
+                          style: label(color: AppColors.cream, size: 10),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                Expanded(child: _side(away)),
+              ],
+            ),
+            if (scorers.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 14,
+                runSpacing: 2,
+                children: scorers
+                    .map(
+                      (s) => Text(
+                        s,
+                        style: body(
+                          color: AppColors.mutInk,
+                          size: 11.5,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
           ],
-        ]),
+        ),
       ),
     );
   }
 
   Widget _side(Team t) {
-    final col = Column(children: [
-      TeamBadge(team: t, size: 58),
-      const SizedBox(height: 8),
-      Text(t.name.toUpperCase(),
+    final col = Column(
+      children: [
+        TeamBadge(team: t, size: 58),
+        const SizedBox(height: 8),
+        Text(
+          t.name.toUpperCase(),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: display(15, color: AppColors.cream, spacing: 0.4)),
-      if (onTeamTap != null)
-        Text('squad ›', style: label(color: AppColors.mutInk, size: 8)),
-    ]);
+          style: display(15, color: AppColors.cream, spacing: 0.4),
+        ),
+        if (onTeamTap != null)
+          Text('squad ›', style: label(color: AppColors.mutInk, size: 8)),
+      ],
+    );
     if (onTeamTap == null) return col;
-    return Pressable(haptic: HapticFeedbackType.selection, onTap: () => onTeamTap!(t), child: col);
+    return Pressable(
+      haptic: HapticFeedbackType.selection,
+      onTap: () => onTeamTap!(t),
+      child: col,
+    );
   }
 
   static String _compact(int n) {
-    if (n >= 1000) return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 1)}k';
+    if (n >= 1000)
+      return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 1)}k';
     return '$n';
   }
 }
@@ -227,12 +328,18 @@ class MiniScore extends StatelessWidget {
     return Container(
       width: 50,
       height: 50,
-      decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(12)),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Text(top, style: display(17, color: AppColors.orangeBright)),
-        const SizedBox(height: 2),
-        Text(bottom, style: label(color: AppColors.mutInk, size: 8)),
-      ]),
+      decoration: BoxDecoration(
+        color: AppColors.ink,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(top, style: display(17, color: AppColors.orangeBright)),
+          const SizedBox(height: 2),
+          Text(bottom, style: label(color: AppColors.mutInk, size: 8)),
+        ],
+      ),
     );
   }
 }

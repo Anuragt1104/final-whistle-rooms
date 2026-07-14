@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Fixture } from "@/lib/txline/types";
 import { relativeKickoff } from "@/lib/util/format";
+import { api } from "@/lib/client/api";
 
 function StatusChip({ status }: { status: Fixture["status"] }) {
   if (status === "live")
@@ -16,6 +17,15 @@ function StatusChip({ status }: { status: Fixture["status"] }) {
 }
 
 export function FixtureRow({ fixture }: { fixture: Fixture }) {
+  const router = useRouter();
+  async function watch() {
+    try {
+      const { roomId } = await api.watch(fixture.id, { name: "Fan" });
+      router.push(`/room/${roomId}`);
+    } catch {
+      /* fixture not watchable yet */
+    }
+  }
   return (
     <div className="card flex items-center justify-between gap-3 p-3">
       <div className="min-w-0 flex-1">
@@ -34,9 +44,9 @@ export function FixtureRow({ fixture }: { fixture: Fixture }) {
           </span>
         </div>
       </div>
-      <Link href={`/create?fixture=${fixture.id}`} className="btn btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">
-        Create room
-      </Link>
+      <button onClick={watch} className="btn btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">
+        {fixture.status === "finished" ? "Watch replay" : "Watch"}
+      </button>
     </div>
   );
 }

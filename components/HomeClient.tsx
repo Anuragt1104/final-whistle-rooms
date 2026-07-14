@@ -13,8 +13,6 @@ export function HomeClient() {
   const router = useRouter();
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
-  const [code, setCode] = useState("");
-  const [joinErr, setJoinErr] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,13 +23,12 @@ export function HomeClient() {
     return () => clearInterval(t);
   }, []);
 
-  async function joinByCode() {
-    setJoinErr("");
+  async function watchFeatured(fixtureId: string) {
     try {
-      const { id } = await api.resolveCode(code.trim());
-      router.push(`/room/${id}`);
+      const { roomId } = await api.watch(fixtureId, { name: "Fan" });
+      router.push(`/room/${roomId}`);
     } catch {
-      setJoinErr("No room with that code");
+      /* not watchable yet */
     }
   }
 
@@ -54,31 +51,21 @@ export function HomeClient() {
             Watch the World Cup <span className="text-[var(--color-lime)]">together.</span>
           </h1>
           <p className="mt-2 text-sm text-[var(--color-mut)]">
-            A private live room for your group. Real-time match pulse, a room prediction game, and an
-            AI recap — all reacting to verified TxLINE data as it happens.
+            One global live room per match — the whole crowd together. Real-time match pulse, a room
+            prediction game, and an AI recap — all reacting to verified TxLINE data as it happens.
           </p>
           <div className="mt-4 flex gap-2">
-            <Link href={featured ? `/create?fixture=${featured}` : "/create"} className="btn btn-primary flex-1">
-              + Create a room
-            </Link>
+            <button
+              className="btn btn-primary flex-1"
+              disabled={!featured}
+              onClick={() => featured && watchFeatured(featured)}
+            >
+              ▶ Watch the featured match
+            </button>
           </div>
           <Link href="/explorer" className="mt-2 block text-center text-xs text-[var(--color-mut)] hover:text-[var(--color-lime)]">
             Feed Explorer — see every field the oracle publishes →
           </Link>
-
-          <div className="mt-3 flex gap-2">
-            <input
-              className="input"
-              placeholder="Have a code? e.g. K7M2QX"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === "Enter" && joinByCode()}
-            />
-            <button className="btn btn-ghost whitespace-nowrap" onClick={joinByCode} disabled={!code.trim()}>
-              Join
-            </button>
-          </div>
-          {joinErr && <p className="mt-1 text-xs text-[var(--color-away)]">{joinErr}</p>}
         </section>
 
         {/* Active rooms */}

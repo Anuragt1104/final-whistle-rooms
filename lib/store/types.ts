@@ -4,6 +4,7 @@ import type { PulseCard, WinChance } from "@/lib/engine/pulse";
 import type { SwingOption } from "@/lib/game/nextswing";
 
 export type RoomStatus = "lobby" | "live" | "finished";
+export type RoomKind = "official" | "party";
 
 export interface RoomModes {
   draft: boolean;
@@ -72,10 +73,29 @@ export interface RecapView {
   createdAt: number;
 }
 
+export interface MomentDropView {
+  id: string;
+  memberId: string;
+  kind: string;
+  label: string;
+  rarity: number;
+  minute: number;
+  matchLabel: string;
+  createdAt: number;
+  sourceEventId?: string;
+  playerId?: string;
+  playerName?: string;
+  teamCode?: string;
+  imageUrl?: string;
+  artKey?: string;
+}
+
 export interface RoomView {
   id: string;
   code: string;
   name: string;
+  kind: RoomKind;
+  autoManaged: boolean;
   fixture: Fixture;
   modes: RoomModes;
   hostId: string;
@@ -89,6 +109,7 @@ export interface RoomView {
   members: MemberView[];
   chat: ChatView[];
   pulse: PulseCard[];
+  momentDrops: MomentDropView[];
   prompts: PromptView[];
   recaps: RecapView[];
   proof: {
@@ -101,5 +122,6 @@ export interface RoomView {
   spoilerSafe: boolean;
   voice: boolean;
   reactionPack: string;
+  replay: boolean;
   createdAt: number;
 }

@@ -12,7 +12,8 @@ class Identity {
   final String pubkey; // base58 Solana address
   final Uint8List seed; // 32-byte ed25519 seed
   Identity(this.pubkey, this.seed);
-  String get short => '${pubkey.substring(0, 4)}…${pubkey.substring(pubkey.length - 4)}';
+  String get short =>
+      '${pubkey.substring(0, 4)}…${pubkey.substring(pubkey.length - 4)}';
 }
 
 class IdentityStore {
@@ -36,7 +37,10 @@ class IdentityStore {
     final priv = await kp.extract();
     final seed = Uint8List.fromList(priv.bytes);
     final pub = await kp.extractPublicKey();
-    final identity = Identity(base58Encode(Uint8List.fromList(pub.bytes)), seed);
+    final identity = Identity(
+      base58Encode(Uint8List.fromList(pub.bytes)),
+      seed,
+    );
     await prefs.setString('fwr_seed', base58Encode(seed));
     _cached = identity;
     return identity;

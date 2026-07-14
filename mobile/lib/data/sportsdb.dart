@@ -14,7 +14,15 @@ class TeamInfo {
   final String name;
   final String? badge, country, stadium, description, formedYear;
   final List<PlayerInfo> squad;
-  TeamInfo({required this.name, this.badge, this.country, this.stadium, this.description, this.formedYear, this.squad = const []});
+  TeamInfo({
+    required this.name,
+    this.badge,
+    this.country,
+    this.stadium,
+    this.description,
+    this.formedYear,
+    this.squad = const [],
+  });
 }
 
 class SportsDb {
@@ -37,19 +45,24 @@ class SportsDb {
   static Future<TeamInfo?> _fetch(String name) async {
     try {
       final tRes = await _http
-          .get(Uri.parse('$_base/searchteams.php?t=${Uri.encodeComponent(name)}'))
+          .get(
+            Uri.parse('$_base/searchteams.php?t=${Uri.encodeComponent(name)}'),
+          )
           .timeout(const Duration(seconds: 10));
       if (tRes.statusCode >= 400) return null;
       final teams = (jsonDecode(tRes.body)['teams'] as List?) ?? [];
       // STRICTLY soccer — never fall back to e.g. the Jordan F1 team. Among
       // soccer results prefer the national team (FIFA World Cup / exact name).
-      final soccer = teams.where((x) => (x['strSport'] ?? '') == 'Soccer').toList();
+      final soccer = teams
+          .where((x) => (x['strSport'] ?? '') == 'Soccer')
+          .toList();
       Map<String, dynamic>? t;
       for (final x in soccer) {
         final lg = (x['strLeague'] ?? '').toString().toLowerCase();
         if (lg.contains('world cup') ||
             lg.contains('national') ||
-            (x['strTeam'] ?? '').toString().toLowerCase() == name.trim().toLowerCase()) {
+            (x['strTeam'] ?? '').toString().toLowerCase() ==
+                name.trim().toLowerCase()) {
           t = Map<String, dynamic>.from(x);
           break;
         }
@@ -67,17 +80,23 @@ class SportsDb {
         for (final p in players) {
           final photo = (p['strThumb'] ?? p['strCutout'] ?? '') as String;
           if (photo.isEmpty) continue;
-          squad.add(PlayerInfo(
-            (p['strPlayer'] ?? '') as String,
-            (p['strPosition'] ?? '') as String,
-            photo,
-          ));
+          squad.add(
+            PlayerInfo(
+              (p['strPlayer'] ?? '') as String,
+              (p['strPosition'] ?? '') as String,
+              photo,
+            ),
+          );
         }
-      } catch (_) {/* squad optional */}
+      } catch (_) {
+        /* squad optional */
+      }
 
       return TeamInfo(
         name: (t['strTeam'] ?? name) as String,
-        badge: (t['strBadge'] as String?)?.isNotEmpty == true ? t['strBadge'] as String : null,
+        badge: (t['strBadge'] as String?)?.isNotEmpty == true
+            ? t['strBadge'] as String
+            : null,
         country: t['strCountry'] as String?,
         stadium: t['strStadium'] as String?,
         description: t['strDescriptionEN'] as String?,

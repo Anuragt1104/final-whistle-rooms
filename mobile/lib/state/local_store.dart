@@ -49,13 +49,18 @@ class LocalStore {
     final raw = p.getString('picks_$roomId');
     if (raw == null) return {};
     try {
-      return (jsonDecode(raw) as Map).map((k, v) => MapEntry(k as String, v as String));
+      return (jsonDecode(raw) as Map).map(
+        (k, v) => MapEntry(k as String, v as String),
+      );
     } catch (_) {
       return {};
     }
   }
 
-  static Future<void> savePicks(String roomId, Map<String, String> picks) async {
+  static Future<void> savePicks(
+    String roomId,
+    Map<String, String> picks,
+  ) async {
     final p = await SharedPreferences.getInstance();
     await p.setString('picks_$roomId', jsonEncode(picks));
   }
@@ -130,5 +135,35 @@ class LocalStore {
   static Future<void> setFavoriteTeam(String code) async {
     final p = await SharedPreferences.getInstance();
     await p.setString('favorite_team', code);
+  }
+
+  static Future<List<String>> pinnedCards() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getStringList('pinned_cards') ?? const [];
+  }
+
+  static Future<void> setPinnedCards(List<String> ids) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList('pinned_cards', ids.take(3).toList());
+  }
+
+  static Future<bool> defaultSpoilerSafe() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool('default_spoiler_safe') ?? false;
+  }
+
+  static Future<void> setDefaultSpoilerSafe(bool value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('default_spoiler_safe', value);
+  }
+
+  static Future<bool> reducedMotion() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool('reduced_motion') ?? false;
+  }
+
+  static Future<void> setReducedMotion(bool value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('reduced_motion', value);
   }
 }

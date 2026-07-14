@@ -14,7 +14,8 @@ import 'sportsdb.dart';
 ///    "E. Álvarez" ↔ "Edson Álvarez", "ter Stegen" ↔ "Marc-André ter Stegen")
 ///  - listeners so avatars re-render the moment a team's index arrives
 class PlayerImages {
-  static final Map<String, Map<String, String>> _byTeam = {}; // teamKey → normName → url
+  static final Map<String, Map<String, String>> _byTeam =
+      {}; // teamKey → normName → url
   static final Map<String, Future<void>> _warming = {};
   static final List<VoidCallback> _listeners = [];
 
@@ -33,7 +34,10 @@ class PlayerImages {
   static Future<void> warm(String teamName) {
     final key = _teamKey(teamName);
     if (_byTeam.containsKey(key)) return Future.value();
-    return _warming[key] ??= _build(teamName, key).whenComplete(() => _warming.remove(key));
+    return _warming[key] ??= _build(
+      teamName,
+      key,
+    ).whenComplete(() => _warming.remove(key));
   }
 
   static Future<void> _build(String teamName, String key) async {
@@ -46,7 +50,9 @@ class PlayerImages {
         _byTeam[key] = Map<String, String>.from(jsonDecode(cached));
         _notify();
         return;
-      } catch (_) {/* fall through to network */}
+      } catch (_) {
+        /* fall through to network */
+      }
     }
     final info = await SportsDb.team(teamName);
     final map = <String, String>{};
@@ -59,7 +65,10 @@ class PlayerImages {
     _byTeam[key] = map;
     if (map.isNotEmpty) {
       await prefs.setString('player_photos_$key', jsonEncode(map));
-      await prefs.setInt('player_photos_ts_$key', DateTime.now().millisecondsSinceEpoch);
+      await prefs.setInt(
+        'player_photos_ts_$key',
+        DateTime.now().millisecondsSinceEpoch,
+      );
     }
     _notify();
   }

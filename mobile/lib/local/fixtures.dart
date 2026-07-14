@@ -18,18 +18,78 @@ class _RawTeam {
 }
 
 const Map<String, List<_RawTeam>> _groups = {
-  'A': [_RawTeam('Mexico', 'MEX', '🇲🇽', 78), _RawTeam('South Korea', 'KOR', '🇰🇷', 74), _RawTeam('Poland', 'POL', '🇵🇱', 74), _RawTeam('Cape Verde', 'CPV', '🇨🇻', 62)],
-  'B': [_RawTeam('Canada', 'CAN', '🇨🇦', 73), _RawTeam('Switzerland', 'SUI', '🇨🇭', 78), _RawTeam('Qatar', 'QAT', '🇶🇦', 65), _RawTeam('Ivory Coast', 'CIV', '🇨🇮', 71)],
-  'C': [_RawTeam('USA', 'USA', '🇺🇸', 76), _RawTeam('Croatia', 'CRO', '🇭🇷', 81), _RawTeam('Egypt', 'EGY', '🇪🇬', 70), _RawTeam('New Zealand', 'NZL', '🇳🇿', 60)],
-  'D': [_RawTeam('Brazil', 'BRA', '🇧🇷', 93), _RawTeam('Scotland', 'SCO', '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 71), _RawTeam('Tunisia', 'TUN', '🇹🇳', 67), _RawTeam('Jordan', 'JOR', '🇯🇴', 61)],
-  'E': [_RawTeam('Argentina', 'ARG', '🇦🇷', 92), _RawTeam('Denmark', 'DEN', '🇩🇰', 79), _RawTeam('South Africa', 'RSA', '🇿🇦', 64), _RawTeam('Uzbekistan', 'UZB', '🇺🇿', 63)],
-  'F': [_RawTeam('France', 'FRA', '🇫🇷', 91), _RawTeam('Japan', 'JPN', '🇯🇵', 77), _RawTeam('Paraguay', 'PAR', '🇵🇾', 69), _RawTeam('Haiti', 'HAI', '🇭🇹', 58)],
-  'G': [_RawTeam('Spain', 'ESP', '🇪🇸', 90), _RawTeam('Uruguay', 'URU', '🇺🇾', 80), _RawTeam('Saudi Arabia', 'KSA', '🇸🇦', 66), _RawTeam('Australia', 'AUS', '🇦🇺', 70)],
-  'H': [_RawTeam('England', 'ENG', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 89), _RawTeam('Senegal', 'SEN', '🇸🇳', 75), _RawTeam('Austria', 'AUT', '🇦🇹', 76), _RawTeam('Panama', 'PAN', '🇵🇦', 62)],
-  'I': [_RawTeam('Portugal', 'POR', '🇵🇹', 90), _RawTeam('Colombia', 'COL', '🇨🇴', 80), _RawTeam('Norway', 'NOR', '🇳🇴', 78), _RawTeam('Iraq', 'IRQ', '🇮🇶', 61)],
-  'J': [_RawTeam('Germany', 'GER', '🇩🇪', 87), _RawTeam('Morocco', 'MAR', '🇲🇦', 79), _RawTeam('Sweden', 'SWE', '🇸🇪', 75), _RawTeam('Costa Rica', 'CRC', '🇨🇷', 64)],
-  'K': [_RawTeam('Netherlands', 'NED', '🇳🇱', 88), _RawTeam('Italy', 'ITA', '🇮🇹', 84), _RawTeam('Iran', 'IRN', '🇮🇷', 66), _RawTeam('Ghana', 'GHA', '🇬🇭', 69)],
-  'L': [_RawTeam('Belgium', 'BEL', '🇧🇪', 84), _RawTeam('Türkiye', 'TUR', '🇹🇷', 77), _RawTeam('Ecuador', 'ECU', '🇪🇨', 72), _RawTeam('Algeria', 'ALG', '🇩🇿', 70)],
+  'A': [
+    _RawTeam('Mexico', 'MEX', '🇲🇽', 78),
+    _RawTeam('South Korea', 'KOR', '🇰🇷', 74),
+    _RawTeam('Poland', 'POL', '🇵🇱', 74),
+    _RawTeam('Cape Verde', 'CPV', '🇨🇻', 62),
+  ],
+  'B': [
+    _RawTeam('Canada', 'CAN', '🇨🇦', 73),
+    _RawTeam('Switzerland', 'SUI', '🇨🇭', 78),
+    _RawTeam('Qatar', 'QAT', '🇶🇦', 65),
+    _RawTeam('Ivory Coast', 'CIV', '🇨🇮', 71),
+  ],
+  'C': [
+    _RawTeam('USA', 'USA', '🇺🇸', 76),
+    _RawTeam('Croatia', 'CRO', '🇭🇷', 81),
+    _RawTeam('Egypt', 'EGY', '🇪🇬', 70),
+    _RawTeam('New Zealand', 'NZL', '🇳🇿', 60),
+  ],
+  'D': [
+    _RawTeam('Brazil', 'BRA', '🇧🇷', 93),
+    _RawTeam('Scotland', 'SCO', '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 71),
+    _RawTeam('Tunisia', 'TUN', '🇹🇳', 67),
+    _RawTeam('Jordan', 'JOR', '🇯🇴', 61),
+  ],
+  'E': [
+    _RawTeam('Argentina', 'ARG', '🇦🇷', 92),
+    _RawTeam('Denmark', 'DEN', '🇩🇰', 79),
+    _RawTeam('South Africa', 'RSA', '🇿🇦', 64),
+    _RawTeam('Uzbekistan', 'UZB', '🇺🇿', 63),
+  ],
+  'F': [
+    _RawTeam('France', 'FRA', '🇫🇷', 91),
+    _RawTeam('Japan', 'JPN', '🇯🇵', 77),
+    _RawTeam('Paraguay', 'PAR', '🇵🇾', 69),
+    _RawTeam('Haiti', 'HAI', '🇭🇹', 58),
+  ],
+  'G': [
+    _RawTeam('Spain', 'ESP', '🇪🇸', 90),
+    _RawTeam('Uruguay', 'URU', '🇺🇾', 80),
+    _RawTeam('Saudi Arabia', 'KSA', '🇸🇦', 66),
+    _RawTeam('Australia', 'AUS', '🇦🇺', 70),
+  ],
+  'H': [
+    _RawTeam('England', 'ENG', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 89),
+    _RawTeam('Senegal', 'SEN', '🇸🇳', 75),
+    _RawTeam('Austria', 'AUT', '🇦🇹', 76),
+    _RawTeam('Panama', 'PAN', '🇵🇦', 62),
+  ],
+  'I': [
+    _RawTeam('Portugal', 'POR', '🇵🇹', 90),
+    _RawTeam('Colombia', 'COL', '🇨🇴', 80),
+    _RawTeam('Norway', 'NOR', '🇳🇴', 78),
+    _RawTeam('Iraq', 'IRQ', '🇮🇶', 61),
+  ],
+  'J': [
+    _RawTeam('Germany', 'GER', '🇩🇪', 87),
+    _RawTeam('Morocco', 'MAR', '🇲🇦', 79),
+    _RawTeam('Sweden', 'SWE', '🇸🇪', 75),
+    _RawTeam('Costa Rica', 'CRC', '🇨🇷', 64),
+  ],
+  'K': [
+    _RawTeam('Netherlands', 'NED', '🇳🇱', 88),
+    _RawTeam('Italy', 'ITA', '🇮🇹', 84),
+    _RawTeam('Iran', 'IRN', '🇮🇷', 66),
+    _RawTeam('Ghana', 'GHA', '🇬🇭', 69),
+  ],
+  'L': [
+    _RawTeam('Belgium', 'BEL', '🇧🇪', 84),
+    _RawTeam('Türkiye', 'TUR', '🇹🇷', 77),
+    _RawTeam('Ecuador', 'ECU', '🇪🇨', 72),
+    _RawTeam('Algeria', 'ALG', '🇩🇿', 70),
+  ],
 };
 
 /// The 16 host stadiums of World Cup 2026.
@@ -53,12 +113,27 @@ const wc26Venues = [
 ];
 
 const _roundRobin = [
-  [[0, 1], [2, 3]],
-  [[0, 2], [1, 3]],
-  [[0, 3], [1, 2]],
+  [
+    [0, 1],
+    [2, 3],
+  ],
+  [
+    [0, 2],
+    [1, 3],
+  ],
+  [
+    [0, 3],
+    [1, 2],
+  ],
 ];
 
-Team _team(_RawTeam r) => Team(id: r.code.toLowerCase(), name: r.name, code: r.code, flag: r.flag, rating: r.rating);
+Team _team(_RawTeam r) => Team(
+  id: r.code.toLowerCase(),
+  name: r.name,
+  code: r.code,
+  flag: r.flag,
+  rating: r.rating,
+);
 
 /// Group letter -> the four teams, in seed order.
 Map<String, List<Team>> worldCupGroups() =>
@@ -78,16 +153,37 @@ Fixture _withScore(Fixture f, DateTime now) {
   final facts = factsFor(f);
   if (f.status == 'finished') {
     return Fixture(
-      id: f.id, competition: f.competition, stage: f.stage, kickoff: f.kickoff,
-      venue: f.venue, status: f.status, home: f.home, away: f.away,
+      id: f.id,
+      competition: f.competition,
+      stage: f.stage,
+      kickoff: f.kickoff,
+      venue: f.venue,
+      status: f.status,
+      home: f.home,
+      away: f.away,
       score: FixtureScore(facts.homeGoals, facts.awayGoals, 90, 90 * 60, false),
     );
   }
-  final minute = now.difference(DateTime.parse(f.kickoff)).inMinutes.clamp(1, 90);
+  final minute = now
+      .difference(DateTime.parse(f.kickoff))
+      .inMinutes
+      .clamp(1, 90);
   return Fixture(
-    id: f.id, competition: f.competition, stage: f.stage, kickoff: f.kickoff,
-    venue: f.venue, status: f.status, home: f.home, away: f.away,
-    score: FixtureScore(facts.goalsAt('home', minute), facts.goalsAt('away', minute), minute, minute * 60, true),
+    id: f.id,
+    competition: f.competition,
+    stage: f.stage,
+    kickoff: f.kickoff,
+    venue: f.venue,
+    status: f.status,
+    home: f.home,
+    away: f.away,
+    score: FixtureScore(
+      facts.goalsAt('home', minute),
+      facts.goalsAt('away', minute),
+      minute,
+      minute * 60,
+      true,
+    ),
   );
 }
 
@@ -113,7 +209,8 @@ List<Fixture> localFixtures() {
         within++;
         final ko = now.add(Duration(minutes: (koHours * 60).round()));
         var f = Fixture(
-          id: 'wc26-$g-md${md + 1}-${teams[pair[0]].code}-${teams[pair[1]].code}'.toLowerCase(),
+          id: 'wc26-$g-md${md + 1}-${teams[pair[0]].code}-${teams[pair[1]].code}'
+              .toLowerCase(),
           competition: 'FIFA World Cup 2026',
           stage: 'Group $g · Matchday ${md + 1}',
           kickoff: ko.toIso8601String(),
@@ -131,7 +228,9 @@ List<Fixture> localFixtures() {
   // ---- knockout: resolved from the group results (see tournament.dart) ----
   fixtures.addAll(buildKnockout(fixtures, now));
 
-  fixtures.sort((a, b) => DateTime.parse(a.kickoff).compareTo(DateTime.parse(b.kickoff)));
+  fixtures.sort(
+    (a, b) => DateTime.parse(a.kickoff).compareTo(DateTime.parse(b.kickoff)),
+  );
   _cache = fixtures;
   return fixtures;
 }
@@ -142,8 +241,14 @@ Fixture applyClock(Fixture f, DateTime now) {
   final ko = DateTime.parse(f.kickoff);
   final st = _status(ko, now);
   final restatused = Fixture(
-    id: f.id, competition: f.competition, stage: f.stage, kickoff: f.kickoff,
-    venue: f.venue, status: st, home: f.home, away: f.away,
+    id: f.id,
+    competition: f.competition,
+    stage: f.stage,
+    kickoff: f.kickoff,
+    venue: f.venue,
+    status: st,
+    home: f.home,
+    away: f.away,
   );
   return _withScore(restatused, now);
 }

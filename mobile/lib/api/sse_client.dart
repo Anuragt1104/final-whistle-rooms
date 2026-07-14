@@ -26,7 +26,10 @@ class RoomSseClient {
     while (!_closed) {
       try {
         _client = http.Client();
-        final req = http.Request('GET', Uri.parse('$baseUrl/api/rooms/$roomId/stream'));
+        final req = http.Request(
+          'GET',
+          Uri.parse('$baseUrl/api/rooms/$roomId/stream'),
+        );
         req.headers['Accept'] = 'text/event-stream';
         req.headers['Cache-Control'] = 'no-cache';
         final resp = await _client!.send(req);
@@ -62,7 +65,9 @@ class RoomSseClient {
       try {
         final msg = jsonDecode(payload);
         if (msg is Map && msg['type'] == 'state' && msg['room'] != null) {
-          _controller.add(RoomView.fromJson(Map<String, dynamic>.from(msg['room'])));
+          _controller.add(
+            RoomView.fromJson(Map<String, dynamic>.from(msg['room'])),
+          );
         }
       } catch (_) {
         // ignore malformed frame

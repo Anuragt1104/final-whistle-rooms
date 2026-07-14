@@ -15,12 +15,29 @@ class MatchEvent {
   final String side; // 'home' | 'away'
   final String player;
   final String? assist; // goal: assist name; sub: player coming on
-  MatchEvent({required this.minute, required this.kind, required this.side, required this.player, this.assist});
+  MatchEvent({
+    required this.minute,
+    required this.kind,
+    required this.side,
+    required this.player,
+    this.assist,
+  });
 }
 
 class TeamStats {
   final int possession; // %
-  final int shots, onTarget, corners, fouls, offsides, passes, passAccuracy, bigChances, saves, tackles, yellow, red;
+  final int shots,
+      onTarget,
+      corners,
+      fouls,
+      offsides,
+      passes,
+      passAccuracy,
+      bigChances,
+      saves,
+      tackles,
+      yellow,
+      red;
   final double xg;
   TeamStats({
     required this.possession,
@@ -45,7 +62,13 @@ class PlayerRating {
   final double rating;
   final int goals, assists;
   final bool motm;
-  PlayerRating({required this.player, required this.rating, this.goals = 0, this.assists = 0, this.motm = false});
+  PlayerRating({
+    required this.player,
+    required this.rating,
+    this.goals = 0,
+    this.assists = 0,
+    this.motm = false,
+  });
 }
 
 class MatchFacts {
@@ -71,8 +94,9 @@ class MatchFacts {
 
   /// Goals scored up to (and including) a given minute — used to show honest
   /// partial scores for in-play fixtures.
-  int goalsAt(String side, int minute) =>
-      events.where((e) => e.kind == 'goal' && e.side == side && e.minute <= minute).length;
+  int goalsAt(String side, int minute) => events
+      .where((e) => e.kind == 'goal' && e.side == side && e.minute <= minute)
+      .length;
 }
 
 final Map<String, MatchFacts> _factsCache = {};
@@ -121,18 +145,34 @@ MatchFacts _generate(Fixture f) {
   final homeAssists = <String, int>{};
   final awayAssists = <String, int>{};
 
-  void addGoals(String side, int count, TeamSquad sq, Map<String, int> scorers, Map<String, int> assists) {
+  void addGoals(
+    String side,
+    int count,
+    TeamSquad sq,
+    Map<String, int> scorers,
+    Map<String, int> assists,
+  ) {
     final xi = sq.startingXI;
     for (var i = 0; i < count; i++) {
       final scorer = _weightedPick(rng, xi);
       String? assist;
       if (rng.nextDouble() < 0.72) {
-        final others = xi.where((p) => p.name != scorer.name && p.pos != 'GK').toList();
+        final others = xi
+            .where((p) => p.name != scorer.name && p.pos != 'GK')
+            .toList();
         assist = others[rng.nextInt(others.length)].name;
         assists[assist] = (assists[assist] ?? 0) + 1;
       }
       scorers[scorer.name] = (scorers[scorer.name] ?? 0) + 1;
-      events.add(MatchEvent(minute: freshMinute(), kind: 'goal', side: side, player: scorer.name, assist: assist));
+      events.add(
+        MatchEvent(
+          minute: freshMinute(),
+          kind: 'goal',
+          side: side,
+          player: scorer.name,
+          assist: assist,
+        ),
+      );
     }
   }
 
@@ -147,10 +187,24 @@ MatchFacts _generate(Fixture f) {
   void addCards(String side, int yellow, int red, TeamSquad sq) {
     final xi = sq.startingXI.where((p) => p.pos != 'GK').toList();
     for (var i = 0; i < yellow; i++) {
-      events.add(MatchEvent(minute: freshMinute(), kind: 'yellow', side: side, player: xi[rng.nextInt(xi.length)].name));
+      events.add(
+        MatchEvent(
+          minute: freshMinute(),
+          kind: 'yellow',
+          side: side,
+          player: xi[rng.nextInt(xi.length)].name,
+        ),
+      );
     }
     for (var i = 0; i < red; i++) {
-      events.add(MatchEvent(minute: 50 + rng.nextInt(40), kind: 'red', side: side, player: xi[rng.nextInt(xi.length)].name));
+      events.add(
+        MatchEvent(
+          minute: 50 + rng.nextInt(40),
+          kind: 'red',
+          side: side,
+          player: xi[rng.nextInt(xi.length)].name,
+        ),
+      );
     }
   }
 
@@ -160,16 +214,19 @@ MatchFacts _generate(Fixture f) {
   // substitutions (2-3 per side, 55'–85')
   void addSubs(String side, TeamSquad sq) {
     final bench = sq.bench.where((p) => p.pos != 'GK').toList()..shuffle(rng);
-    final outfield = sq.startingXI.where((p) => p.pos != 'GK').toList()..shuffle(rng);
+    final outfield = sq.startingXI.where((p) => p.pos != 'GK').toList()
+      ..shuffle(rng);
     final n = min(2 + rng.nextInt(2), min(bench.length, outfield.length));
     for (var i = 0; i < n; i++) {
-      events.add(MatchEvent(
-        minute: 55 + rng.nextInt(31),
-        kind: 'sub',
-        side: side,
-        player: outfield[i].name,
-        assist: bench[i].name,
-      ));
+      events.add(
+        MatchEvent(
+          minute: 55 + rng.nextInt(31),
+          kind: 'sub',
+          side: side,
+          player: outfield[i].name,
+          assist: bench[i].name,
+        ),
+      );
     }
   }
 
@@ -178,10 +235,22 @@ MatchFacts _generate(Fixture f) {
   events.sort((a, b) => a.minute.compareTo(b.minute));
 
   // ---- team stats, anchored to the scoreline so nothing contradicts ----
-  final possHome = (50 + diff * 0.65 + rng.nextInt(7) - 3).clamp(28, 72).round();
-  TeamStats mkStats(int goals, int oppGoals, int poss, int yellow, int red, Random r) {
+  final possHome = (50 + diff * 0.65 + rng.nextInt(7) - 3)
+      .clamp(28, 72)
+      .round();
+  TeamStats mkStats(
+    int goals,
+    int oppGoals,
+    int poss,
+    int yellow,
+    int red,
+    Random r,
+  ) {
     final shots = goals * 2 + 5 + r.nextInt(8);
-    final onTarget = (goals + 1 + r.nextInt(max(1, shots - goals - 1))).clamp(goals, shots);
+    final onTarget = (goals + 1 + r.nextInt(max(1, shots - goals - 1))).clamp(
+      goals,
+      shots,
+    );
     final xg = (goals * 0.82 + onTarget * 0.09 + r.nextDouble() * 0.5);
     final passes = 320 + (poss - 30) * 12 + r.nextInt(60);
     return TeamStats(
@@ -202,11 +271,32 @@ MatchFacts _generate(Fixture f) {
     );
   }
 
-  final homeStats = mkStats(hGoals, aGoals, possHome, hYellow, hRed, Random(f.id.hashCode ^ 1));
-  final awayStats = mkStats(aGoals, hGoals, 100 - possHome, aYellow, aRed, Random(f.id.hashCode ^ 2));
+  final homeStats = mkStats(
+    hGoals,
+    aGoals,
+    possHome,
+    hYellow,
+    hRed,
+    Random(f.id.hashCode ^ 1),
+  );
+  final awayStats = mkStats(
+    aGoals,
+    hGoals,
+    100 - possHome,
+    aYellow,
+    aRed,
+    Random(f.id.hashCode ^ 2),
+  );
 
   // ---- player ratings ----
-  List<PlayerRating> rate(TeamSquad sq, Map<String, int> scorers, Map<String, int> assists, bool won, bool drew, Random r) {
+  List<PlayerRating> rate(
+    TeamSquad sq,
+    Map<String, int> scorers,
+    Map<String, int> assists,
+    bool won,
+    bool drew,
+    Random r,
+  ) {
     return sq.startingXI.map((p) {
       var v = 6.3 + r.nextDouble() * 1.0;
       if (won) v += 0.35;
@@ -223,8 +313,22 @@ MatchFacts _generate(Fixture f) {
   }
 
   final homeWon = hGoals > aGoals, drew = hGoals == aGoals;
-  var homeRatings = rate(homeSq, homeScorers, homeAssists, homeWon, drew, Random(f.id.hashCode ^ 3));
-  var awayRatings = rate(awaySq, awayScorers, awayAssists, !homeWon && !drew, drew, Random(f.id.hashCode ^ 4));
+  var homeRatings = rate(
+    homeSq,
+    homeScorers,
+    homeAssists,
+    homeWon,
+    drew,
+    Random(f.id.hashCode ^ 3),
+  );
+  var awayRatings = rate(
+    awaySq,
+    awayScorers,
+    awayAssists,
+    !homeWon && !drew,
+    drew,
+    Random(f.id.hashCode ^ 4),
+  );
 
   // man of the match = single highest rating, flag it
   PlayerRating best = homeRatings.first;
@@ -238,12 +342,21 @@ MatchFacts _generate(Fixture f) {
       motmSide = 'away';
     }
   }
-  PlayerRating flag(PlayerRating pr) =>
-      PlayerRating(player: pr.player, rating: pr.rating, goals: pr.goals, assists: pr.assists, motm: true);
+  PlayerRating flag(PlayerRating pr) => PlayerRating(
+    player: pr.player,
+    rating: pr.rating,
+    goals: pr.goals,
+    assists: pr.assists,
+    motm: true,
+  );
   if (motmSide == 'home') {
-    homeRatings = homeRatings.map((pr) => pr.player.name == best.player.name ? flag(pr) : pr).toList();
+    homeRatings = homeRatings
+        .map((pr) => pr.player.name == best.player.name ? flag(pr) : pr)
+        .toList();
   } else {
-    awayRatings = awayRatings.map((pr) => pr.player.name == best.player.name ? flag(pr) : pr).toList();
+    awayRatings = awayRatings
+        .map((pr) => pr.player.name == best.player.name ? flag(pr) : pr)
+        .toList();
   }
 
   return MatchFacts(
@@ -264,7 +377,12 @@ SquadPlayer _weightedPick(Random rng, List<SquadPlayer> xi) {
   // forwards score most, then mids, then defenders; keepers never
   final weighted = <SquadPlayer>[];
   for (final p in xi) {
-    final w = switch (p.pos) { 'FW' => 6, 'MF' => 3, 'DF' => 1, _ => 0 };
+    final w = switch (p.pos) {
+      'FW' => 6,
+      'MF' => 3,
+      'DF' => 1,
+      _ => 0,
+    };
     for (var i = 0; i < w; i++) {
       weighted.add(p);
     }
@@ -289,10 +407,21 @@ class H2HMeeting {
   final int year;
   final String competition;
   final int goalsA, goalsB; // oriented to (a, b) as passed to h2hFor
-  H2HMeeting({required this.year, required this.competition, required this.goalsA, required this.goalsB});
+  H2HMeeting({
+    required this.year,
+    required this.competition,
+    required this.goalsA,
+    required this.goalsB,
+  });
 }
 
-const _h2hComps = ['World Cup', 'World Cup Qualifier', 'International Friendly', 'Continental Cup', 'Nations League'];
+const _h2hComps = [
+  'World Cup',
+  'World Cup Qualifier',
+  'International Friendly',
+  'Continental Cup',
+  'Nations League',
+];
 
 /// Seeded, order-independent pseudo-history between two nations.
 List<H2HMeeting> h2hFor(Team a, Team b) {
@@ -305,15 +434,18 @@ List<H2HMeeting> h2hFor(Team a, Team b) {
   for (var i = 0; i < n; i++) {
     year -= 1 + rng.nextInt(4);
     // strength-informed but noisy
-    final diff = ((flipped ? b.rating - a.rating : a.rating - b.rating)).toDouble();
+    final diff = ((flipped ? b.rating - a.rating : a.rating - b.rating))
+        .toDouble();
     final gFirst = _poisson(rng, (1.2 + diff * 0.04).clamp(0.2, 3.0));
     final gSecond = _poisson(rng, (1.2 - diff * 0.04).clamp(0.2, 3.0));
-    res.add(H2HMeeting(
-      year: year,
-      competition: _h2hComps[rng.nextInt(_h2hComps.length)],
-      goalsA: flipped ? gSecond : gFirst,
-      goalsB: flipped ? gFirst : gSecond,
-    ));
+    res.add(
+      H2HMeeting(
+        year: year,
+        competition: _h2hComps[rng.nextInt(_h2hComps.length)],
+        goalsA: flipped ? gSecond : gFirst,
+        goalsB: flipped ? gFirst : gSecond,
+      ),
+    );
   }
   return res;
 }

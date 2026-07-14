@@ -143,6 +143,7 @@ export type MatchEventKind =
   | "yellow"
   | "red"
   | "corner"
+  | "substitution"
   | "phase"
   | "half-time"
   | "full-time";
@@ -158,6 +159,14 @@ export interface MatchEvent {
   side?: "home" | "away";
   /** Human label, e.g. "Goal — Portugal". */
   label: string;
+  /** Stable upstream identity used to suppress SSE/replay duplicates. */
+  sourceEventId?: string;
+  playerId?: string;
+  playerName?: string;
+  secondaryPlayerId?: string;
+  secondaryPlayerName?: string;
+  teamCode?: string;
+  artKey?: string;
 }
 
 /** Consensus odds. */

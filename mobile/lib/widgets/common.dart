@@ -7,10 +7,17 @@ class Brand extends StatelessWidget {
   const Brand({super.key, this.small = false});
   @override
   Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-      Text('FINAL WHISTLE', style: display(small ? 17 : 21, spacing: 0.5)),
-      Text('ROOMS', style: label(color: AppColors.orange, size: small ? 8 : 9.5)),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('FINAL WHISTLE', style: display(small ? 17 : 21, spacing: 0.5)),
+        Text(
+          'WORLD CUP LIVE',
+          style: label(color: AppColors.orange, size: small ? 8 : 9.5),
+        ),
+      ],
+    );
   }
 }
 
@@ -20,7 +27,14 @@ class AppChip extends StatelessWidget {
   final Color? bg;
   final Widget? leading;
   final VoidCallback? onTap;
-  const AppChip(this.text, {super.key, this.color, this.bg, this.leading, this.onTap});
+  const AppChip(
+    this.text, {
+    super.key,
+    this.color,
+    this.bg,
+    this.leading,
+    this.onTap,
+  });
   @override
   Widget build(BuildContext context) {
     final child = Container(
@@ -30,10 +44,13 @@ class AppChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(99),
         border: Border.all(color: AppColors.line),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (leading != null) ...[leading!, const SizedBox(width: 5)],
-        Text(text, style: label(color: color ?? AppColors.mut, size: 10.5)),
-      ]),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 5)],
+          Text(text, style: label(color: color ?? AppColors.mut, size: 10.5)),
+        ],
+      ),
     );
     return onTap == null ? child : GestureDetector(onTap: onTap, child: child);
   }
@@ -48,8 +65,10 @@ class LiveDot extends StatefulWidget {
 }
 
 class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1300))..repeat(reverse: true);
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1300),
+  )..repeat(reverse: true);
   @override
   void dispose() {
     _c.dispose();
@@ -58,13 +77,13 @@ class _LiveDotState extends State<LiveDot> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) => FadeTransition(
-        opacity: Tween(begin: 1.0, end: 0.3).animate(_c),
-        child: Container(
-          width: widget.size,
-          height: widget.size,
-          decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
-        ),
-      );
+    opacity: Tween(begin: 1.0, end: 0.3).animate(_c),
+    child: Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+    ),
+  );
 }
 
 /// Tactile press wrapper: scales down + haptic on tap.
@@ -73,15 +92,26 @@ class Pressable extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final HapticFeedbackType haptic;
-  const Pressable({super.key, required this.child, this.onTap, this.onLongPress, this.haptic = HapticFeedbackType.light});
+  const Pressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+    this.haptic = HapticFeedbackType.light,
+  });
   @override
   State<Pressable> createState() => _PressableState();
 }
 
 enum HapticFeedbackType { light, medium, selection }
 
-class _PressableState extends State<Pressable> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 140), value: 1);
+class _PressableState extends State<Pressable>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 140),
+    value: 1,
+  );
   void _fire() {
     switch (widget.haptic) {
       case HapticFeedbackType.medium:
@@ -102,8 +132,16 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
     super.dispose();
   }
 
-  void _down() => _c.animateTo(0.9, duration: const Duration(milliseconds: 90), curve: Curves.easeOut);
-  void _up() => _c.animateTo(1, duration: const Duration(milliseconds: 420), curve: Curves.elasticOut);
+  void _down() => _c.animateTo(
+    0.9,
+    duration: const Duration(milliseconds: 90),
+    curve: Curves.easeOut,
+  );
+  void _up() => _c.animateTo(
+    1,
+    duration: const Duration(milliseconds: 420),
+    curve: Curves.elasticOut,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -134,7 +172,14 @@ class PrimaryButton extends StatelessWidget {
   final bool expand;
   final bool busy;
   final IconData? icon;
-  const PrimaryButton(this.label, {super.key, this.onTap, this.expand = false, this.busy = false, this.icon});
+  const PrimaryButton(
+    this.label, {
+    super.key,
+    this.onTap,
+    this.expand = false,
+    this.busy = false,
+    this.icon,
+  });
   @override
   Widget build(BuildContext context) {
     final btn = Pressable(
@@ -146,14 +191,34 @@ class PrimaryButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.orange,
             borderRadius: BorderRadius.circular(14),
-            boxShadow: const [BoxShadow(color: Color(0x33E9531E), blurRadius: 14, offset: Offset(0, 6))],
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33E9531E),
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
           ),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-            Text(busy ? 'Working…' : label,
-                style: const TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
-            if (icon != null) ...[const SizedBox(width: 6), Icon(icon, color: Colors.white, size: 16)],
-          ]),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                busy ? 'Working…' : label,
+                style: const TextStyle(
+                  fontFamily: kBody,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+              if (icon != null) ...[
+                const SizedBox(width: 6),
+                Icon(icon, color: Colors.white, size: 16),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -171,11 +236,22 @@ class GhostButton extends StatelessWidget {
     final btn = Pressable(
       onTap: onTap,
       child: Container(
-        decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)),
+        decoration: BoxDecoration(
+          color: AppColors.cardAlt,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.line),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Text(label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontFamily: kBody, color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 14)),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontFamily: kBody,
+            color: AppColors.ink,
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+          ),
+        ),
       ),
     );
     return expand ? SizedBox(width: double.infinity, child: btn) : btn;
@@ -204,28 +280,43 @@ class SectionLabel extends StatelessWidget {
   const SectionLabel(this.text, {super.key, this.trailing});
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 10, top: 4),
-        child: Row(children: [
-          Text(text.toUpperCase(), style: label(color: AppColors.ink, size: 12.5, weight: FontWeight.w800)),
-          const Spacer(),
-          if (trailing != null) trailing!,
-        ]),
-      );
+    padding: const EdgeInsets.only(bottom: 10, top: 4),
+    child: Row(
+      children: [
+        Text(
+          text.toUpperCase(),
+          style: label(
+            color: AppColors.ink,
+            size: 12.5,
+            weight: FontWeight.w800,
+          ),
+        ),
+        const Spacer(),
+        if (trailing != null) trailing!,
+      ],
+    ),
+  );
 }
 
 InputDecoration fwrInput(String hint) => InputDecoration(
-      hintText: hint,
-      hintStyle: body(color: AppColors.mut, size: 14),
-      filled: true,
-      fillColor: AppColors.card,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: AppColors.line)),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: AppColors.line)),
-      focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: AppColors.orange, width: 1.5)),
-    );
+  hintText: hint,
+  hintStyle: body(color: AppColors.mut, size: 14),
+  filled: true,
+  fillColor: AppColors.card,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(13),
+    borderSide: const BorderSide(color: AppColors.line),
+  ),
+  enabledBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(13),
+    borderSide: const BorderSide(color: AppColors.line),
+  ),
+  focusedBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(13),
+    borderSide: const BorderSide(color: AppColors.orange, width: 1.5),
+  ),
+);
 
 Color accentColor(String accent) {
   switch (accent) {
@@ -251,8 +342,21 @@ class InitialAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final initials = name.trim().isEmpty
         ? '?'
-        : name.trim().split(RegExp(r'\s+')).map((w) => w[0]).take(2).join().toUpperCase();
-    final colors = [0xFF6A3FA0, 0xFF1F7A3D, 0xFFD8392B, 0xFF1B3A8C, 0xFFEB6A1E, 0xFF0E8C8C];
+        : name
+              .trim()
+              .split(RegExp(r'\s+'))
+              .map((w) => w[0])
+              .take(2)
+              .join()
+              .toUpperCase();
+    final colors = [
+      0xFF6A3FA0,
+      0xFF1F7A3D,
+      0xFFD8392B,
+      0xFF1B3A8C,
+      0xFFEB6A1E,
+      0xFF0E8C8C,
+    ];
     var h = 0;
     for (final c in name.codeUnits) {
       h = (h * 31 + c) & 0x7fffffff;
@@ -260,10 +364,20 @@ class InitialAvatar extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(color: Color(colors[h % colors.length]), shape: BoxShape.circle),
+      decoration: BoxDecoration(
+        color: Color(colors[h % colors.length]),
+        shape: BoxShape.circle,
+      ),
       alignment: Alignment.center,
-      child: Text(initials,
-          style: TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: size * 0.36)),
+      child: Text(
+        initials,
+        style: TextStyle(
+          fontFamily: kBody,
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: size * 0.36,
+        ),
+      ),
     );
   }
 }
@@ -279,7 +393,10 @@ Route<T> fwrRoute<T>(Widget page) {
       return FadeTransition(
         opacity: curved,
         child: SlideTransition(
-          position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(curved),
+          position: Tween(
+            begin: const Offset(0, 0.04),
+            end: Offset.zero,
+          ).animate(curved),
           child: child,
         ),
       );
@@ -318,8 +435,13 @@ String kickoffWhen(String iso) {
   try {
     final ko = DateTime.parse(iso).toLocal();
     final now = DateTime.now();
-    final days = DateTime(ko.year, ko.month, ko.day).difference(DateTime(now.year, now.month, now.day)).inDays;
-    final t = '${ko.hour.toString().padLeft(2, '0')}:${ko.minute.toString().padLeft(2, '0')}';
+    final days = DateTime(
+      ko.year,
+      ko.month,
+      ko.day,
+    ).difference(DateTime(now.year, now.month, now.day)).inDays;
+    final t =
+        '${ko.hour.toString().padLeft(2, '0')}:${ko.minute.toString().padLeft(2, '0')}';
     if (days == 0) return 'today $t';
     if (days == 1) return 'tomorrow $t';
     const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

@@ -10,11 +10,13 @@ import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    statusBarBrightness: Brightness.light,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+    ),
+  );
   await ApiClient.instance.init();
   // Pre-warm (not awaited): refreshes the cached config/fixtures and wakes a
   // sleeping backend while the user is still on the splash/onboarding, so the
@@ -38,7 +40,7 @@ class FinalWhistleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Final Whistle Rooms',
+      title: 'Final Whistle',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       home: onboarded ? const HomeScreen() : const OnboardingScreen(),

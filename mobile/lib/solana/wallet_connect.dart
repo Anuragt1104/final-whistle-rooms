@@ -23,7 +23,9 @@ class WalletConnect {
   }
 
   /// Open the installed wallet and authorize. Returns null if cancelled.
-  static Future<WalletConnectResult?> connect({String cluster = 'mainnet-beta'}) async {
+  static Future<WalletConnectResult?> connect({
+    String cluster = 'mainnet-beta',
+  }) async {
     final scenario = await LocalAssociationScenario.create();
     try {
       // Launch the wallet (fire-and-forget) and THEN await start(), which
@@ -35,11 +37,15 @@ class WalletConnect {
       final result = await client.authorize(
         identityUri: Uri.parse('https://final-whistle.app'),
         iconUri: Uri.parse('favicon.png'),
-        identityName: 'Final Whistle Rooms',
+        identityName: 'Final Whistle',
         cluster: cluster,
       );
       if (result == null) return null;
-      return WalletConnectResult(base58Encode(result.publicKey), result.authToken, result.accountLabel);
+      return WalletConnectResult(
+        base58Encode(result.publicKey),
+        result.authToken,
+        result.accountLabel,
+      );
     } finally {
       await scenario.close();
     }

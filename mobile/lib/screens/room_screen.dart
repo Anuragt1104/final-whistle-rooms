@@ -4,13 +4,12 @@ import 'package:share_plus/share_plus.dart';
 
 import '../api/api_client.dart';
 import '../api/models.dart';
-import '../data/player_images.dart';
+import '../api/cards.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../state/room_controller.dart';
 import '../state/notifications.dart';
 import '../local/live_engine.dart';
-import '../local/players.dart';
 import '../theme.dart';
 import 'team_sheet.dart';
 import '../widgets/common.dart';
@@ -25,18 +24,27 @@ import '../widgets/recap_card.dart';
 import '../widgets/proof_sheet.dart';
 import '../widgets/motm_poll.dart';
 import '../widgets/player_avatar.dart';
+import '../widgets/gyro_card.dart';
+import 'card_detail_screen.dart';
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
   final LiveMatchEngine? engine; // non-null = local solo room
   final bool autoStart;
-  const RoomScreen({super.key, required this.roomId, this.engine, this.autoStart = false});
+  const RoomScreen({
+    super.key,
+    required this.roomId,
+    this.engine,
+    this.autoStart = false,
+  });
   @override
   State<RoomScreen> createState() => _RoomScreenState();
 }
 
 class _RoomScreenState extends State<RoomScreen> {
-  late final RoomController _c = widget.engine != null ? RoomController.local(widget.engine) : RoomController(widget.roomId);
+  late final RoomController _c = widget.engine != null
+      ? RoomController.local(widget.engine)
+      : RoomController(widget.roomId);
   int _seg = 0;
   bool _aiOn = false;
   bool _revealed = false; // spoiler-safe reveal
@@ -55,8 +63,11 @@ class _RoomScreenState extends State<RoomScreen> {
   void _scrollToChat() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -76,40 +87,47 @@ class _RoomScreenState extends State<RoomScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _c.startMatch());
     }
     IdentityStore.getOrCreate().then((i) => _identity = i);
-    LocalStore.streakBest().then((b) => mounted ? setState(() => _lifetimeBest = b) : null);
+    LocalStore.streakBest().then(
+      (b) => mounted ? setState(() => _lifetimeBest = b) : null,
+    );
     LocalStore.isPro().then((p) => mounted ? setState(() => _isPro = p) : null);
-    ApiClient.instance.config().then((c) => mounted ? setState(() => _aiOn = c.recapAI) : null).catchError((_) {});
-    _warmPlayerPhotos();
+    ApiClient.instance
+        .config()
+        .then((c) => mounted ? setState(() => _aiOn = c.recapAI) : null)
+        .catchError((_) {});
+    _markMatchWatched();
   }
 
-  bool _photosWarmed = false;
-
-  /// Pre-warm both squads' photo indexes the moment we know the fixture, so
-  /// the first GOAL card's face is already on disk before it happens.
-  void _warmPlayerPhotos() {
-    if (_photosWarmed) return;
+  bool _watchMarked = false;
+  void _markMatchWatched() {
+    if (_watchMarked) return;
     final fx = _c.room?.fixture;
-    if (fx == null) return; // remote room still loading — retried from _onChange
-    _photosWarmed = true;
-    PlayerImages.warm(fx.home.name);
-    PlayerImages.warm(fx.away.name);
-    LocalStore.markWatched(fx.id); // fan stat: matches watched (once per fixture)
+    if (fx == null)
+      return; // remote room still loading — retried from _onChange
+    _watchMarked = true;
+    LocalStore.markWatched(
+      fx.id,
+    ); // fan stat: matches watched (once per fixture)
   }
 
   Future<void> _shareScore(RoomView room) async {
     final me = _c.me;
-    final best = ((me?.bestStreak ?? 0) > _lifetimeBest) ? (me?.bestStreak ?? 0) : _lifetimeBest;
+    final best = ((me?.bestStreak ?? 0) > _lifetimeBest)
+        ? (me?.bestStreak ?? 0)
+        : _lifetimeBest;
     final text =
-        '🔥 Higher or Lower on Final Whistle Rooms — best streak $best, ${me?.points ?? 0} pts '
+        '⚡ Live Calls on Final Whistle — best streak $best, ${me?.points ?? 0} pts '
         'on ${room.fixture.home.name} v ${room.fixture.away.name}. Think you can read the swings better? ⚽';
     try {
-      await Share.share(text, subject: 'My Final Whistle Rooms streak');
+      await Share.share(text, subject: 'My Final Whistle streak');
     } catch (_) {
       // fall back to clipboard if the platform share sheet is unavailable
       await Clipboard.setData(ClipboardData(text: text));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Score copied — paste it anywhere to share 🔥')),
+          const SnackBar(
+            content: Text('Score copied — paste it anywhere to share 🔥'),
+          ),
         );
       }
     }
@@ -122,11 +140,13 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _isPro = false; // Season Pass — unlocks the pro reaction pack
   int _lifetimeBest = 0; // best Higher-or-Lower streak across all matches
   bool _everConnected = false; // only warn about drops after a first good sync
+  bool _dropStreamReady = false;
+  final Set<String> _seenMomentDrops = {};
   void _onChange() {
     if (!mounted) return;
     if (_c.connected) _everConnected = true;
     final room = _c.room;
-    _warmPlayerPhotos(); // no-op once warmed; covers async-loading remote rooms
+    _markMatchWatched();
     // celebrate when the user's Next Swing points go up
     final myPoints = _c.me?.points ?? 0;
     if (_lastPoints >= 0 && myPoints > _lastPoints) {
@@ -148,19 +168,41 @@ class _RoomScreenState extends State<RoomScreen> {
       }
     }
     _lastCorrect = correct;
-    final goalCards = room?.pulse.where((p) => p.kind == 'goal').toList() ?? const [];
-    final redCards = room?.pulse.where((p) => p.kind == 'red').toList() ?? const [];
+    final goalCards =
+        room?.pulse.where((p) => p.kind == 'goal').toList() ?? const [];
+    final redCards =
+        room?.pulse.where((p) => p.kind == 'red').toList() ?? const [];
+    if (room != null && _c.memberId != null) {
+      final mine = room.momentDrops
+          .where((d) => d.memberId == _c.memberId)
+          .toList();
+      if (!_dropStreamReady) {
+        _seenMomentDrops.addAll(mine.map((d) => d.id));
+        _dropStreamReady = true;
+      } else {
+        final unseen = mine
+            .where((d) => !_seenMomentDrops.contains(d.id))
+            .toList();
+        if (unseen.isNotEmpty) {
+          _seenMomentDrops.addAll(unseen.map((d) => d.id));
+          final drop = unseen.last;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _showMomentDrop(drop);
+          });
+        }
+      }
+    }
     if (goalCards.length > _lastGoals) {
-      final isCatchUp = _lastGoals == 0 && goalCards.length > 1; // seeded history, not a fresh goal
+      final isCatchUp =
+          _lastGoals == 0 &&
+          goalCards.length > 1; // seeded history, not a fresh goal
       _lastGoals = goalCards.length;
       if (!isCatchUp && room != null) {
         HapticFeedback.heavyImpact();
         final g = goalCards.last;
         final side = g.accent == 'away' ? 'away' : 'home';
         final team = side == 'away' ? room.fixture.away : room.fixture.home;
-        // same deterministic attribution as the pulse feed
-        final nth = goalCards.where((c) => c.accent == g.accent).length - 1;
-        final scorer = g.scorer ?? scorerName(room.fixture, side, nth < 0 ? 0 : nth);
+        final scorer = g.scorer ?? team.name;
         _goalBanner(team, scorer, g.minute);
         // system notification only for real (live TxLINE) rooms, not replays
         if (!_c.isLocal && room.score != null) {
@@ -177,8 +219,11 @@ class _RoomScreenState extends State<RoomScreen> {
       _lastReds = redCards.length;
       if (!_c.isLocal && room != null) {
         final r = redCards.last;
-        Notifications.show('🟥 RED CARD', r.detail.isNotEmpty ? r.detail : r.headline,
-            subText: '${room.fixture.home.name} v ${room.fixture.away.name}');
+        Notifications.show(
+          '🟥 RED CARD',
+          r.detail.isNotEmpty ? r.detail : r.headline,
+          subText: '${room.fixture.home.name} v ${room.fixture.away.name}',
+        );
       }
     }
     setState(() {});
@@ -192,7 +237,8 @@ class _RoomScreenState extends State<RoomScreen> {
     super.dispose();
   }
 
-  bool _hidden(RoomView r) => r.spoilerSafe && !_revealed && r.status != 'finished';
+  bool _hidden(RoomView r) =>
+      r.spoilerSafe && !_revealed && r.status != 'finished';
 
   String? _scoreText(RoomView r) {
     if (_hidden(r)) return null;
@@ -214,7 +260,9 @@ class _RoomScreenState extends State<RoomScreen> {
   /// True when this room does NOT follow the real live feed — the on-device
   /// engine, or a backend running in simulation mode. Honesty rule: a replay
   /// must never wear the LIVE badge.
-  bool get _isReplay => _c.isLocal || (ApiClient.instance.cachedConfig?.mode != 'live');
+  bool get _isReplay =>
+      _c.isLocal ||
+      (_c.room?.replay ?? (ApiClient.instance.cachedConfig?.mode != 'live'));
 
   /// Pill text reflects the actual MATCH state, not just the room status — a
   /// not-yet-kicked-off match must not read "LIVE".
@@ -241,17 +289,14 @@ class _RoomScreenState extends State<RoomScreen> {
     }
   }
 
-  /// Goal records for the final-whistle hero — (team, scorer, minute), with
-  /// the same deterministic attribution as the pulse feed when the feed only
-  /// gave us the team.
+  /// Goal records for the final-whistle hero. If TxLINE omits a player, name
+  /// the verified team instead of inventing an attribution.
   List<(Team, String, int)> _scorers(RoomView r) {
     final out = <(Team, String, int)>[];
-    final count = {'home': 0, 'away': 0};
     for (final c in r.pulse.where((c) => c.kind == 'goal')) {
       final side = c.accent == 'away' ? 'away' : 'home';
       final team = side == 'away' ? r.fixture.away : r.fixture.home;
-      out.add((team, c.scorer ?? scorerName(r.fixture, side, count[side]!), c.minute));
-      count[side] = count[side]! + 1;
+      out.add((team, c.scorer ?? team.name, c.minute));
     }
     return out;
   }
@@ -260,7 +305,9 @@ class _RoomScreenState extends State<RoomScreen> {
   Widget build(BuildContext context) {
     final room = _c.room;
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
       child: _build(room),
     );
   }
@@ -269,12 +316,24 @@ class _RoomScreenState extends State<RoomScreen> {
     if (_c.notFound) {
       return Scaffold(
         backgroundColor: AppColors.paper,
-        appBar: AppBar(backgroundColor: AppColors.paper, foregroundColor: AppColors.ink, elevation: 0),
-        body: Center(child: Text('This room doesn\'t exist anymore.', style: body(color: AppColors.mut))),
+        appBar: AppBar(
+          backgroundColor: AppColors.paper,
+          foregroundColor: AppColors.ink,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Text(
+            'This room doesn\'t exist anymore.',
+            style: body(color: AppColors.mut),
+          ),
+        ),
       );
     }
     if (room == null) {
-      return const Scaffold(backgroundColor: AppColors.paper, body: Center(child: CircularProgressIndicator(color: AppColors.orange)));
+      return const Scaffold(
+        backgroundColor: AppColors.paper,
+        body: Center(child: CircularProgressIndicator(color: AppColors.orange)),
+      );
     }
     if (room.status == 'finished') return _finalWhistle(room);
     return _liveRoom(room);
@@ -283,116 +342,212 @@ class _RoomScreenState extends State<RoomScreen> {
   // ---------------- LIVE / LOBBY ----------------
   Widget _liveRoom(RoomView room) {
     final me = _c.me;
-    final showSwing = room.modes.nextSwing && (room.status == 'live' || room.prompts.isNotEmpty);
+    final showSyntheticAnalysis =
+        _c.isLocal || ApiClient.instance.cachedConfig?.mode == 'simulation';
+    final showSwing =
+        room.modes.nextSwing &&
+        (room.status == 'live' || room.prompts.isNotEmpty);
     final showDraft = room.modes.draft && _c.joined && me?.side == null;
     final latestRecap = room.recaps.isNotEmpty ? room.recaps.last : null;
 
     return Scaffold(
       backgroundColor: AppColors.paper,
       resizeToAvoidBottomInset: true,
-      body: Stack(children: [
-        Column(children: [
-          Container(
-            color: AppColors.ink,
-            child: TicketScoreboard(
-              home: room.fixture.home,
-              away: room.fixture.away,
-              league: room.fixture.stage,
-              score: _scoreText(room),
-              minute: _minuteText(room),
-              clockSeconds: room.score?.clockSeconds,
-              clockRunning: (room.score?.running ?? false) && room.status == 'live' && !_hidden(room) && (room.score?.phase ?? 0) != 0,
-              onTeamTap: (t) => showTeamSheet(context, t),
-              pill: _pillText(room),
-              pillColor: _pillText(room) == 'REPLAY'
-                  ? AppColors.gold
-                  : (const {'LIVE', 'EXTRA TIME', 'PENALTIES'}.contains(_pillText(room)) ? AppColors.orange : AppColors.inkSoft),
-              watching: room.members.length,
-              onBack: () => Navigator.of(context).maybePop(),
-              topRadius: 0,
-              topInset: MediaQuery.of(context).padding.top,
-            ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              Container(
+                color: AppColors.ink,
+                child: TicketScoreboard(
+                  home: room.fixture.home,
+                  away: room.fixture.away,
+                  league: room.fixture.stage,
+                  score: _scoreText(room),
+                  minute: _minuteText(room),
+                  clockSeconds: room.score?.clockSeconds,
+                  clockRunning:
+                      (room.score?.running ?? false) &&
+                      room.status == 'live' &&
+                      !_hidden(room) &&
+                      (room.score?.phase ?? 0) != 0,
+                  onTeamTap: (t) => showTeamSheet(context, t),
+                  pill: _pillText(room),
+                  pillColor: _pillText(room) == 'REPLAY'
+                      ? AppColors.gold
+                      : (const {
+                              'LIVE',
+                              'EXTRA TIME',
+                              'PENALTIES',
+                            }.contains(_pillText(room))
+                            ? AppColors.orange
+                            : AppColors.inkSoft),
+                  watching: room.members.length,
+                  onBack: () => Navigator.of(context).maybePop(),
+                  topRadius: 0,
+                  topInset: MediaQuery.of(context).padding.top,
+                ),
+              ),
+              _connectionBanner(),
+              Expanded(
+                child: ListView(
+                  controller: _scroll,
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, _seg == 0 ? 88 : 16),
+                  children: [
+                    _controls(room),
+                    const SizedBox(height: 12),
+                    _segmentBar(),
+                    const SizedBox(height: 12),
+                    if (_seg == 0) ...[
+                      _presenceRow(room),
+                      const SizedBox(height: 12),
+                      if (room.score?.statusNote != null) ...[
+                        _statusBanner(room.score!.statusNote!),
+                        const SizedBox(height: 12),
+                      ],
+                      if (room.status == 'lobby') ...[
+                        _lobbyBanner(room),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showDraft) ...[
+                        _sidePicker(room),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showSwing) ...[
+                        NextSwingCard(
+                          prompts: room.prompts,
+                          myPicks: _c.myPicks,
+                          onPick: _c.predict,
+                          streak: _c.me?.streak ?? 0,
+                          bestStreak: ((_c.me?.bestStreak ?? 0) > _lifetimeBest)
+                              ? (_c.me?.bestStreak ?? 0)
+                              : _lifetimeBest,
+                          onShare: () => _shareScore(room),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (room.shootout != null && !_hidden(room)) ...[
+                        ShootoutCard(
+                          s: room.shootout!,
+                          fixture: room.fixture,
+                          home: room.fixture.home,
+                          away: room.fixture.away,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showSyntheticAnalysis &&
+                          room.score != null &&
+                          !_hidden(room)) ...[
+                        WinBar(
+                          win: room.win,
+                          home: room.fixture.home,
+                          away: room.fixture.away,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showSyntheticAnalysis &&
+                          room.score != null &&
+                          room.status == 'live' &&
+                          !_hidden(room) &&
+                          (room.score!.phase != 0)) ...[
+                        MomentumMeter(
+                          value: room.momentum,
+                          home: room.fixture.home,
+                          away: room.fixture.away,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showSyntheticAnalysis &&
+                          room.score != null &&
+                          !_hidden(room) &&
+                          room.winHistory.length >= 3) ...[
+                        WinTimeline(
+                          history: room.winHistory,
+                          home: room.fixture.home,
+                          away: room.fixture.away,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (room.score != null &&
+                          room.status != 'lobby' &&
+                          !_hidden(room)) ...[
+                        MatchStatsPanel(
+                          score: room.score!,
+                          home: room.fixture.home,
+                          away: room.fixture.away,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (latestRecap != null) ...[
+                        RecapCard(recap: latestRecap, aiOn: _aiOn),
+                        const SizedBox(height: 12),
+                      ],
+                      PulseFeed(pulse: room.pulse, fixture: room.fixture),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Text(
+                            'THE TERRACE',
+                            style: label(
+                              color: AppColors.ink,
+                              size: 11.5,
+                              weight: FontWeight.w800,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${room.chat.where((c) => c.kind != "system").length} shouts',
+                            style: body(color: AppColors.mut, size: 11),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ChatFeed(chat: room.chat, hostId: room.hostId),
+                    ] else ...[
+                      Leaderboard(
+                        room: room,
+                        meId: _c.memberId,
+                        meIsPro: _isPro,
+                      ),
+                      if (room.recaps.isNotEmpty) const SizedBox(height: 12),
+                      ...room.recaps.reversed.map(
+                        (r) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: RecapCard(recap: r, aiOn: _aiOn),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-          _connectionBanner(),
-          Expanded(
-            child: ListView(controller: _scroll, padding: EdgeInsets.fromLTRB(16, 12, 16, _seg == 0 ? 88 : 16), children: [
-              _controls(room),
-              const SizedBox(height: 12),
-              _segmentBar(),
-              const SizedBox(height: 12),
-              if (_seg == 0) ...[
-                _presenceRow(room),
-                const SizedBox(height: 12),
-                if (room.score?.statusNote != null) ...[_statusBanner(room.score!.statusNote!), const SizedBox(height: 12)],
-                if (room.status == 'lobby') ...[_lobbyBanner(room), const SizedBox(height: 12)],
-                if (showDraft) ...[_sidePicker(room), const SizedBox(height: 12)],
-                if (room.shootout != null && !_hidden(room)) ...[
-                  ShootoutCard(s: room.shootout!, fixture: room.fixture, home: room.fixture.home, away: room.fixture.away),
-                  const SizedBox(height: 12),
-                ],
-                if (room.score != null && !_hidden(room)) ...[WinBar(win: room.win, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 12)],
-                if (room.score != null && room.status == 'live' && !_hidden(room) && (room.score!.phase != 0)) ...[
-                  MomentumMeter(value: room.momentum, home: room.fixture.home, away: room.fixture.away),
-                  const SizedBox(height: 12),
-                ],
-                if (room.score != null && !_hidden(room) && room.winHistory.length >= 3) ...[
-                  WinTimeline(history: room.winHistory, home: room.fixture.home, away: room.fixture.away),
-                  const SizedBox(height: 12),
-                ],
-                if (room.score != null && room.status != 'lobby' && !_hidden(room)) ...[
-                  MatchStatsPanel(score: room.score!, home: room.fixture.home, away: room.fixture.away),
-                  const SizedBox(height: 12),
-                ],
-                if (showSwing) ...[
-                  NextSwingCard(
-                    prompts: room.prompts,
-                    myPicks: _c.myPicks,
-                    onPick: _c.predict,
-                    streak: _c.me?.streak ?? 0,
-                    bestStreak: ((_c.me?.bestStreak ?? 0) > _lifetimeBest) ? (_c.me?.bestStreak ?? 0) : _lifetimeBest,
-                    onShare: () => _shareScore(room),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (latestRecap != null) ...[RecapCard(recap: latestRecap, aiOn: _aiOn), const SizedBox(height: 12)],
-                PulseFeed(pulse: room.pulse, fixture: room.fixture),
-                const SizedBox(height: 16),
-                Row(children: [Text('THE TERRACE', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)), const Spacer(), Text('${room.chat.where((c) => c.kind != "system").length} shouts', style: body(color: AppColors.mut, size: 11))]),
-                const SizedBox(height: 8),
-                ChatFeed(chat: room.chat, hostId: room.hostId),
-              ] else ...[
-                Leaderboard(room: room, meId: _c.memberId, meIsPro: _isPro),
-                if (room.recaps.isNotEmpty) const SizedBox(height: 12),
-                ...room.recaps.reversed.map((r) => Padding(padding: const EdgeInsets.only(bottom: 10), child: RecapCard(recap: r, aiOn: _aiOn))),
-              ],
-            ]),
-          ),
-        ]),
-        // The "Shout it out" composer is hidden until you scroll to the terrace
-        // chat, then slides up from the bottom (Terrace tab only).
-        if (_seg == 0)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: AnimatedSlide(
-              offset: _showComposer ? Offset.zero : const Offset(0, 1.25),
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-              child: ChatComposer(
-                onSend: (t) {
-                  _c.sendChat(t);
-                  _scrollToChat(); // jump to the terrace so you see it land
-                },
-                onTap: _scrollToChat,
-                onReact: _c.react,
-                disabled: !_c.joined,
-                emojis: packEmojis(_isPro ? 'pro' : room.reactionPack),
+          // The "Shout it out" composer is hidden until you scroll to the terrace
+          // chat, then slides up from the bottom (Terrace tab only).
+          if (_seg == 0)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedSlide(
+                offset: _showComposer ? Offset.zero : const Offset(0, 1.25),
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                child: ChatComposer(
+                  onSend: (t) {
+                    _c.sendChat(t);
+                    _scrollToChat(); // jump to the terrace so you see it land
+                  },
+                  onTap: _scrollToChat,
+                  onReact: _c.react,
+                  disabled: !_c.joined,
+                  emojis: packEmojis(_isPro ? 'pro' : room.reactionPack),
+                ),
               ),
             ),
-          ),
-        if (!_c.joined) _JoinGate(room: room, onJoin: _join),
-      ]),
+          if (!_c.joined) _JoinGate(room: room, onJoin: _join),
+        ],
+      ),
     );
   }
 
@@ -408,15 +563,28 @@ class _RoomScreenState extends State<RoomScreen> {
               width: double.infinity,
               color: const Color(0xFFB8860B),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const SizedBox(
-                  width: 11,
-                  height: 11,
-                  child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
-                ),
-                const SizedBox(width: 8),
-                Text('RECONNECTING TO LIVE FEED…', style: label(color: Colors.white, size: 9.5, weight: FontWeight.w800)),
-              ]),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 11,
+                    height: 11,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.8,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'RECONNECTING TO LIVE FEED…',
+                    style: label(
+                      color: Colors.white,
+                      size: 9.5,
+                      weight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
             )
           : const SizedBox(width: double.infinity),
     );
@@ -425,75 +593,125 @@ class _RoomScreenState extends State<RoomScreen> {
   Widget _controls(RoomView room) {
     final extras = <Widget>[];
     if (_isReplay && room.status == 'live') {
-      extras.add(AppChip('▶ REPLAY — simulated from real squads', color: AppColors.gold));
-    }
-    if (room.voice) {
-      extras.add(AppChip('🎙 Voice room on', color: AppColors.orange, bg: const Color(0x14E9531E)));
+      extras.add(
+        AppChip(
+          _c.isLocal ? '▶ DEMO REPLAY' : '▶ VERIFIED TXLINE REPLAY',
+          color: AppColors.gold,
+        ),
+      );
     }
     if (_hidden(room)) {
-      extras.add(AppChip('🙈 Tap to reveal score', color: AppColors.ink, onTap: () => setState(() => _revealed = true)));
+      extras.add(
+        AppChip(
+          '🙈 Tap to reveal score',
+          color: AppColors.ink,
+          onTap: () => setState(() => _revealed = true),
+        ),
+      );
     }
     return Container(
       decoration: cardBox(),
       padding: const EdgeInsets.all(12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          GestureDetector(
-            onTap: () {
-              Clipboard.setData(ClipboardData(text: 'Join my World Cup room — code ${room.code}'));
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invite copied')));
-            },
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('INVITE CODE', style: label(color: AppColors.mut, size: 9)),
-              Text(room.code, style: display(20, color: AppColors.orange, spacing: 2)),
-            ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'OFFICIAL MATCH HUB',
+                    style: label(color: AppColors.orange, size: 10.5),
+                  ),
+                  Text(
+                    'Auto-following TxLINE',
+                    style: body(color: AppColors.mut, size: 11.5),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              AppChip(
+                room.proof.anchored
+                    ? '🛡 ⛓ on-chain'
+                    : '🛡 Verified · ${room.proof.leafCount}',
+                color: AppColors.ink,
+                onTap: () => showProofSheet(
+                  context,
+                  widget.roomId,
+                  _c.isHost,
+                  localProof: _c.localProof(),
+                ),
+              ),
+            ],
           ),
-          const Spacer(),
-          AppChip(room.proof.anchored ? '🛡 ⛓ on-chain' : '🛡 Verified · ${room.proof.leafCount}', color: AppColors.ink, onTap: () => showProofSheet(context, widget.roomId, _c.isHost, localProof: _c.localProof())),
-          if (_c.isHost && room.status == 'lobby') ...[
-            const SizedBox(width: 8),
-            PrimaryButton('Start', icon: Icons.play_arrow_rounded, onTap: _c.startMatch),
+          if (extras.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: extras),
           ],
-        ]),
-        if (extras.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Wrap(spacing: 8, runSpacing: 8, children: extras),
         ],
-      ]),
+      ),
     );
   }
 
   Widget _presenceRow(RoomView room) {
     final shown = room.members.take(4).toList();
-    final hostName = room.members.where((m) => m.isHost).isNotEmpty ? room.members.firstWhere((m) => m.isHost).name : 'Host';
-    final others = room.members.length - 1;
+    final official = room.kind == 'official';
+    final hostName = official
+        ? (room.members.isNotEmpty ? room.members.first.name : 'Fans')
+        : (room.members.where((m) => m.isHost).isNotEmpty
+              ? room.members.firstWhere((m) => m.isHost).name
+              : 'Host');
+    final others = (room.members.length - 1).clamp(0, room.members.length);
     return Container(
       decoration: cardBox(),
       padding: const EdgeInsets.all(10),
-      child: Row(children: [
-        SizedBox(
-          width: 18.0 * shown.length + 14,
-          height: 32,
-          child: Stack(
-            children: [
-              for (var i = 0; i < shown.length; i++)
-                Positioned(left: i * 18.0, child: Container(decoration: const BoxDecoration(color: AppColors.card, shape: BoxShape.circle), padding: const EdgeInsets.all(1.5), child: InitialAvatar(name: shown[i].name, size: 29))),
-            ],
+      child: Row(
+        children: [
+          SizedBox(
+            width: 18.0 * shown.length + 14,
+            height: 32,
+            child: Stack(
+              children: [
+                for (var i = 0; i < shown.length; i++)
+                  Positioned(
+                    left: i * 18.0,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: AppColors.card,
+                        shape: BoxShape.circle,
+                      ),
+                      padding: const EdgeInsets.all(1.5),
+                      child: InitialAvatar(name: shown[i].name, size: 29),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            others > 0 ? '$hostName & $others ${others == 1 ? "fan" : "fans"}' : '$hostName',
-            maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w700, size: 13),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              others > 0
+                  ? '$hostName & $others ${others == 1 ? "fan" : "fans"}'
+                  : '$hostName',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: body(weight: FontWeight.w700, size: 13),
+            ),
           ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(99)),
-          child: Text('★ HOST', style: label(color: AppColors.cream, size: 9)),
-        ),
-      ]),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.ink,
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text(
+              official ? '● OFFICIAL' : '★ HOST',
+              style: label(color: AppColors.cream, size: 9),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -501,26 +719,36 @@ class _RoomScreenState extends State<RoomScreen> {
     final emoji = note.contains('Cooling')
         ? '💧'
         : note.contains('Half')
-            ? '⏸️'
-            : note.contains('Interrup')
-                ? '⚠️'
-                : note.contains('Penal')
-                    ? '🥅'
-                    : '⏱️';
+        ? '⏸️'
+        : note.contains('Interrup')
+        ? '⚠️'
+        : note.contains('Penal')
+        ? '🥅'
+        : '⏱️';
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.9, end: 1),
       duration: const Duration(milliseconds: 420),
       curve: Curves.elasticOut,
       builder: (_, s, child) => Transform.scale(scale: s, child: child),
       child: Container(
-        decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(14)),
+        decoration: BoxDecoration(
+          color: AppColors.ink,
+          borderRadius: BorderRadius.circular(14),
+        ),
         padding: const EdgeInsets.all(14),
-        child: Row(children: [
-          Text(emoji, style: const TextStyle(fontSize: 22)),
-          const SizedBox(width: 12),
-          Expanded(child: Text(note.toUpperCase(), style: display(18, color: AppColors.cream))),
-          const LiveDot(color: AppColors.orange),
-        ]),
+        child: Row(
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                note.toUpperCase(),
+                style: display(18, color: AppColors.cream),
+              ),
+            ),
+            const LiveDot(color: AppColors.orange),
+          ],
+        ),
       ),
     );
   }
@@ -536,8 +764,18 @@ class _RoomScreenState extends State<RoomScreen> {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(vertical: 10),
             alignment: Alignment.center,
-            decoration: BoxDecoration(color: on ? AppColors.ink : Colors.transparent, borderRadius: BorderRadius.circular(10)),
-            child: Text(text.toUpperCase(), style: label(color: on ? AppColors.cream : AppColors.mut, size: 11.5, weight: FontWeight.w800)),
+            decoration: BoxDecoration(
+              color: on ? AppColors.ink : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              text.toUpperCase(),
+              style: label(
+                color: on ? AppColors.cream : AppColors.mut,
+                size: 11.5,
+                weight: FontWeight.w800,
+              ),
+            ),
           ),
         ),
       );
@@ -545,7 +783,11 @@ class _RoomScreenState extends State<RoomScreen> {
 
     return Container(
       padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(13), border: Border.all(color: AppColors.line)),
+      decoration: BoxDecoration(
+        color: AppColors.cardAlt,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.line),
+      ),
       child: Row(children: [seg('Terrace', 0), seg('Standings', 1)]),
     );
   }
@@ -555,7 +797,7 @@ class _RoomScreenState extends State<RoomScreen> {
       decoration: cardBox(),
       padding: const EdgeInsets.all(14),
       child: Text(
-        _c.isHost ? "You're the host. Share the code, draft a side, then kick off ▶" : 'Waiting for the host to kick off. Draft your side while you wait 👇',
+        'The Official Match Hub starts automatically with TxLINE. Pick your Team Draft side while lineups arrive.',
         textAlign: TextAlign.center,
         style: body(color: AppColors.mut, size: 13),
       ),
@@ -564,30 +806,55 @@ class _RoomScreenState extends State<RoomScreen> {
 
   Widget _sidePicker(RoomView room) {
     Widget card(String side, Team t) => Expanded(
-          child: Pressable(
-            haptic: HapticFeedbackType.medium,
-            onTap: () => _c.pickSide(side),
-            child: Container(
-              decoration: cardBox(),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Column(children: [
-                TeamBadge(team: t, size: 50),
-                const SizedBox(height: 8),
-                Text(t.name, textAlign: TextAlign.center, style: body(weight: FontWeight.w800, size: 13)),
-              ]),
-            ),
+      child: Pressable(
+        haptic: HapticFeedbackType.medium,
+        onTap: () => _c.pickSide(side),
+        child: Container(
+          decoration: cardBox(),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            children: [
+              TeamBadge(team: t, size: 50),
+              const SizedBox(height: 8),
+              Text(
+                t.name,
+                textAlign: TextAlign.center,
+                style: body(weight: FontWeight.w800, size: 13),
+              ),
+            ],
           ),
-        );
+        ),
+      ),
+    );
     return Container(
       decoration: cardBox(),
       padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('🏆 DRAFT YOUR SIDE', style: label(color: AppColors.ink, size: 11.5, weight: FontWeight.w800)),
-        const SizedBox(height: 4),
-        Text('Earn points when your team scores, wins corners, or finishes ahead.', style: body(color: AppColors.mut, size: 11.5)),
-        const SizedBox(height: 12),
-        Row(children: [card('home', room.fixture.home), const SizedBox(width: 10), card('away', room.fixture.away)]),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '🏆 TEAM DRAFT',
+            style: label(
+              color: AppColors.ink,
+              size: 11.5,
+              weight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Earn points when your team scores, wins corners, or finishes ahead.',
+            style: body(color: AppColors.mut, size: 11.5),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              card('home', room.fixture.home),
+              const SizedBox(width: 10),
+              card('away', room.fixture.away),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -600,93 +867,248 @@ class _RoomScreenState extends State<RoomScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.paper,
-      body: ListView(padding: EdgeInsets.zero, children: [
-        ClipPath(
-          clipper: TicketClipper(radius: 0, tooth: 10),
-          child: Container(
-            color: AppColors.ink,
-            padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 12, 16, 28),
-            child: Column(children: [
-              Row(children: [
-                GestureDetector(
-                  onTap: () => Navigator.of(context).maybePop(),
-                  child: Container(width: 30, height: 30, decoration: BoxDecoration(color: AppColors.inkSoft, borderRadius: BorderRadius.circular(9)), child: const Icon(Icons.chevron_left, color: AppColors.cream, size: 20)),
-                ),
-                const Spacer(),
-                Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(border: Border.all(color: AppColors.lineInk), borderRadius: BorderRadius.circular(99)), child: Text('FULL TIME', style: label(color: AppColors.cream, size: 10))),
-                const Spacer(),
-                SizedBox(width: 30, child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [const Icon(Icons.visibility_outlined, size: 13, color: AppColors.mutInk), const SizedBox(width: 3), Text(compactNum(room.members.length), style: label(color: AppColors.mutInk, size: 10))])),
-              ]),
-              const SizedBox(height: 14),
-              RichText(text: TextSpan(children: [
-                TextSpan(text: 'FINAL ', style: display(36, color: AppColors.cream, spacing: 1)),
-                TextSpan(text: 'WHISTLE', style: display(36, color: AppColors.orangeBright, spacing: 1)),
-              ])),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(child: Column(children: [TeamBadge(team: room.fixture.home, size: 44), const SizedBox(height: 6), Text(room.fixture.home.code, style: display(14, color: AppColors.cream))])),
-                Text('${s?.goals.home ?? 0} - ${s?.goals.away ?? 0}', style: display(44, color: AppColors.orangeBright, spacing: 1)),
-                Expanded(child: Column(children: [TeamBadge(team: room.fixture.away, size: 44), const SizedBox(height: 6), Text(room.fixture.away.code, style: display(14, color: AppColors.cream))])),
-              ]),
-              if (_scorers(room).isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: _scorers(room)
-                      .map((g) => Container(
-                            padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
-                            decoration: BoxDecoration(
-                              color: AppColors.inkSoft,
-                              borderRadius: BorderRadius.circular(99),
-                              border: Border.all(color: AppColors.lineInk),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          ClipPath(
+            clipper: TicketClipper(radius: 0, tooth: 10),
+            child: Container(
+              color: AppColors.ink,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                MediaQuery.of(context).padding.top + 12,
+                16,
+                28,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).maybePop(),
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: AppColors.inkSoft,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: const Icon(
+                            Icons.chevron_left,
+                            color: AppColors.cream,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.lineInk),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          'FULL TIME',
+                          style: label(color: AppColors.cream, size: 10),
+                        ),
+                      ),
+                      const Spacer(),
+                      SizedBox(
+                        width: 30,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            const Icon(
+                              Icons.visibility_outlined,
+                              size: 13,
+                              color: AppColors.mutInk,
                             ),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              PlayerAvatar(team: g.$1, name: g.$2, size: 22),
-                              const SizedBox(width: 6),
-                              Text("${g.$2} ${g.$3}'", style: body(color: AppColors.cream, size: 11.5, weight: FontWeight.w700)),
-                            ]),
-                          ))
-                      .toList(),
+                            const SizedBox(width: 3),
+                            Text(
+                              compactNum(room.members.length),
+                              style: label(color: AppColors.mutInk, size: 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'FINAL ',
+                          style: display(
+                            36,
+                            color: AppColors.cream,
+                            spacing: 1,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'WHISTLE',
+                          style: display(
+                            36,
+                            color: AppColors.orangeBright,
+                            spacing: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          children: [
+                            TeamBadge(team: room.fixture.home, size: 44),
+                            const SizedBox(height: 6),
+                            Text(
+                              room.fixture.home.code,
+                              style: display(14, color: AppColors.cream),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '${s?.goals.home ?? 0} - ${s?.goals.away ?? 0}',
+                        style: display(
+                          44,
+                          color: AppColors.orangeBright,
+                          spacing: 1,
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            TeamBadge(team: room.fixture.away, size: 44),
+                            const SizedBox(height: 6),
+                            Text(
+                              room.fixture.away.code,
+                              style: display(14, color: AppColors.cream),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_scorers(room).isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: _scorers(room)
+                          .map(
+                            (g) => Container(
+                              padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.inkSoft,
+                                borderRadius: BorderRadius.circular(99),
+                                border: Border.all(color: AppColors.lineInk),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  PlayerAvatar(
+                                    team: g.$1,
+                                    name: g.$2,
+                                    size: 22,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    "${g.$2} ${g.$3}'",
+                                    style: body(
+                                      color: AppColors.cream,
+                                      size: 11.5,
+                                      weight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            child: Column(
+              children: [
+                if (room.shootout != null) ...[
+                  ShootoutCard(
+                    s: room.shootout!,
+                    fixture: room.fixture,
+                    home: room.fixture.home,
+                    away: room.fixture.away,
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (room.motm != null) ...[
+                  MotmPollCard(
+                    poll: room.motm!,
+                    fixture: room.fixture,
+                    onVote: (k) => _c.voteMotm(k),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (recap != null) ...[
+                  RecapCard(recap: recap, aiOn: _aiOn),
+                  const SizedBox(height: 14),
+                ],
+                Leaderboard(room: room, meId: _c.memberId, meIsPro: _isPro),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    _statTile(compactNum(room.members.length), 'Peak in room'),
+                    const SizedBox(width: 10),
+                    _statTile(compactNum(msgs), 'Messages'),
+                    const SizedBox(width: 10),
+                    _statTile(compactNum(reacts), 'Reactions'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GhostButton('★ Rate match', onTap: _rateMatch),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: PrimaryButton(
+                        'Highlights',
+                        icon: Icons.play_arrow_rounded,
+                        onTap: () => _showHighlights(room),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PrimaryButton(
+                  'Cards updated — open Album',
+                  icon: Icons.style_rounded,
+                  expand: true,
+                  onTap: () => Navigator.of(context).pop('finished'),
+                ),
+                const SizedBox(height: 10),
+                GhostButton(
+                  'Back to Matchday',
+                  expand: true,
+                  onTap: () => Navigator.of(context).maybePop(),
                 ),
               ],
-            ]),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-          child: Column(children: [
-            if (room.shootout != null) ...[ShootoutCard(s: room.shootout!, fixture: room.fixture, home: room.fixture.home, away: room.fixture.away), const SizedBox(height: 14)],
-            if (room.motm != null) ...[MotmPollCard(poll: room.motm!, fixture: room.fixture, onVote: (k) => _c.voteMotm(k)), const SizedBox(height: 14)],
-            if (recap != null) ...[RecapCard(recap: recap, aiOn: _aiOn), const SizedBox(height: 14)],
-            Leaderboard(room: room, meId: _c.memberId, meIsPro: _isPro),
-            const SizedBox(height: 14),
-            Row(children: [
-              _statTile(compactNum(room.members.length), 'Peak in room'),
-              const SizedBox(width: 10),
-              _statTile(compactNum(msgs), 'Messages'),
-              const SizedBox(width: 10),
-              _statTile(compactNum(reacts), 'Reactions'),
-            ]),
-            const SizedBox(height: 16),
-            Row(children: [
-              Expanded(child: GhostButton('★ Rate match', onTap: _rateMatch)),
-              const SizedBox(width: 10),
-              Expanded(child: PrimaryButton('Highlights', icon: Icons.play_arrow_rounded, onTap: () => _showHighlights(room))),
-            ]),
-            const SizedBox(height: 10),
-            PrimaryButton(
-              'Cards updated — open Album',
-              icon: Icons.style_rounded,
-              expand: true,
-              onTap: () => Navigator.of(context).pop('finished'),
             ),
-            const SizedBox(height: 10),
-            GhostButton('Back to rooms', expand: true, onTap: () => Navigator.of(context).maybePop()),
-          ]),
-        ),
-      ]),
+          ),
+        ],
+      ),
     );
   }
 
@@ -695,11 +1117,17 @@ class _RoomScreenState extends State<RoomScreen> {
       child: Container(
         decoration: cardBox(),
         padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Column(children: [
-          Text(value, style: display(22)),
-          const SizedBox(height: 2),
-          Text(label_.toUpperCase(), textAlign: TextAlign.center, style: label(color: AppColors.mut, size: 8.5)),
-        ]),
+        child: Column(
+          children: [
+            Text(value, style: display(22)),
+            const SizedBox(height: 2),
+            Text(
+              label_.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: label(color: AppColors.mut, size: 8.5),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -712,7 +1140,9 @@ class _RoomScreenState extends State<RoomScreen> {
         return StatefulBuilder(
           builder: (ctx, setLocal) => AlertDialog(
             backgroundColor: AppColors.card,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
             title: Text('RATE THE MATCH', style: display(18)),
             content: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -723,7 +1153,11 @@ class _RoomScreenState extends State<RoomScreen> {
                     HapticFeedback.selectionClick();
                     setLocal(() => rating = i + 1);
                   },
-                  icon: Icon(i < rating ? Icons.star_rounded : Icons.star_border_rounded, color: AppColors.orange, size: 32),
+                  icon: Icon(
+                    i < rating ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: AppColors.orange,
+                    size: 32,
+                  ),
                 );
               }),
             ),
@@ -731,9 +1165,20 @@ class _RoomScreenState extends State<RoomScreen> {
               TextButton(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(rating > 0 ? 'Thanks — rated $rating★' : 'Maybe next time')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        rating > 0
+                            ? 'Thanks — rated $rating★'
+                            : 'Maybe next time',
+                      ),
+                    ),
+                  );
                 },
-                child: Text('Done', style: body(color: AppColors.orange, weight: FontWeight.w800)),
+                child: Text(
+                  'Done',
+                  style: body(color: AppColors.orange, weight: FontWeight.w800),
+                ),
               ),
             ],
           ),
@@ -743,40 +1188,89 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   void _showHighlights(RoomView room) {
-    const kinds = ['goal', 'red', 'half-time', 'full-time', 'chaos', 'corner-storm'];
+    const kinds = [
+      'goal',
+      'red',
+      'half-time',
+      'full-time',
+      'chaos',
+      'corner-storm',
+    ];
     final events = room.pulse.where((p) => kinds.contains(p.kind)).toList();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.card,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
       builder: (_) => Padding(
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
-          const SizedBox(height: 14),
-          Text('HIGHLIGHTS', style: display(20)),
-          const SizedBox(height: 12),
-          if (events.isEmpty)
-            Text('No standout moments this match.', style: body(color: AppColors.mut))
-          else
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: events
-                    .map((e) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            SizedBox(width: 40, child: Text("${e.minute}'", style: display(15, color: AppColors.orange))),
-                            Text(e.emoji, style: const TextStyle(fontSize: 16)),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(e.scorer != null ? '${e.scorer} scores — ${e.detail}' : e.headline, style: body(size: 13.5, weight: FontWeight.w600))),
-                          ]),
-                        ))
-                    .toList(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.line,
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
             ),
-        ]),
+            const SizedBox(height: 14),
+            Text('HIGHLIGHTS', style: display(20)),
+            const SizedBox(height: 12),
+            if (events.isEmpty)
+              Text(
+                'No standout moments this match.',
+                style: body(color: AppColors.mut),
+              )
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: events
+                      .map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 40,
+                                child: Text(
+                                  "${e.minute}'",
+                                  style: display(15, color: AppColors.orange),
+                                ),
+                              ),
+                              Text(
+                                e.emoji,
+                                style: const TextStyle(fontSize: 16),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  e.scorer != null
+                                      ? '${e.scorer} scores — ${e.detail}'
+                                      : e.headline,
+                                  style: body(
+                                    size: 13.5,
+                                    weight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -808,13 +1302,25 @@ class _RoomScreenState extends State<RoomScreen> {
                     child: Transform.scale(
                       scale: 0.5 + 0.5 * pop,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 22,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.orange,
                           borderRadius: BorderRadius.circular(16),
-                          boxShadow: const [BoxShadow(color: Color(0x55E9531E), blurRadius: 26, offset: Offset(0, 10))],
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x55E9531E),
+                              blurRadius: 26,
+                              offset: Offset(0, 10),
+                            ),
+                          ],
                         ),
-                        child: Text('+$gained PTS 🔥', style: display(26, color: Colors.white)),
+                        child: Text(
+                          '+$gained PTS 🔥',
+                          style: display(26, color: Colors.white),
+                        ),
                       ),
                     ),
                   ),
@@ -847,7 +1353,11 @@ class _RoomScreenState extends State<RoomScreen> {
             builder: (_, t, __) {
               // slide in (0-0.12), hold (0.12-0.85), slide out (0.85-1)
               final inT = Curves.easeOutBack.transform((t / 0.12).clamp(0, 1));
-              final outT = t < 0.85 ? 0.0 : Curves.easeIn.transform((t - 0.85) / 0.15);
+              final outT = t < 0.85
+                  ? 0.0
+                  : Curves.easeIn.transform(
+                      ((t - 0.85) / 0.15).clamp(0.0, 1.0),
+                    );
               return Opacity(
                 opacity: (1 - outT).clamp(0, 1),
                 child: Transform.translate(
@@ -855,25 +1365,63 @@ class _RoomScreenState extends State<RoomScreen> {
                   child: Material(
                     color: Colors.transparent,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.ink,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border(left: BorderSide(color: teamColor(team.code), width: 5)),
-                        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 24, offset: Offset(0, 10))],
-                      ),
-                      child: Row(children: [
-                        PlayerAvatar(team: team, name: scorer, size: 46, ringColor: AppColors.orangeBright),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                            Text('GOAL — ${team.name.toUpperCase()}', style: display(16, color: AppColors.orangeBright)),
-                            const SizedBox(height: 2),
-                            Text("$scorer · $minute'", style: body(color: AppColors.cream, size: 13, weight: FontWeight.w700)),
-                          ]),
+                        border: Border(
+                          left: BorderSide(
+                            color: teamColor(team.code),
+                            width: 5,
+                          ),
                         ),
-                        const Text('⚽', style: TextStyle(fontSize: 24)),
-                      ]),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x66000000),
+                            blurRadius: 24,
+                            offset: Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          PlayerAvatar(
+                            team: team,
+                            name: scorer,
+                            size: 46,
+                            ringColor: AppColors.orangeBright,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'GOAL — ${team.name.toUpperCase()}',
+                                  style: display(
+                                    16,
+                                    color: AppColors.orangeBright,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  "$scorer · $minute'",
+                                  style: body(
+                                    color: AppColors.cream,
+                                    size: 13,
+                                    weight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Text('⚽', style: TextStyle(fontSize: 24)),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -886,11 +1434,141 @@ class _RoomScreenState extends State<RoomScreen> {
     overlay.insert(entry);
   }
 
+  Future<void> _showMomentDrop(MomentDropView drop) async {
+    HapticFeedback.heavyImpact();
+    final view = await showGeneralDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Moment earned',
+      barrierColor: Colors.black.withValues(alpha: 0.82),
+      transitionDuration: const Duration(milliseconds: 420),
+      transitionBuilder: (_, animation, __, child) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+          child: child,
+        ),
+      ),
+      pageBuilder: (_, __, ___) => _MomentRevealDialog(drop: drop),
+    );
+    if (view != true || !mounted) return;
+    final moment = MomentCard(
+      id: drop.id,
+      fixtureId: _c.room?.fixture.id ?? '',
+      matchLabel: drop.matchLabel,
+      kind: drop.kind,
+      label: drop.label,
+      leafData: '',
+      rarity: drop.rarity,
+      minute: drop.minute,
+      createdAt: drop.createdAt,
+      calledIt: false,
+      oddsSandwich: const {},
+      roomId: widget.roomId,
+      sourceEventId: drop.sourceEventId,
+      playerId: drop.playerId,
+      playerName: drop.playerName,
+      teamCode: drop.teamCode,
+      imageUrl: drop.imageUrl,
+      artKey: drop.artworkKind,
+    );
+    Navigator.push(context, fwrRoute(CardDetailScreen.moment(moment)));
+  }
+
   Future<void> _join(String name) async {
     final identity = _identity ?? await IdentityStore.getOrCreate();
-    await IdentityStore.sign('final-whistle-rooms:auth:$name:${identity.pubkey}');
+    await IdentityStore.sign(
+      'final-whistle-rooms:auth:$name:${identity.pubkey}',
+    );
     await LocalStore.setDisplayName(name);
     await _c.join(name, identity.pubkey);
+  }
+}
+
+class _MomentRevealDialog extends StatefulWidget {
+  final MomentDropView drop;
+  const _MomentRevealDialog({required this.drop});
+  @override
+  State<_MomentRevealDialog> createState() => _MomentRevealDialogState();
+}
+
+class _MomentRevealDialogState extends State<_MomentRevealDialog> {
+  final CardMotionController _motion = CardMotionController();
+  @override
+  void initState() {
+    super.initState();
+    _motion.start();
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.drop;
+    return SafeArea(
+      child: Material(
+        color: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'MOMENT EARNED',
+                style: display(30, color: AppColors.orangeBright),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${d.rarity}★ COLLECTIBLE · ${d.minute}\'',
+                style: label(
+                  color: AppColors.cream,
+                  size: 11,
+                  weight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 22),
+              SizedBox(
+                width: 270,
+                height: 378,
+                child: GyroTiltCard(
+                  motion: _motion,
+                  borderColor: rarityBorder(d.rarity),
+                  child: MomentCardFace(
+                    title: d.label,
+                    matchLabel: d.matchLabel,
+                    kind: d.kind,
+                    rarity: d.rarity,
+                    minute: d.minute,
+                    calledIt: false,
+                    imageUrl: d.imageUrl,
+                    playerName: d.playerName,
+                    teamCode: d.teamCode,
+                    artKey: d.artworkKind,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              PrimaryButton(
+                'View card',
+                icon: Icons.view_in_ar_rounded,
+                expand: true,
+                onTap: () => Navigator.pop(context, true),
+              ),
+              const SizedBox(height: 8),
+              GhostButton(
+                'Keep watching',
+                expand: true,
+                onTap: () => Navigator.pop(context, false),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -919,7 +1597,9 @@ class _JoinGateState extends State<_JoinGate> {
       _err = '';
     });
     try {
-      await widget.onJoin(_ctrl.text.trim().isEmpty ? 'Fan' : _ctrl.text.trim());
+      await widget.onJoin(
+        _ctrl.text.trim().isEmpty ? 'Fan' : _ctrl.text.trim(),
+      );
     } catch (e) {
       setState(() {
         _err = e.toString();
@@ -938,26 +1618,60 @@ class _JoinGateState extends State<_JoinGate> {
       child: Container(
         decoration: cardBox(),
         padding: const EdgeInsets.all(22),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            TeamBadge(team: f.home, size: 44),
-            const SizedBox(width: 10),
-            Text('VS', style: display(20, color: AppColors.mut)),
-            const SizedBox(width: 10),
-            TeamBadge(team: f.away, size: 44),
-          ]),
-          const SizedBox(height: 14),
-          Text(widget.room.name, textAlign: TextAlign.center, style: display(20)),
-          const SizedBox(height: 2),
-          Text('${f.home.name} vs ${f.away.name}', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 13)),
-          const SizedBox(height: 16),
-          TextField(controller: _ctrl, autofocus: true, decoration: fwrInput('Your name e.g. Sam')),
-          if (_err.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_err, style: body(color: const Color(0xFFD8392B), size: 12))),
-          const SizedBox(height: 14),
-          PrimaryButton('◎ Continue with Solana & join', expand: true, busy: _busy, onTap: _join),
-          const SizedBox(height: 8),
-          Text('No wallet or funds needed — a secure on-device identity is created for you.', textAlign: TextAlign.center, style: body(color: AppColors.mut, size: 11)),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TeamBadge(team: f.home, size: 44),
+                const SizedBox(width: 10),
+                Text('VS', style: display(20, color: AppColors.mut)),
+                const SizedBox(width: 10),
+                TeamBadge(team: f.away, size: 44),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              widget.room.name,
+              textAlign: TextAlign.center,
+              style: display(20),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${f.home.name} vs ${f.away.name}',
+              textAlign: TextAlign.center,
+              style: body(color: AppColors.mut, size: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _ctrl,
+              autofocus: true,
+              decoration: fwrInput('Your name e.g. Sam'),
+            ),
+            if (_err.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _err,
+                  style: body(color: const Color(0xFFD8392B), size: 12),
+                ),
+              ),
+            const SizedBox(height: 14),
+            PrimaryButton(
+              '◎ Continue with Solana & join',
+              expand: true,
+              busy: _busy,
+              onTap: _join,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No wallet or funds needed — a secure on-device identity is created for you.',
+              textAlign: TextAlign.center,
+              style: body(color: AppColors.mut, size: 11),
+            ),
+          ],
+        ),
       ),
     );
   }

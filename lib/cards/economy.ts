@@ -22,11 +22,26 @@ function uid(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 }
 
-const inventories = new Map<string, FanInventory>();
-const momentIndex = new Map<string, Moment>();
-const cardIndex = new Map<string, Card>();
-/** Fixture/room-scoped Moment leaf strings for Merkle. */
-const momentLeaves = new Map<string, string[]>(); // key = roomId || fixtureId
+type EconomyStore = {
+  inventories: Map<string, FanInventory>;
+  momentIndex: Map<string, Moment>;
+  cardIndex: Map<string, Card>;
+  /** Fixture/room-scoped Moment leaf strings for Merkle. */
+  momentLeaves: Map<string, string[]>;
+};
+
+// Next compiles route handlers into separate module graphs. Keep the hackathon
+// economy process-scoped, but make every route graph share that one instance.
+const economyGlobal = globalThis as unknown as { __fwr_economy?: EconomyStore };
+const economy =
+  economyGlobal.__fwr_economy ??
+  (economyGlobal.__fwr_economy = {
+    inventories: new Map(),
+    momentIndex: new Map(),
+    cardIndex: new Map(),
+    momentLeaves: new Map(),
+  });
+const { inventories, momentIndex, cardIndex, momentLeaves } = economy;
 
 function emptyInv(fanId: string): FanInventory {
   return { fanId, moments: [], players: [], skills: [], packs: [], packWeightBonus: 0 };
@@ -120,6 +135,12 @@ export function mintFromEvent(ctx: MintContext): Moment | null {
     side: ctx.event.side,
     minute: ctx.event.minute,
     label: ctx.event.label,
+    sourceEventId: ctx.event.sourceEventId,
+    playerId: ctx.event.playerId,
+    playerName: ctx.event.playerName,
+    teamCode: ctx.event.teamCode,
+    imageUrl: ctx.event.imageUrl,
+    artKey: ctx.event.artKey,
     rarity,
     oddsSandwich: ctx.oddsSandwich,
     calledIt: false,
@@ -200,7 +221,10 @@ export function openPack(fanId: string, packId: string, rand: () => number = Mat
   const inv = inventoryOf(fanId);
   const pack = inv.packs.find((p) => p.id === packId);
   if (!pack) return { error: "Pack not found" };
-  if (pack.opened) return { error: "Pack already opened" };
+  // Opening is keyed by the Pack itself. A timed-out client may safely retry
+  // and must see the exact same reveal instead of losing the cards behind a
+  // misleading "already opened" error.
+  if (pack.opened) return pack;
 
   // Fold Fan pack-weight bonus (Called It / Pass rewards) into this open, then consume it.
   if (inv.packWeightBonus > 0) {

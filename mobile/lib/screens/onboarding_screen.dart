@@ -25,19 +25,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _Slide(
       tag: 'THE TERRACE',
       title: 'WATCH THE\nWORLD CUP\nTOGETHER',
-      body: 'A private live room for your group. One place — everyone reacting to every goal, together.',
+      body:
+          'Join the shared Official Match Hub for every live fixture, or open an invite-only Private Party for your friends.',
       visual: _Visual.ticket,
     ),
     _Slide(
       tag: 'NEXT SWING',
       title: 'CALL IT\nLIVE',
-      body: 'Predict the next goal, corner or odds swing as it happens. Build streaks and climb the terrace. Points only — no cash staking.',
+      body:
+          'Choose a side in Team Draft and answer clear Live Calls as the match unfolds. Build streaks with points only — never cash.',
       visual: _Visual.predict,
     ),
     _Slide(
       tag: 'ON-CHAIN',
       title: 'VERIFIED\nON SOLANA',
-      body: 'Every moment the room reacts to is provably real — hashed and anchorable on Solana. Trust, as a fan feature.',
+      body:
+          'TxLINE-confirmed goals and cards become collectible Moments with a verifiable event proof and stable source identity.',
       visual: _Visual.proof,
     ),
   ];
@@ -51,7 +54,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _next() {
     HapticFeedback.selectionClick();
     if (_page < _slides.length - 1) {
-      _pc.nextPage(duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
+      _pc.nextPage(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
     } else {
       setState(() => _showLogin = true);
     }
@@ -60,52 +66,76 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+      value: SystemUiOverlayStyle.dark.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: AppColors.paper,
         body: SafeArea(
           child: _showLogin
               ? _LoginCard(onDone: _finish)
-              : Column(children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: TextButton(
-                        onPressed: () => setState(() => _showLogin = true),
-                        child: Text('Skip', style: body(color: AppColors.mut, weight: FontWeight.w700)),
+              : Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: TextButton(
+                          onPressed: () => setState(() => _showLogin = true),
+                          child: Text(
+                            'Skip',
+                            style: body(
+                              color: AppColors.mut,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: PageView.builder(
-                      controller: _pc,
-                      onPageChanged: (i) => setState(() => _page = i),
-                      itemCount: _slides.length,
-                      itemBuilder: (_, i) => _SlideView(slide: _slides[i]),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                    child: Column(children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(_slides.length, (i) {
-                          final on = i == _page;
-                          return AnimatedContainer(
-                            duration: const Duration(milliseconds: 250),
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            width: on ? 26 : 8,
-                            height: 8,
-                            decoration: BoxDecoration(color: on ? AppColors.orange : AppColors.line, borderRadius: BorderRadius.circular(99)),
-                          );
-                        }),
+                    Expanded(
+                      child: PageView.builder(
+                        controller: _pc,
+                        onPageChanged: (i) => setState(() => _page = i),
+                        itemCount: _slides.length,
+                        itemBuilder: (_, i) => _SlideView(slide: _slides[i]),
                       ),
-                      const SizedBox(height: 18),
-                      PrimaryButton(_page < _slides.length - 1 ? 'Continue' : 'Get started', icon: Icons.arrow_forward_rounded, expand: true, onTap: _next),
-                    ]),
-                  ),
-                ]),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(_slides.length, (i) {
+                              final on = i == _page;
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 250),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                width: on ? 26 : 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: on ? AppColors.orange : AppColors.line,
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                              );
+                            }),
+                          ),
+                          const SizedBox(height: 18),
+                          PrimaryButton(
+                            _page < _slides.length - 1
+                                ? 'Continue'
+                                : 'Get started',
+                            icon: Icons.arrow_forward_rounded,
+                            expand: true,
+                            onTap: _next,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -115,7 +145,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final id = await IdentityStore.getOrCreate();
     await IdentityStore.sign('final-whistle-rooms:auth:$name:${id.pubkey}');
     await LocalStore.setDisplayName(name);
-    if (wallet != null && wallet.isNotEmpty) await LocalStore.setWalletAddress(wallet);
+    if (wallet != null && wallet.isNotEmpty)
+      await LocalStore.setWalletAddress(wallet);
     await LocalStore.setOnboarded();
     if (!mounted) return;
     Navigator.pushReplacement(context, fwrRoute(const HomeScreen()));
@@ -127,7 +158,12 @@ enum _Visual { ticket, predict, proof }
 class _Slide {
   final String tag, title, body;
   final _Visual visual;
-  const _Slide({required this.tag, required this.title, required this.body, required this.visual});
+  const _Slide({
+    required this.tag,
+    required this.title,
+    required this.body,
+    required this.visual,
+  });
 }
 
 class _SlideView extends StatelessWidget {
@@ -138,21 +174,30 @@ class _SlideView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Spacer(flex: 2),
-        _visual(),
-        const Spacer(flex: 2),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(99)),
-          child: Text(slide.tag, style: label(color: AppColors.cream, size: 10.5)),
-        ),
-        const SizedBox(height: 14),
-        Text(slide.title, style: display(40, spacing: 0.5)),
-        const SizedBox(height: 14),
-        Text(slide.body, style: body(color: AppColors.mut, size: 15)),
-        const Spacer(flex: 1),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Spacer(flex: 2),
+          _visual(),
+          const Spacer(flex: 2),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.ink,
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text(
+              slide.tag,
+              style: label(color: AppColors.cream, size: 10.5),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(slide.title, style: display(40, spacing: 0.5)),
+          const SizedBox(height: 14),
+          Text(slide.body, style: body(color: AppColors.mut, size: 15)),
+          const Spacer(flex: 1),
+        ],
+      ),
     );
   }
 
@@ -172,11 +217,47 @@ class _SlideView extends StatelessWidget {
             child: Container(
               color: AppColors.ink,
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
-              child: Row(children: [
-                Expanded(child: Column(children: [TeamBadge(team: f.home, size: 50), const SizedBox(height: 8), Text(f.home.code, style: display(16, color: AppColors.cream))])),
-                Column(children: [Text('2 - 1', style: display(40, color: AppColors.orangeBright)), const SizedBox(height: 4), Text("67'", style: label(color: AppColors.mutInk, size: 10))]),
-                Expanded(child: Column(children: [TeamBadge(team: f.away, size: 50), const SizedBox(height: 8), Text(f.away.code, style: display(16, color: AppColors.cream))])),
-              ]),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      children: [
+                        TeamBadge(team: f.home, size: 50),
+                        const SizedBox(height: 8),
+                        Text(
+                          f.home.code,
+                          style: display(16, color: AppColors.cream),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    children: [
+                      Text(
+                        '2 - 1',
+                        style: display(40, color: AppColors.orangeBright),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "67'",
+                        style: label(color: AppColors.mutInk, size: 10),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        TeamBadge(team: f.away, size: 50),
+                        const SizedBox(height: 8),
+                        Text(
+                          f.away.code,
+                          style: display(16, color: AppColors.cream),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -184,27 +265,102 @@ class _SlideView extends StatelessWidget {
         return Container(
           decoration: cardBox(),
           padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Text('⚡ NEXT SWING', style: label(color: AppColors.ink, size: 11)), const Spacer(), Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(8)), child: Text('+140', style: label(color: AppColors.orangeBright, size: 10)))]),
-            const SizedBox(height: 10),
-            Text("Next goal before 27'?", style: display(20)),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: Container(padding: const EdgeInsets.symmetric(vertical: 12), alignment: Alignment.center, decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(12)), child: Text('ARG', style: body(color: Colors.white, weight: FontWeight.w800)))),
-              const SizedBox(width: 8),
-              Expanded(child: Container(padding: const EdgeInsets.symmetric(vertical: 12), alignment: Alignment.center, decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)), child: Text('No goal', style: body(weight: FontWeight.w800)))),
-              const SizedBox(width: 8),
-              Expanded(child: Container(padding: const EdgeInsets.symmetric(vertical: 12), alignment: Alignment.center, decoration: BoxDecoration(color: AppColors.cardAlt, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)), child: Text('MEX', style: body(weight: FontWeight.w800)))),
-            ]),
-          ]),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '⚡ NEXT SWING',
+                    style: label(color: AppColors.ink, size: 11),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.ink,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '+140',
+                      style: label(color: AppColors.orangeBright, size: 10),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text("Next goal before 27'?", style: display(20)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.orange,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'ARG',
+                        style: body(
+                          color: Colors.white,
+                          weight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.cardAlt,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: Text(
+                        'No goal',
+                        style: body(weight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.cardAlt,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: Text('MEX', style: body(weight: FontWeight.w800)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       case _Visual.proof:
         return Center(
           child: Container(
             width: 130,
             height: 130,
-            decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(28)),
-            child: const Icon(Icons.verified_user_rounded, color: AppColors.orange, size: 64),
+            decoration: BoxDecoration(
+              color: AppColors.ink,
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: const Icon(
+              Icons.verified_user_rounded,
+              color: AppColors.orange,
+              size: 64,
+            ),
           ),
         );
     }
@@ -231,7 +387,9 @@ class _LoginCardState extends State<_LoginCard> {
   void initState() {
     super.initState();
     LocalStore.displayName().then((n) => _nameCtrl.text = n);
-    WalletConnect.isAvailable().then((v) => mounted ? setState(() => _walletAvail = v) : null);
+    WalletConnect.isAvailable().then(
+      (v) => mounted ? setState(() => _walletAvail = v) : null,
+    );
   }
 
   Future<void> _connectWallet() async {
@@ -241,19 +399,27 @@ class _LoginCardState extends State<_LoginCard> {
       if (res != null) {
         setState(() => _connected = res.pubkey);
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Wallet connection cancelled')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wallet connection cancelled')),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('No Solana wallet found — install Phantom/Solflare, or paste an address')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No Solana wallet found — install Phantom/Solflare, or paste an address',
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _connecting = false);
     }
   }
 
-  String _short(String pk) => '${pk.substring(0, 4)}…${pk.substring(pk.length - 4)}';
+  String _short(String pk) =>
+      '${pk.substring(0, 4)}…${pk.substring(pk.length - 4)}';
 
   Future<void> _go() async {
     HapticFeedback.mediumImpact();
@@ -267,58 +433,126 @@ class _LoginCardState extends State<_LoginCard> {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const SizedBox(height: 20),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Image.asset('assets/icon/icon.png', width: 60, height: 60, fit: BoxFit.cover),
-        ),
-        const SizedBox(height: 18),
-        Text('JOIN THE\nTERRACE', style: display(36, spacing: 0.5)),
-        const SizedBox(height: 8),
-        Text('Pick a name and you\'re in. A secure on-device Solana identity is created for you — no wallet, no funds.', style: body(color: AppColors.mut, size: 14)),
-        const SizedBox(height: 24),
-        Text('YOUR NAME', style: label(color: AppColors.ink, size: 11)),
-        const SizedBox(height: 8),
-        TextField(controller: _nameCtrl, autofocus: true, decoration: fwrInput('e.g. Ana')),
-        const SizedBox(height: 16),
-        // Real wallet connect (Mobile Wallet Adapter) when a wallet app is detected
-        if (_connected != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(color: const Color(0x14E9531E), borderRadius: BorderRadius.circular(13), border: Border.all(color: AppColors.orange)),
-            child: Row(children: [
-              const Icon(Icons.check_circle, color: AppColors.orange, size: 20),
-              const SizedBox(width: 10),
-              Text('Wallet connected ◎ ${_short(_connected!)}', style: body(weight: FontWeight.w700, size: 13.5)),
-              const Spacer(),
-              GestureDetector(onTap: () => setState(() => _connected = null), child: Text('Change', style: body(color: AppColors.mut, size: 12))),
-            ]),
-          )
-        else if (_walletAvail)
-          GhostButton(_connecting ? 'Opening wallet…' : '◎ Connect Solana wallet', expand: true, onTap: _connecting ? null : _connectWallet)
-        else
-          GestureDetector(
-            onTap: () => setState(() => _wallet = !_wallet),
-            child: Row(children: [
-              Icon(_wallet ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: _wallet ? AppColors.orange : AppColors.mut, size: 22),
-              const SizedBox(width: 8),
-              Text('Have a Solana wallet? Paste your address', style: body(size: 13.5, weight: FontWeight.w600)),
-            ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 20),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.asset(
+              'assets/icon/icon.png',
+              width: 60,
+              height: 60,
+              fit: BoxFit.cover,
+            ),
           ),
-        if (_connected == null && _wallet && !_walletAvail) ...[
-          const SizedBox(height: 10),
-          TextField(controller: _walletCtrl, decoration: fwrInput('Paste your Solana address')),
-        ],
-        if (_connected == null && _walletAvail) ...[
+          const SizedBox(height: 18),
+          Text('JOIN THE\nTERRACE', style: display(36, spacing: 0.5)),
           const SizedBox(height: 8),
-          Center(child: Text('Detected a wallet app on your device', style: body(color: AppColors.mut, size: 11))),
+          Text(
+            'Pick a name and you\'re in. A secure on-device Solana identity is created for you — no wallet, no funds.',
+            style: body(color: AppColors.mut, size: 14),
+          ),
+          const SizedBox(height: 24),
+          Text('YOUR NAME', style: label(color: AppColors.ink, size: 11)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _nameCtrl,
+            autofocus: true,
+            decoration: fwrInput('e.g. Ana'),
+          ),
+          const SizedBox(height: 16),
+          // Real wallet connect (Mobile Wallet Adapter) when a wallet app is detected
+          if (_connected != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0x14E9531E),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: AppColors.orange),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle,
+                    color: AppColors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Wallet connected ◎ ${_short(_connected!)}',
+                    style: body(weight: FontWeight.w700, size: 13.5),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => setState(() => _connected = null),
+                    child: Text(
+                      'Change',
+                      style: body(color: AppColors.mut, size: 12),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (_walletAvail)
+            GhostButton(
+              _connecting ? 'Opening wallet…' : '◎ Connect Solana wallet',
+              expand: true,
+              onTap: _connecting ? null : _connectWallet,
+            )
+          else
+            GestureDetector(
+              onTap: () => setState(() => _wallet = !_wallet),
+              child: Row(
+                children: [
+                  Icon(
+                    _wallet
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    color: _wallet ? AppColors.orange : AppColors.mut,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Have a Solana wallet? Paste your address',
+                    style: body(size: 13.5, weight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          if (_connected == null && _wallet && !_walletAvail) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _walletCtrl,
+              decoration: fwrInput('Paste your Solana address'),
+            ),
+          ],
+          if (_connected == null && _walletAvail) ...[
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                'Detected a wallet app on your device',
+                style: body(color: AppColors.mut, size: 11),
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+          PrimaryButton(
+            _busy ? 'Setting up…' : '◎ Continue with Solana',
+            icon: Icons.arrow_forward_rounded,
+            expand: true,
+            busy: _busy,
+            onTap: _go,
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              'Skill-based · points & streaks only · no cash staking',
+              style: body(color: AppColors.mut, size: 11),
+            ),
+          ),
         ],
-        const SizedBox(height: 24),
-        PrimaryButton(_busy ? 'Setting up…' : '◎ Continue with Solana', icon: Icons.arrow_forward_rounded, expand: true, busy: _busy, onTap: _go),
-        const SizedBox(height: 12),
-        Center(child: Text('Skill-based · points & streaks only · no cash staking', style: body(color: AppColors.mut, size: 11))),
-      ]),
+      ),
     );
   }
 }

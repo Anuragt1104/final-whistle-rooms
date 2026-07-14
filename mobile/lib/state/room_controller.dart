@@ -71,7 +71,8 @@ class RoomController extends ChangeNotifier {
   }
 
   bool get joined => isLocal ? true : me != null;
-  bool get isHost => isLocal ? true : (room != null && room!.hostId == memberId);
+  bool get isHost =>
+      isLocal ? true : (room != null && room!.hostId == memberId);
 
   Future<void> join(String name, String wallet) async {
     if (isLocal) return;
@@ -125,7 +126,8 @@ class RoomController extends ChangeNotifier {
       engine!.react(emoji);
       return;
     }
-    if (memberId != null) await api.chat(roomId, memberId!, emoji, kind: 'reaction');
+    if (memberId != null)
+      await api.chat(roomId, memberId!, emoji, kind: 'reaction');
   }
 
   void voteMotm(String key) {

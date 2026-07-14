@@ -2,63 +2,62 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../api/models.dart';
-import '../data/player_images.dart';
 import '../theme.dart';
 import 'common.dart';
 
-/// The one player face used everywhere: circular official photo (disk-cached)
-/// with a team-color ring, degrading to an initials avatar. Self-warming — if
-/// the team's photo index isn't built yet it kicks off the fetch and re-renders
-/// the moment it lands, so surfaces can use it fire-and-forget.
-class PlayerAvatar extends StatefulWidget {
+/// Exact-image-only portrait. Without a curated ID-bound image, render a
+/// polished team-coloured illustration instead of guessing by surname.
+class PlayerAvatar extends StatelessWidget {
   final Team team;
   final String name;
+  final String? imageUrl;
   final double size;
   final Color? ringColor;
-  const PlayerAvatar({super.key, required this.team, required this.name, this.size = 34, this.ringColor});
-
-  @override
-  State<PlayerAvatar> createState() => _PlayerAvatarState();
-}
-
-class _PlayerAvatarState extends State<PlayerAvatar> {
-  @override
-  void initState() {
-    super.initState();
-    PlayerImages.addListener(_onWarm);
-    PlayerImages.warm(widget.team.name);
-  }
-
-  @override
-  void dispose() {
-    PlayerImages.removeListener(_onWarm);
-    super.dispose();
-  }
-
-  void _onWarm() {
-    if (mounted) setState(() {});
-  }
+  const PlayerAvatar({
+    super.key,
+    required this.team,
+    required this.name,
+    this.imageUrl,
+    this.size = 34,
+    this.ringColor,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final url = PlayerImages.photoFor(widget.team.name, widget.name);
-    final ring = widget.ringColor ?? teamColor(widget.team.code);
+    final ring = ringColor ?? teamColor(team.code);
+    final fallback = Container(
+      color: Color.lerp(AppColors.ink, ring, .34),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            right: -size * .16,
+            top: -size * .16,
+            child: Icon(
+              Icons.sports_soccer_rounded,
+              size: size * .8,
+              color: Colors.white.withValues(alpha: .12),
+            ),
+          ),
+          InitialAvatar(name: name, size: size),
+        ],
+      ),
+    );
     return Container(
-      width: widget.size,
-      height: widget.size,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: ring, width: widget.size >= 40 ? 2 : 1.5),
+        border: Border.all(color: ring, width: size >= 40 ? 2 : 1.5),
       ),
       clipBehavior: Clip.antiAlias,
-      child: url == null
-          ? InitialAvatar(name: widget.name, size: widget.size)
+      child: imageUrl == null || imageUrl!.isEmpty
+          ? fallback
           : CachedNetworkImage(
-              imageUrl: url,
+              imageUrl: imageUrl!,
               fit: BoxFit.cover,
-              fadeInDuration: const Duration(milliseconds: 150),
-              placeholder: (_, _) => InitialAvatar(name: widget.name, size: widget.size),
-              errorWidget: (_, _, _) => InitialAvatar(name: widget.name, size: widget.size),
+              placeholder: (_, __) => fallback,
+              errorWidget: (_, __, ___) => fallback,
             ),
     );
   }

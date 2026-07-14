@@ -28,6 +28,12 @@ export interface Moment {
   side?: "home" | "away";
   minute: number;
   label: string;
+  sourceEventId?: string;
+  playerId?: string;
+  playerName?: string;
+  teamCode?: string;
+  imageUrl?: string;
+  artKey?: string;
   rarity: RarityStars;
   oddsSandwich: OddsSandwich;
   calledIt: boolean;
@@ -133,6 +139,12 @@ export interface MintContext {
     minute: number;
     seq: number;
     label: string;
+    sourceEventId?: string;
+    playerId?: string;
+    playerName?: string;
+    teamCode?: string;
+    imageUrl?: string;
+    artKey?: string;
   };
   oddsSandwich: OddsSandwich;
   /** Implied home win % before event (0..1) for rarity. */

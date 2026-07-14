@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/models.dart';
 import '../util/merkle.dart';
+import 'ai_question_writer.dart';
 import 'match_facts.dart';
 import 'players.dart';
 
@@ -22,26 +23,46 @@ class LiveMatchEngine extends ChangeNotifier {
   /// this starts where reality is instead of contradicting the home card.
   final FixtureScore? seedScore;
 
-  LiveMatchEngine(this.fixture,
-      {required this.draftMode,
-      required this.nextSwingMode,
-      required this.myName,
-      this.reactionPack = 'classic',
-      this.voice = false,
-      this.spoilerSafe = false,
-      this.seedScore})
-      : _rng = Random(fixture.id.hashCode) {
+  LiveMatchEngine(
+    this.fixture, {
+    required this.draftMode,
+    required this.nextSwingMode,
+    required this.myName,
+    this.reactionPack = 'classic',
+    this.voice = false,
+    this.spoilerSafe = false,
+    this.seedScore,
+  }) : _rng = Random(fixture.id.hashCode) {
     _members = [
       _M('me', myName.isEmpty ? 'You' : myName, isHost: true),
       _M('b1', _pick(_botNames), isBot: true)..side = 'home',
       _M('b2', _pick(_botNames), isBot: true)..side = 'away',
-      _M('b3', _pick(_botNames), isBot: true)..side = _rng.nextBool() ? 'home' : 'away',
+      _M('b3', _pick(_botNames), isBot: true)
+        ..side = _rng.nextBool() ? 'home' : 'away',
     ];
   }
 
   final Random _rng;
-  static const _botNames = ['marcus_k', 'jordan.t', 'priya_d', 'sam', 'mia', 'leo', 'noor', 'diego'];
-  static const _cheers = ['what a room to be in 🙌', 'GET IN! 🔥', 'unreal 😱', 'called it 😎', 'pressure building', 'this is it', '💯', 'tense out here'];
+  static const _botNames = [
+    'marcus_k',
+    'jordan.t',
+    'priya_d',
+    'sam',
+    'mia',
+    'leo',
+    'noor',
+    'diego',
+  ];
+  static const _cheers = [
+    'what a room to be in 🙌',
+    'GET IN! 🔥',
+    'unreal 😱',
+    'called it 😎',
+    'pressure building',
+    'this is it',
+    '💯',
+    'tense out here',
+  ];
 
   final String code = _genCode();
   String status = 'lobby';
@@ -64,7 +85,8 @@ class LiveMatchEngine extends ChangeNotifier {
   // first-half tallies (second half = total - firstHalf) for the by-half view
   int gH1 = 0, gA1 = 0, yH1 = 0, yA1 = 0, rH1 = 0, rA1 = 0, cH1 = 0, cA1 = 0;
   int _momentum = 0;
-  double _oddsDrift = 0; // mean-reverting market jitter so win-chance breathes tick-to-tick
+  double _oddsDrift =
+      0; // mean-reverting market jitter so win-chance breathes tick-to-tick
   // Real Merkle commitment: every reacted-to event is hashed into a leaf using
   // the SAME scheme as the backend (lib/util/merkle.ts), so the "Verified" chip
   // in a solo room shows a genuine, on-device-verifiable SHA-256 root — not a
@@ -74,7 +96,8 @@ class LiveMatchEngine extends ChangeNotifier {
   String? _cachedRoot;
   int _cachedLeafCount = -1;
   int get proofLeaves => _leaves.length;
-  void _leafEvent(String kind, String side, int m) => _leaves.add('${_seq++}:$m:$kind:$side:$gH-$gA');
+  void _leafEvent(String kind, String side, int m) =>
+      _leaves.add('${_seq++}:$m:$kind:$side:$gH-$gA');
   void _leafPhase(String kind, int m) => _leaves.add('${_seq++}:$m:$kind');
   String? get _liveRoot {
     if (_leaves.isEmpty) return null;
@@ -113,7 +136,14 @@ class LiveMatchEngine extends ChangeNotifier {
     final seeded = _applySeed();
     if (!seeded) {
       _system('Kick-off! The terrace is live.');
-      _addPulse('kickoff', '🟢', "We're live", '${fixture.home.name} vs ${fixture.away.name} is under way.', 'neutral', 0);
+      _addPulse(
+        'kickoff',
+        '🟢',
+        "We're live",
+        '${fixture.home.name} vs ${fixture.away.name} is under way.',
+        'neutral',
+        0,
+      );
     }
     _timer = Timer.periodic(const Duration(milliseconds: 750), (_) => _tick());
     notifyListeners();
@@ -125,7 +155,10 @@ class LiveMatchEngine extends ChangeNotifier {
   bool _applySeed() {
     final s = seedScore;
     if (s == null) return false;
-    final m = s.minute.clamp(0, 88); // ≥90 clamps so the room still has an ending
+    final m = s.minute.clamp(
+      0,
+      88,
+    ); // ≥90 clamps so the room still has an ending
     if (s.home + s.away == 0 && m <= 1) return false;
 
     final facts = factsFor(fixture);
@@ -133,25 +166,40 @@ class LiveMatchEngine extends ChangeNotifier {
     gA = s.away;
     _minuteF = m < 45 ? m.toDouble() : (m.toDouble() + 0.001);
     _phase = m < 45 ? 1 : 3;
-    if (m >= 45) _htRecap = true; // don't re-fire the HT recap for a seeded past
+    if (m >= 45)
+      _htRecap = true; // don't re-fire the HT recap for a seeded past
 
     // goal history: real minutes + scorers from the facts engine where they
     // line up with the seeded score; extra (untracked) goals fall back to the
     // roster cycle so counts always match the scoreboard.
     final factGoals = {'home': <MatchEvent>[], 'away': <MatchEvent>[]};
-    for (final e in facts.events.where((e) => e.kind == 'goal' && e.minute <= m)) {
+    for (final e in facts.events.where(
+      (e) => e.kind == 'goal' && e.minute <= m,
+    )) {
       factGoals[e.side]!.add(e);
     }
     void seedGoals(String side, int count) {
       final fg = factGoals[side]!;
       final team = side == 'home' ? fixture.home : fixture.away;
       for (var i = 0; i < count; i++) {
-        final minute = i < fg.length ? fg[i].minute : (5 + (i * 17 + fixture.id.hashCode.abs()) % (m < 2 ? 1 : m - 1));
-        final name = i < fg.length ? fg[i].player : scorerName(fixture, side, i);
+        final minute = i < fg.length
+            ? fg[i].minute
+            : (5 + (i * 17 + fixture.id.hashCode.abs()) % (m < 2 ? 1 : m - 1));
+        final name = i < fg.length
+            ? fg[i].player
+            : scorerName(fixture, side, i);
         _goals.add(_GoalRec(name, minute, side, team.code));
         if (minute <= 45) side == 'home' ? gH1++ : gA1++;
         _leaves.add('${_seq++}:$minute:goal:$side:seed');
-        _addPulse('goal', '⚽', 'GOAL — ${team.name}', '$name struck in the ${minute}\'.', side, minute, scorer: name);
+        _addPulse(
+          'goal',
+          '⚽',
+          'GOAL — ${team.name}',
+          '$name struck in the ${minute}\'.',
+          side,
+          minute,
+          scorer: name,
+        );
       }
     }
 
@@ -160,7 +208,9 @@ class LiveMatchEngine extends ChangeNotifier {
     _goals.sort((a, b) => a.minute - b.minute);
 
     // yellows from the facts engine (secondary, keeps the stats panel honest)
-    for (final e in facts.events.where((e) => e.kind == 'yellow' && e.minute <= m)) {
+    for (final e in facts.events.where(
+      (e) => e.kind == 'yellow' && e.minute <= m,
+    )) {
       if (e.side == 'home') {
         yH++;
         if (e.minute <= 45) yH1++;
@@ -188,15 +238,26 @@ class LiveMatchEngine extends ChangeNotifier {
     _winSampleMinute = m;
 
     _leafPhase('seeded:${s.home}-${s.away}@$m', m); // proof stays honest
-    _system('Joined in progress — ${fixture.home.code} $gH–$gA ${fixture.away.code}, ${m}\'.');
-    _addPulse('kickoff', '⏩', 'Joined in progress', '${fixture.home.code} $gH–$gA ${fixture.away.code} · picking it up at ${m}\'.', 'neutral', m);
+    _system(
+      'Joined in progress — ${fixture.home.code} $gH–$gA ${fixture.away.code}, ${m}\'.',
+    );
+    _addPulse(
+      'kickoff',
+      '⏩',
+      'Joined in progress',
+      '${fixture.home.code} $gH–$gA ${fixture.away.code} · picking it up at ${m}\'.',
+      'neutral',
+      m,
+    );
     return true;
   }
 
   void pickSide(String side) {
     final me = _members.first;
     me.side = side;
-    _system('$myName drafted ${side == 'home' ? fixture.home.name : fixture.away.name}');
+    _system(
+      '$myName drafted ${side == 'home' ? fixture.home.name : fixture.away.name}',
+    );
     notifyListeners();
   }
 
@@ -208,13 +269,33 @@ class LiveMatchEngine extends ChangeNotifier {
   }
 
   void chat(String text) {
-    _chat.add(ChatView(id: _id('c'), memberId: 'me', name: myName, avatar: '', text: text, kind: 'chat', ts: _now()));
+    _chat.add(
+      ChatView(
+        id: _id('c'),
+        memberId: 'me',
+        name: myName,
+        avatar: '',
+        text: text,
+        kind: 'chat',
+        ts: _now(),
+      ),
+    );
     _trim();
     notifyListeners();
   }
 
   void react(String emoji) {
-    _chat.add(ChatView(id: _id('c'), memberId: 'me', name: myName, avatar: '', text: emoji, kind: 'reaction', ts: _now()));
+    _chat.add(
+      ChatView(
+        id: _id('c'),
+        memberId: 'me',
+        name: myName,
+        avatar: '',
+        text: emoji,
+        kind: 'reaction',
+        ts: _now(),
+      ),
+    );
     _trim();
     notifyListeners();
   }
@@ -251,10 +332,22 @@ class LiveMatchEngine extends ChangeNotifier {
     _minuteF += 1.5;
     var m = _minuteF.floor();
     // clamp at the end of each running period
-    if (_phase == 1 && m >= 45) { m = 45; _minuteF = 45; }
-    if (_phase == 3 && m >= 90) { m = 90; _minuteF = 90; }
-    if (_phase == 5 && m >= 105) { m = 105; _minuteF = 105; }
-    if (_phase == 7 && m >= 120) { m = 120; _minuteF = 120; }
+    if (_phase == 1 && m >= 45) {
+      m = 45;
+      _minuteF = 45;
+    }
+    if (_phase == 3 && m >= 90) {
+      m = 90;
+      _minuteF = 90;
+    }
+    if (_phase == 5 && m >= 105) {
+      m = 105;
+      _minuteF = 105;
+    }
+    if (_phase == 7 && m >= 120) {
+      m = 120;
+      _minuteF = 120;
+    }
 
     _maybeEvents(m);
     _recomputeWin(m);
@@ -277,7 +370,14 @@ class LiveMatchEngine extends ChangeNotifier {
       _resumePhase = 3;
       _resumeMinute = 45.001;
       _leafPhase('half-time', 45);
-      _addPulse('half-time', '⏸️', 'Half-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}.', 'neutral', 45);
+      _addPulse(
+        'half-time',
+        '⏸️',
+        'Half-time',
+        '${fixture.home.code} $gH–$gA ${fixture.away.code}.',
+        'neutral',
+        45,
+      );
       if (!_htRecap) {
         _htRecap = true;
         _makeRecap('half-time', m);
@@ -292,7 +392,14 @@ class LiveMatchEngine extends ChangeNotifier {
       _resumePhase = 7;
       _resumeMinute = 105.001;
       _leafPhase('et-half-time', 105);
-      _addPulse('half-time', '⏸️', 'End of ET first half', '${fixture.home.code} $gH–$gA ${fixture.away.code}. 15 minutes left.', 'neutral', 105);
+      _addPulse(
+        'half-time',
+        '⏸️',
+        'End of ET first half',
+        '${fixture.home.code} $gH–$gA ${fixture.away.code}. 15 minutes left.',
+        'neutral',
+        105,
+      );
     } else if (m >= 120 && _phase == 7) {
       // still level after extra time → penalties
       gH == gA ? _startPenalties() : _finish(outcome: 'et');
@@ -305,7 +412,14 @@ class LiveMatchEngine extends ChangeNotifier {
     _minuteF = 90.001;
     _leafPhase('extra-time', 90);
     _system('Level at full-time — into extra time!');
-    _addPulse('chaos', '⚡', 'EXTRA TIME', 'All square after 90 — 30 more minutes to settle it.', 'hot', 90);
+    _addPulse(
+      'chaos',
+      '⚡',
+      'EXTRA TIME',
+      'All square after 90 — 30 more minutes to settle it.',
+      'hot',
+      90,
+    );
   }
 
   void _startPenalties() {
@@ -319,7 +433,14 @@ class LiveMatchEngine extends ChangeNotifier {
     _penKicks.clear();
     _penNext = _now() + 1000;
     _system('Still level after extra time — it goes to penalties!');
-    _addPulse('chaos', '🎯', 'PENALTIES', "It's down to spot-kicks. Nerves of steel required.", 'hot', 120);
+    _addPulse(
+      'chaos',
+      '🎯',
+      'PENALTIES',
+      "It's down to spot-kicks. Nerves of steel required.",
+      'hot',
+      120,
+    );
   }
 
   void _tickShootout() {
@@ -339,10 +460,17 @@ class LiveMatchEngine extends ChangeNotifier {
     }
     final taker = penaltyTaker(fixture, side, kickIdx);
     final keeper = keeperName(fixture, side == 'home' ? 'away' : 'home');
-    _addPulse(scored ? 'pen-goal' : 'pen-miss', scored ? '⚽' : '🧤',
-        scored ? 'SCORED — $taker' : 'MISSED — $taker',
-        scored ? '$taker buries it. $_penHome–$_penAway on pens.' : '$keeper saves! Still $_penHome–$_penAway.', side, 120,
-        scorer: taker);
+    _addPulse(
+      scored ? 'pen-goal' : 'pen-miss',
+      scored ? '⚽' : '🧤',
+      scored ? 'SCORED — $taker' : 'MISSED — $taker',
+      scored
+          ? '$taker buries it. $_penHome–$_penAway on pens.'
+          : '$keeper saves! Still $_penHome–$_penAway.',
+      side,
+      120,
+      scorer: taker,
+    );
     if (_rng.nextBool()) _botShout(side);
 
     _penTurn = side == 'home' ? 'away' : 'home';
@@ -397,7 +525,15 @@ class LiveMatchEngine extends ChangeNotifier {
     final sideCount = side == 'home' ? gH : gA;
     final name = scorerName(fixture, side, sideCount - 1);
     _goals.add(_GoalRec(name, m, side, team.code));
-    _addPulse('goal', '⚽', 'GOAL — ${team.name}!', 'the room erupts! ${fixture.home.code} $gH–$gA ${fixture.away.code}', side, m, scorer: name);
+    _addPulse(
+      'goal',
+      '⚽',
+      'GOAL — ${team.name}!',
+      'the room erupts! ${fixture.home.code} $gH–$gA ${fixture.away.code}',
+      side,
+      m,
+      scorer: name,
+    );
     for (final mem in _members) {
       if (mem.side == side) mem.points += 50;
     }
@@ -418,7 +554,15 @@ class LiveMatchEngine extends ChangeNotifier {
     if (_rng.nextDouble() < 0.4) {
       final team = side == 'home' ? fixture.home : fixture.away;
       final taker = cornerTaker(fixture, side, (side == 'home' ? cH : cA) - 1);
-      _addPulse('corner-storm', '🚩', 'Corner — ${team.name}', '$taker swings it in — pressure building.', side, m, scorer: taker);
+      _addPulse(
+        'corner-storm',
+        '🚩',
+        'Corner — ${team.name}',
+        '$taker swings it in — pressure building.',
+        side,
+        m,
+        scorer: taker,
+      );
     }
   }
 
@@ -432,8 +576,20 @@ class LiveMatchEngine extends ChangeNotifier {
     _leafEvent('yellow', side, m);
     _momentum = (_momentum + (side == 'home' ? -5 : 5)).clamp(-100, 100);
     if (_rng.nextDouble() < 0.5) {
-      final booked = bookedPlayer(fixture, side, (side == 'home' ? yH : yA) - 1);
-      _addPulse('chaos', '🟨', 'Yellow — $booked', 'Into the book. One more and he walks.', side, m, scorer: booked);
+      final booked = bookedPlayer(
+        fixture,
+        side,
+        (side == 'home' ? yH : yA) - 1,
+      );
+      _addPulse(
+        'chaos',
+        '🟨',
+        'Yellow — $booked',
+        'Into the book. One more and he walks.',
+        side,
+        m,
+        scorer: booked,
+      );
     }
   }
 
@@ -447,15 +603,26 @@ class LiveMatchEngine extends ChangeNotifier {
     // live-market feel: a gentle mean-reverting random walk + a momentum tilt so
     // the win chance ticks both ways between goals (and the Higher/Lower call is
     // a real read, never a static "always lower").
-    _oddsDrift = (_oddsDrift * 0.8 + (_rng.nextDouble() * 2 - 1) * 0.016).clamp(-0.05, 0.05);
+    _oddsDrift = (_oddsDrift * 0.8 + (_rng.nextDouble() * 2 - 1) * 0.016).clamp(
+      -0.05,
+      0.05,
+    );
     final tilt = _momentum / 100 * 0.05 + _oddsDrift;
     var h = 0.42 + (rh - ra) / 100 * 0.45 + lead * 0.16 * (0.5 + tLeft) + tilt;
-    var a = 0.42 - (rh - ra) / 100 * 0.45 - lead * 0.16 * (0.5 + tLeft) - tilt * 0.6;
+    var a =
+        0.42 -
+        (rh - ra) / 100 * 0.45 -
+        lead * 0.16 * (0.5 + tLeft) -
+        tilt * 0.6;
     h = h.clamp(0.03, 0.94);
     a = a.clamp(0.03, 0.94);
     var d = (1 - h - a).clamp(0.03, 0.6);
     final sum = h + a + d;
-    _win = WinChance((h / sum * 100).round(), (d / sum * 100).round(), (a / sum * 100).round());
+    _win = WinChance(
+      (h / sum * 100).round(),
+      (d / sum * 100).round(),
+      (a / sum * 100).round(),
+    );
   }
 
   void _maybePrompt(int m) {
@@ -466,22 +633,36 @@ class LiveMatchEngine extends ChangeNotifier {
     final lock = min(m + 5, 90);
     final homeLeads = _win.home >= _win.away;
     final leaderCode = homeLeads ? fixture.home.code : fixture.away.code;
+    final chaserSide = homeLeads ? 'away' : 'home';
     final leaderPct = homeLeads ? _win.home : _win.away;
     final totalGoals = gH + gA;
     final leadTarget = min(max(m + 20, 70), 90);
     final goalTarget = totalGoals + 1 + (_rng.nextDouble() < 0.45 ? 1 : 0);
     final goalsDeadline = min(max(m + 25, 75), 90);
-    final cornerHint = cH == cA
-        ? 'even so far'
-        : cH > cA
-            ? '${fixture.home.code} lead corners $cH–$cA'
-            : '${fixture.away.code} lead corners $cA–$cH';
+
+    // Moment-specific colour: real squad names + the match's own story so the
+    // prompts read like a pundit watching THIS game, not a generic quiz.
+    final lastGoal = _goals.isNotEmpty ? _goals.last : null;
+    final strikerH = scorerName(fixture, 'home', gH);
+    final strikerA = scorerName(fixture, 'away', gA);
+    final chaserStriker = homeLeads ? strikerA : strikerH;
+    final chaserCode = homeLeads ? fixture.away.code : fixture.home.code;
+    final hotSide = yH >= yA ? 'home' : 'away';
+    final hotBooked = bookedPlayer(fixture, hotSide, max(yH, yA));
+    final cornerSide = cH >= cA ? 'home' : 'away';
+    final taker = cornerTaker(fixture, cornerSide, max(cH, cA));
+    final busyKeeper = keeperName(fixture, chaserSide);
+    final swingLine = lastGoal != null && m - lastGoal.minute <= 12
+        ? '${lastGoal.name}\'s ${lastGoal.minute}\' strike has $leaderCode at $leaderPct%'
+        : _momentum.abs() > 30
+              ? '$leaderCode ($leaderPct%) are turning the screw at $m\''
+              : '$leaderCode hold $leaderPct% control at $m\'';
 
     final weighted = <(_PromptDef, double)>[
       (
         _PromptDef(
-          'Favourite $leaderCode at $leaderPct% — call the swing in 5\'',
-          [_opt('up', 'Higher', '📈'), _opt('down', 'Lower', '📉')],
+          '$swingLine — grip tighter in 5\'?',
+          [_opt('up', 'Tightens 📈'), _opt('down', 'Slips 📉')],
           110 + (50 - leaderPct).abs(),
           min(m + 2, 90),
           _Resolver.winSwing,
@@ -493,8 +674,10 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          '${fixture.home.code} win% is ${_win.home} — clear ${_win.home} by ${min(m + 6, 90)}\'?',
-          [_opt('yes', 'Yes — rises'), _opt('no', 'No — stalls/falls')],
+          gH == gA
+              ? 'Deadlock at $m\' — do ${fixture.home.code} (${_win.home}%) seize it by ${min(m + 6, 90)}\'?'
+              : '${fixture.home.code} at ${_win.home}% — does their chance climb by ${min(m + 6, 90)}\'?',
+          [_opt('yes', 'They rise'), _opt('no', 'They stall')],
           130,
           min(m + 2, 90),
           _Resolver.oddsRise,
@@ -505,10 +688,12 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          'Who gets the next yellow? (${fixture.home.code} $yH · ${fixture.away.code} $yA)',
+          yH + yA > 0
+              ? 'Ref\'s losing patience ($yH–$yA yellows) and $hotBooked is walking a line — who\'s booked next?'
+              : 'First booking incoming — which side cracks under the tackles?',
           [
-            _opt('home', fixture.home.code, yH >= yA ? 'hot' : 'cooler'),
-            _opt('away', fixture.away.code, yA >= yH ? 'hot' : 'cooler'),
+            _opt('home', fixture.home.code, yH >= yA ? 'edgy' : 'cooler'),
+            _opt('away', fixture.away.code, yA >= yH ? 'edgy' : 'cooler'),
           ],
           125,
           lock,
@@ -518,7 +703,9 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          'Next corner — who wins it? ($cornerHint)',
+          cH + cA > 0
+              ? '$taker is waving the crowd up (corners $cH–$cA) — who forces the next one?'
+              : 'No corners yet at $m\' — who bends the first one in?',
           [_opt('home', fixture.home.code), _opt('away', fixture.away.code)],
           105,
           lock,
@@ -528,8 +715,10 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          'Will either side lead by 2+ at $leadTarget\'? (now $gH–$gA)',
-          [_opt('yes', 'Yes — 2-goal cushion'), _opt('no', 'No — stays tight')],
+          (gH - gA).abs() == 1
+              ? '$leaderCode lead by one — is it a 2-goal cushion by $leadTarget\' or does $busyKeeper hold the line?'
+              : 'Can anyone open a 2-goal gap by $leadTarget\'? (now $gH–$gA)',
+          [_opt('yes', '2-goal cushion'), _opt('no', 'Stays tight')],
           140,
           min(m + 3, 90),
           _Resolver.leadByTwo,
@@ -539,8 +728,13 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          'Will total goals hit $goalTarget by $goalsDeadline\'? (now $totalGoals)',
-          [_opt('yes', 'Yes — reach $goalTarget'), _opt('no', 'No — stay under')],
+          totalGoals > 0
+              ? '$totalGoals in already — do $strikerH & $strikerA push it to $goalTarget by $goalsDeadline\'?'
+              : 'Still 0–0 — is there a goal in this by $goalsDeadline\'?',
+          [
+            _opt('yes', 'Reaches $goalTarget'),
+            _opt('no', 'Stays under'),
+          ],
           135,
           min(m + 3, 90),
           _Resolver.totalGoals,
@@ -551,11 +745,11 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          'Next goal before ${min(m + 15, 90)}\'?',
+          'Next to beat the keeper before ${min(m + 15, 90)}\' — $strikerH or $strikerA?',
           [
-            _opt('home', fixture.home.code, '${_win.home}%'),
-            _opt('none', 'No goal'),
-            _opt('away', fixture.away.code, '${_win.away}%'),
+            _opt('home', '$strikerH (${fixture.home.code})', '${_win.home}%'),
+            _opt('none', 'Nobody scores'),
+            _opt('away', '$strikerA (${fixture.away.code})', '${_win.away}%'),
           ],
           140,
           lock,
@@ -566,7 +760,7 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          'What happens first — goal or card?',
+          '$chaserCode need $chaserStriker firing but $hotBooked keeps fouling — goal or card first?',
           [_opt('goal', 'A goal'), _opt('card', 'A card')],
           100,
           lock,
@@ -589,13 +783,76 @@ class LiveMatchEngine extends ChangeNotifier {
     }
 
     final id = _id('sw');
-    _prompts[id] = PromptView(id: id, question: def.q, options: def.options, basePoints: def.pts, locksAtMinute: def.lock, status: 'open', winningKey: null, createdAt: _now(), tally: {for (final o in def.options) o.key: 0});
+    _prompts[id] = PromptView(
+      id: id,
+      question: def.q,
+      options: def.options,
+      basePoints: def.pts,
+      locksAtMinute: def.lock,
+      status: 'open',
+      winningKey: null,
+      createdAt: _now(),
+      tally: {for (final o in def.options) o.key: 0},
+    );
     _res[id] = def.resolver;
     _resMeta[id] = [def.targetMinute, def.baseline, def.side];
     // bots vote shortly
     for (final b in _members.where((x) => x.isBot)) {
-      if (_rng.nextDouble() < 0.8) _botPicks['$id:${b.id}'] = def.options[_rng.nextInt(def.options.length)].key;
+      if (_rng.nextDouble() < 0.8)
+        _botPicks['$id:${b.id}'] =
+            def.options[_rng.nextInt(def.options.length)].key;
     }
+    // Publish the template instantly, then let the LLM sharpen the copy.
+    if (AiQuestionWriter.configured) unawaited(_upgradePrompt(id, m));
+  }
+
+  /// Fire-and-forget LLM rewrite of an open prompt's question/labels. A slow,
+  /// failed or invalid reply is a silent no-op; a prompt someone already
+  /// answered (or that locked) is never rewritten under their feet.
+  Future<void> _upgradePrompt(String id, int m) async {
+    final p = _prompts[id];
+    if (p == null) return;
+    final res = await AiQuestionWriter.rewrite(
+      question: p.question,
+      options: [for (final o in p.options) (key: o.key, label: o.label)],
+      context: {
+        'minute': m,
+        'score': '${fixture.home.code} $gH-$gA ${fixture.away.code}',
+        'home': fixture.home.name,
+        'away': fixture.away.name,
+        'winChance': {'home': _win.home, 'draw': _win.draw, 'away': _win.away},
+        'momentum': _momentum,
+        'yellows': '$yH-$yA',
+        'corners': '$cH-$cA',
+        'recentGoals': [
+          for (final g in _goals.reversed.take(6))
+            "${g.minute}' ${g.name} (${g.teamCode})",
+        ],
+        'deadlineMinute': _resMeta[id]?[0],
+      },
+    );
+    if (res == null) return;
+    final cur = _prompts[id];
+    if (cur == null || cur.status != 'open' || myPicks.containsKey(id)) return;
+    _prompts[id] = PromptView(
+      id: cur.id,
+      question: res.question,
+      options: [
+        for (final o in cur.options)
+          SwingOption(
+            key: o.key,
+            label: res.labels[o.key] ?? o.label,
+            hint: o.hint,
+          ),
+      ],
+      basePoints: cur.basePoints,
+      locksAtMinute: cur.locksAtMinute,
+      status: cur.status,
+      winningKey: cur.winningKey,
+      createdAt: cur.createdAt,
+      tally: cur.tally,
+    );
+    notifyListeners();
   }
 
   final Map<String, List<int>> _resMeta = {};
@@ -620,7 +877,17 @@ class LiveMatchEngine extends ChangeNotifier {
       String? winKey;
       if (status == 'locked') winKey = _settle(p.id, m);
 
-      _prompts[p.id] = PromptView(id: p.id, question: p.question, options: p.options, basePoints: p.basePoints, locksAtMinute: p.locksAtMinute, status: winKey != null ? 'settled' : status, winningKey: winKey, createdAt: p.createdAt, tally: tally);
+      _prompts[p.id] = PromptView(
+        id: p.id,
+        question: p.question,
+        options: p.options,
+        basePoints: p.basePoints,
+        locksAtMinute: p.locksAtMinute,
+        status: winKey != null ? 'settled' : status,
+        winningKey: winKey,
+        createdAt: p.createdAt,
+        tally: tally,
+      );
 
       if (winKey != null) _award(p.id, winKey, p);
     }
@@ -692,14 +959,35 @@ class LiveMatchEngine extends ChangeNotifier {
       }
     }
     final opt = p.options.where((o) => o.key == winKey);
-    _system('Next Swing settled — ${opt.isNotEmpty ? opt.first.label : winKey}.');
+    _system(
+      'Next Swing settled — ${opt.isNotEmpty ? opt.first.label : winKey}.',
+    );
   }
 
   String _lastEvent = '';
   String _lastSide = 'home';
 
-  void _addPulse(String kind, String emoji, String head, String detail, String accent, int minute, {String? scorer}) {
-    _pulse.add(PulseCard(id: _id('p'), kind: kind, emoji: emoji, headline: head, detail: detail, accent: accent, minute: minute, scorer: scorer));
+  void _addPulse(
+    String kind,
+    String emoji,
+    String head,
+    String detail,
+    String accent,
+    int minute, {
+    String? scorer,
+  }) {
+    _pulse.add(
+      PulseCard(
+        id: _id('p'),
+        kind: kind,
+        emoji: emoji,
+        headline: head,
+        detail: detail,
+        accent: accent,
+        minute: minute,
+        scorer: scorer,
+      ),
+    );
     if (_pulse.length > 50) _pulse.removeAt(0);
     if (kind == 'goal') {
       _lastEvent = 'goal';
@@ -722,7 +1010,18 @@ class LiveMatchEngine extends ChangeNotifier {
 
   void _botShout(String side) {
     final b = _members.firstWhere((x) => x.isBot, orElse: () => _members.first);
-    _chat.add(ChatView(id: _id('c'), memberId: b.id, name: b.name, avatar: '', text: _pick(_cheers), kind: 'chat', ts: _now(), reactions: _botReactions()));
+    _chat.add(
+      ChatView(
+        id: _id('c'),
+        memberId: b.id,
+        name: b.name,
+        avatar: '',
+        text: _pick(_cheers),
+        kind: 'chat',
+        ts: _now(),
+        reactions: _botReactions(),
+      ),
+    );
     _trim();
   }
 
@@ -730,7 +1029,18 @@ class LiveMatchEngine extends ChangeNotifier {
     if (_rng.nextDouble() < 0.08) {
       final bots = _members.where((x) => x.isBot).toList();
       final b = bots[_rng.nextInt(bots.length)];
-      _chat.add(ChatView(id: _id('c'), memberId: b.id, name: b.name, avatar: '', text: _pick(_cheers), kind: 'chat', ts: _now(), reactions: _botReactions()));
+      _chat.add(
+        ChatView(
+          id: _id('c'),
+          memberId: b.id,
+          name: b.name,
+          avatar: '',
+          text: _pick(_cheers),
+          kind: 'chat',
+          ts: _now(),
+          reactions: _botReactions(),
+        ),
+      );
       _trim();
     }
   }
@@ -743,11 +1053,22 @@ class LiveMatchEngine extends ChangeNotifier {
     _timer?.cancel();
     for (final p in _prompts.values.toList()) {
       if (p.status != 'settled') {
-        _prompts[p.id] = PromptView(id: p.id, question: p.question, options: p.options, basePoints: p.basePoints, locksAtMinute: p.locksAtMinute, status: 'settled', winningKey: null, createdAt: p.createdAt, tally: p.tally);
+        _prompts[p.id] = PromptView(
+          id: p.id,
+          question: p.question,
+          options: p.options,
+          basePoints: p.basePoints,
+          locksAtMinute: p.locksAtMinute,
+          status: 'settled',
+          winningKey: null,
+          createdAt: p.createdAt,
+          tally: p.tally,
+        );
       }
     }
     final lead = gH - gA;
-    final winningSide = penWinner ?? (lead > 0 ? 'home' : (lead < 0 ? 'away' : null));
+    final winningSide =
+        penWinner ?? (lead > 0 ? 'home' : (lead < 0 ? 'away' : null));
     if (winningSide != null) {
       for (final mem in _members) {
         if (mem.side == winningSide) mem.points += 30;
@@ -756,7 +1077,14 @@ class LiveMatchEngine extends ChangeNotifier {
     final tail = penWinner != null
         ? ' — ${penWinner == 'home' ? fixture.home.code : fixture.away.code} win $_penHome–$_penAway on pens'
         : (outcome == 'et' ? ' after extra time' : '');
-    _addPulse('full-time', '🏁', 'Full-time', '${fixture.home.code} $gH–$gA ${fixture.away.code}$tail. Final whistle.', 'neutral', endMin);
+    _addPulse(
+      'full-time',
+      '🏁',
+      'Full-time',
+      '${fixture.home.code} $gH–$gA ${fixture.away.code}$tail. Final whistle.',
+      'neutral',
+      endMin,
+    );
     _makeRecap('full-time', endMin);
     _buildMotm();
   }
@@ -797,13 +1125,30 @@ class LiveMatchEngine extends ChangeNotifier {
     final votes = [v0, v1, v2];
     _motmTotal = votes.take(top.length).reduce((a, b) => a + b);
     _motm = [
-      for (var i = 0; i < top.length; i++) MotmCandidate(key: 'c$i', name: top[i], teamCode: codes[top[i]] ?? winCode, votes: votes[i]),
+      for (var i = 0; i < top.length; i++)
+        MotmCandidate(
+          key: 'c$i',
+          name: top[i],
+          teamCode: codes[top[i]] ?? winCode,
+          votes: votes[i],
+        ),
     ];
   }
 
   void voteMotm(String key) {
     if (_motm == null || _myMotmVote != null) return;
-    _motm = _motm!.map((c) => c.key == key ? MotmCandidate(key: c.key, name: c.name, teamCode: c.teamCode, votes: c.votes + 1) : c).toList();
+    _motm = _motm!
+        .map(
+          (c) => c.key == key
+              ? MotmCandidate(
+                  key: c.key,
+                  name: c.name,
+                  teamCode: c.teamCode,
+                  votes: c.votes + 1,
+                )
+              : c,
+        )
+        .toList();
     _motmTotal++;
     _myMotmVote = key;
     notifyListeners();
@@ -814,9 +1159,15 @@ class LiveMatchEngine extends ChangeNotifier {
     final leader = sorted.first;
     final runner = sorted.length > 1 ? sorted[1] : null;
     final when = scope == 'half-time' ? 'First half' : 'Full-time';
-    final lead = gH == gA ? 'level at $gH–$gA' : (gH > gA ? '${fixture.home.name} ahead $gH–$gA' : '${fixture.away.name} in front $gA–$gH');
+    final lead = gH == gA
+        ? 'level at $gH–$gA'
+        : (gH > gA
+              ? '${fixture.home.name} ahead $gH–$gA'
+              : '${fixture.away.name} in front $gA–$gH');
     final goals = _pulse.where((p) => p.kind == 'goal').length;
-    final beats = <String>['$when: ${fixture.home.code} $gH–$gA ${fixture.away.code}, $lead.'];
+    final beats = <String>[
+      '$when: ${fixture.home.code} $gH–$gA ${fixture.away.code}, $lead.',
+    ];
     if (goals == 0) {
       beats.add('Tight and cagey — no goals yet.');
     } else if (goals >= 3) {
@@ -826,15 +1177,36 @@ class LiveMatchEngine extends ChangeNotifier {
     }
     if (leader.points > 0) {
       beats.add('${leader.name} tops the room on ${leader.points}.');
-      if (runner != null && runner.points > 0) beats.add('${runner.name} leads the chase, ${leader.points - runner.points} back.');
+      if (runner != null && runner.points > 0)
+        beats.add(
+          '${runner.name} leads the chase, ${leader.points - runner.points} back.',
+        );
     } else {
       beats.add('The leaderboard is wide open — your next call could top it.');
     }
-    _recaps.add(RecapView(id: _id('r'), scope: scope, text: beats.join(' '), topMember: leader.points > 0 ? leader.name : null, minute: m));
+    _recaps.add(
+      RecapView(
+        id: _id('r'),
+        scope: scope,
+        text: beats.join(' '),
+        topMember: leader.points > 0 ? leader.name : null,
+        minute: m,
+      ),
+    );
   }
 
   void _system(String text) {
-    _chat.add(ChatView(id: _id('c'), memberId: 'system', name: 'Room', avatar: '📣', text: text, kind: 'system', ts: _now()));
+    _chat.add(
+      ChatView(
+        id: _id('c'),
+        memberId: 'system',
+        name: 'Room',
+        avatar: '📣',
+        text: text,
+        kind: 'system',
+        ts: _now(),
+      ),
+    );
     _trim();
   }
 
@@ -846,14 +1218,30 @@ class LiveMatchEngine extends ChangeNotifier {
   RoomView get view {
     final members = [..._members]..sort((a, b) => b.points - a.points);
     final mv = members
-        .map((m) => MemberView(id: m.id, name: m.name, avatar: '', side: m.side, walletShort: null, points: m.points, streak: m.streak, bestStreak: m.best, correct: m.correct, isHost: m.isHost))
+        .map(
+          (m) => MemberView(
+            id: m.id,
+            name: m.name,
+            avatar: '',
+            side: m.side,
+            walletShort: null,
+            points: m.points,
+            streak: m.streak,
+            bestStreak: m.best,
+            correct: m.correct,
+            isHost: m.isHost,
+          ),
+        )
         .toList();
-    final phaseInt = _phase; // 1 H1, 2 HT, 3 H2, 4 FT, 5 ET1, 6 ET break, 7 ET2, 8 pens
+    final phaseInt =
+        _phase; // 1 H1, 2 HT, 3 H2, 4 FT, 5 ET1, 6 ET break, 7 ET2, 8 pens
     final shootout = _penKicks.isNotEmpty
         ? ShootoutView(
             home: _penHome,
             away: _penAway,
-            kicks: _penKicks.map((k) => ShootoutKick(side: k.side, scored: k.scored)).toList(),
+            kicks: _penKicks
+                .map((k) => ShootoutKick(side: k.side, scored: k.scored))
+                .toList(),
             decided: _penDecided,
             winnerSide: _penWinner,
           )
@@ -863,24 +1251,41 @@ class LiveMatchEngine extends ChangeNotifier {
         : ScoreView(
             minute: _minuteF.floor(),
             clockSeconds: (_minuteF * 60).floor(),
-            running: phaseInt == 1 || phaseInt == 3 || phaseInt == 5 || phaseInt == 7,
+            running:
+                phaseInt == 1 ||
+                phaseInt == 3 ||
+                phaseInt == 5 ||
+                phaseInt == 7,
             phase: phaseInt,
             goals: StatPair(gH, gA),
             yellow: StatPair(yH, yA),
             red: StatPair(rH, rA),
             corners: StatPair(cH, cA),
             periods: MatchPeriods(
-              firstHalf: PeriodStat(goals: StatPair(gH1, gA1), yellow: StatPair(yH1, yA1), red: StatPair(rH1, rA1), corners: StatPair(cH1, cA1)),
-              secondHalf: PeriodStat(goals: StatPair(gH - gH1, gA - gA1), yellow: StatPair(yH - yH1, yA - yA1), red: StatPair(rH - rH1, rA - rA1), corners: StatPair(cH - cH1, cA - cA1)),
+              firstHalf: PeriodStat(
+                goals: StatPair(gH1, gA1),
+                yellow: StatPair(yH1, yA1),
+                red: StatPair(rH1, rA1),
+                corners: StatPair(cH1, cA1),
+              ),
+              secondHalf: PeriodStat(
+                goals: StatPair(gH - gH1, gA - gA1),
+                yellow: StatPair(yH - yH1, yA - yA1),
+                red: StatPair(rH - rH1, rA - rA1),
+                corners: StatPair(cH - cH1, cA - cA1),
+              ),
             ),
           );
-    final promptList = _prompts.values.toList()..sort((a, b) => b.createdAt - a.createdAt);
+    final promptList = _prompts.values.toList()
+      ..sort((a, b) => b.createdAt - a.createdAt);
     return RoomView(
       id: 'local',
       code: code,
       name: '${fixture.home.name} watch-along',
       hostId: 'me',
       status: status,
+      kind: 'party',
+      autoManaged: false,
       fixture: fixture,
       modes: RoomModes(draftMode, nextSwingMode),
       momentum: _momentum,
@@ -893,11 +1298,23 @@ class LiveMatchEngine extends ChangeNotifier {
       pulse: [..._pulse],
       prompts: promptList.take(8).toList(),
       recaps: [..._recaps],
-      proof: ProofInfo(leafCount: _leaves.length, root: _liveRoot, anchorSignature: null, anchored: false, cluster: 'devnet'),
+      proof: ProofInfo(
+        leafCount: _leaves.length,
+        root: _liveRoot,
+        anchorSignature: null,
+        anchored: false,
+        cluster: 'devnet',
+      ),
       spoilerSafe: spoilerSafe,
       voice: voice,
       reactionPack: reactionPack,
-      motm: _motm == null ? null : MotmPoll(totalVotes: _motmTotal, candidates: _motm!, myVote: _myMotmVote),
+      motm: _motm == null
+          ? null
+          : MotmPoll(
+              totalVotes: _motmTotal,
+              candidates: _motm!,
+              myVote: _myMotmVote,
+            ),
     );
   }
 
@@ -921,7 +1338,9 @@ class LiveMatchEngine extends ChangeNotifier {
     return {
       'root': tree.root,
       'leafCount': _leaves.length,
-      'leaves': _leaves.length > 12 ? _leaves.sublist(_leaves.length - 12) : List<String>.from(_leaves),
+      'leaves': _leaves.length > 12
+          ? _leaves.sublist(_leaves.length - 12)
+          : List<String>.from(_leaves),
       'sample': sample,
       'txline': null,
       'fixtureId': fixture.id,
@@ -959,7 +1378,16 @@ class _GoalRec {
   _GoalRec(this.name, this.minute, this.side, this.teamCode);
 }
 
-enum _Resolver { firstEvent, nextCorner, nextCard, nextGoal, oddsRise, winSwing, leadByTwo, totalGoals }
+enum _Resolver {
+  firstEvent,
+  nextCorner,
+  nextCard,
+  nextGoal,
+  oddsRise,
+  winSwing,
+  leadByTwo,
+  totalGoals,
+}
 
 class _Pen {
   final String side; // 'home' | 'away'
@@ -967,7 +1395,8 @@ class _Pen {
   _Pen(this.side, this.scored);
 }
 
-SwingOption _opt(String key, String label, [String? hint]) => SwingOption(key: key, label: label, hint: hint);
+SwingOption _opt(String key, String label, [String? hint]) =>
+    SwingOption(key: key, label: label, hint: hint);
 
 class _PromptDef {
   final String q;
@@ -976,6 +1405,16 @@ class _PromptDef {
   final _Resolver resolver;
   final int targetMinute;
   final int baseline;
-  final int side; // 0=home, 1=away (winSwing: whose win-chance the call is about)
-  _PromptDef(this.q, this.options, this.pts, this.lock, this.resolver, [this.targetMinute = 90, this.baseline = 0, this.side = 0]);
+  final int
+  side; // 0=home, 1=away (winSwing: whose win-chance the call is about)
+  _PromptDef(
+    this.q,
+    this.options,
+    this.pts,
+    this.lock,
+    this.resolver, [
+    this.targetMinute = 90,
+    this.baseline = 0,
+    this.side = 0,
+  ]);
 }

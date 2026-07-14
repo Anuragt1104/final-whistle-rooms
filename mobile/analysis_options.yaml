@@ -21,8 +21,15 @@ linter:
   # `// ignore_for_file: name_of_lint` syntax on the line or in the file
   # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # Keep CI focused on correctness. These stylistic rules churn heavily
+    # across Flutter SDK upgrades and do not improve this compact UI codebase.
+    curly_braces_in_flow_control_structures: false
+    prefer_final_fields: false
+    prefer_interpolation_to_compose_strings: false
+    unnecessary_brace_in_string_interps: false
+    unnecessary_string_interpolations: false
+    unnecessary_underscores: false
+    use_null_aware_elements: false
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

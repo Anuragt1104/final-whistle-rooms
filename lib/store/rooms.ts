@@ -27,19 +27,24 @@ import { getSource, sourceMode } from "@/lib/txline/source";
 import { buildMerkleTree } from "@/lib/util/merkle";
 import { shareCode, uid } from "@/lib/util/id";
 import {
-  mintForRoomFans,
+  mintFromEvent,
   partyDropMultiplier,
   sandwichFromWin,
   stampCalledIt,
 } from "@/lib/cards/economy";
+import type { MintContext, OddsSandwich } from "@/lib/cards/types";
+import { llmConfigured } from "@/lib/llm/client";
+import { rewritePromptText, type PromptContext } from "@/lib/game/prompt-writer";
 import { EARN, earn as earnCredits } from "@/lib/platform/ledger";
 import { addXp as addPassXp, XP as PASS_XP } from "@/lib/platform/pass";
 import type {
   ChatView,
   MemberView,
+  MomentDropView,
   PromptView,
   RecapView,
   RoomModes,
+  RoomKind,
   RoomStatus,
   RoomView,
   ScoreView,
@@ -80,12 +85,15 @@ interface RoomRuntime {
   id: string;
   code: string;
   name: string;
+  kind: RoomKind;
+  autoManaged: boolean;
   fixture: Fixture;
   modes: RoomModes;
   visibility: "public" | "invite";
   reactionPack: string;
   voice: boolean;
   spoilerSafe: boolean;
+  replay: boolean;
   hostId: string;
   status: RoomStatus;
   createdAt: number;
@@ -93,8 +101,12 @@ interface RoomRuntime {
   members: Map<string, Member>;
   chat: ChatMsg[];
   pulse: PulseCard[];
+  momentDrops: MomentDropView[];
   prompts: Map<string, SwingPrompt>;
   picks: Map<string, Map<string, string>>; // memberId -> promptId -> optionKey
+  // Significant match moments buffered as mint SOURCES. Nothing mints on the
+  // event itself — a fan earns the Moment by answering a Micro-Play correctly.
+  recentMintables: Array<{ event: MintContext["event"]; oddsSandwich: OddsSandwich; priorHomeProb: number }>;
 
   // live match state
   score: ScoreSnapshot | null;
@@ -117,8 +129,14 @@ interface RoomRuntime {
   htRecapDone: boolean;
   interval: ReturnType<typeof setInterval> | null;
   closeLiveFeed: (() => void) | null;
+  pendingFinish: ReturnType<typeof setTimeout> | null;
   liveScore: ScoreSnapshot | null;
   liveOdds: OddsSnapshot | null;
+  eventHighWater: EventHighWater;
+  processedEventIds: Set<string>;
+  starting: boolean;
+  lastFeedAt: number;
+  feedStaleTimer: ReturnType<typeof setTimeout> | null;
 
   // proof
   merkleLeaves: string[];
@@ -128,9 +146,20 @@ interface RoomRuntime {
   subscribers: Set<(payload: string) => void>;
 }
 
-type Store = { rooms: Map<string, RoomRuntime> };
+type Store = {
+  rooms: Map<string, RoomRuntime>;
+  officialByFixture: Map<string, string>;
+  pendingOfficial: Map<string, Promise<void>>;
+};
 const g = globalThis as unknown as { __fwr_store?: Store };
-const store: Store = g.__fwr_store ?? (g.__fwr_store = { rooms: new Map() });
+const store: Store = g.__fwr_store ?? (g.__fwr_store = {
+  rooms: new Map(),
+  officialByFixture: new Map(),
+  pendingOfficial: new Map(),
+});
+// Hot reload can retain an older store shape while this module is replaced.
+store.officialByFixture ??= new Map();
+store.pendingOfficial ??= new Map();
 
 function emojiAvatar(name: string): string {
   let h = 0;
@@ -143,79 +172,121 @@ function walletShort(pk?: string): string | undefined {
 }
 
 // ── creation / membership ────────────────────────────────────────────────────
-export async function createRoom(input: {
-  name: string;
-  fixtureId: string;
-  modes: RoomModes;
-  hostName: string;
-  hostWallet?: string;
-  visibility?: "public" | "invite";
-  reactionPack?: string;
-  voice?: boolean;
-  spoilerSafe?: boolean;
-}): Promise<{ roomId: string; hostId: string } | { error: string }> {
-  const fixture = await getSource().getFixture(input.fixtureId);
+/**
+ * Join the one Official Match Hub for a Fixture — the single global room every
+ * fan shares. Creation is guarded by a per-Fixture promise so concurrent first
+ * joins cannot fork the crowd into duplicate rooms. Finished Fixtures run as a
+ * shared replay (the historical driver paces the verified match log).
+ */
+export async function joinOfficialHubForFixture(
+  fixture: Fixture,
+  input: { name: string; walletPubkey?: string },
+  options: { autoStart?: boolean } = {},
+): Promise<{ roomId: string; memberId: string }> {
+  const existingId = store.officialByFixture.get(fixture.id);
+  const existing = existingId ? store.rooms.get(existingId) : undefined;
+  if (existing && existing.status !== "finished") {
+    const joined = joinRoom(existing.id, input);
+    if ("error" in joined) throw new Error(joined.error);
+    if (options.autoStart !== false) void startMatch(existing.id, "");
+    return { roomId: existing.id, memberId: joined.memberId };
+  }
+
+  const pending = store.pendingOfficial.get(fixture.id);
+  if (pending) {
+    await pending;
+    return joinOfficialHubForFixture(fixture, input, options);
+  }
+
+  let releaseCreation!: () => void;
+  const creation = new Promise<void>((resolve) => {
+    releaseCreation = resolve;
+  });
+  store.pendingOfficial.set(fixture.id, creation);
+  try {
+    const id = uid("hub");
+    const rt: RoomRuntime = {
+      id,
+      code: shareCode(),
+      name: `${fixture.home.name} vs ${fixture.away.name} · Official Match Hub`,
+      kind: "official",
+      autoManaged: true,
+      fixture,
+      modes: { draft: true, nextSwing: true },
+      visibility: "public",
+      reactionPack: "classic",
+      voice: false,
+      spoilerSafe: false,
+      replay: false,
+      hostId: "",
+      status: "lobby",
+      createdAt: Date.now(),
+      members: new Map(),
+      chat: [],
+      pulse: [],
+      momentDrops: [],
+      prompts: new Map(),
+      picks: new Map(),
+      recentMintables: [],
+      score: null,
+      odds: null,
+      win: { home: 33, draw: 34, away: 33 },
+      winHistory: [],
+      winSampleMinute: -1,
+      momentum: 0,
+      recaps: [],
+      keyEvents: [],
+      interpreter: new PulseInterpreter(fixture),
+      sim: null,
+      simMinute: 0,
+      prevProcessedInt: 0,
+      atHalftime: false,
+      halftimeResumeAt: 0,
+      lastPromptMinute: -99,
+      htRecapDone: false,
+      interval: null,
+      closeLiveFeed: null,
+      pendingFinish: null,
+      liveScore: null,
+      liveOdds: null,
+      eventHighWater: {
+        goals: { home: 0, away: 0 },
+        yellow: { home: 0, away: 0 },
+        red: { home: 0, away: 0 },
+        corners: { home: 0, away: 0 },
+      },
+      processedEventIds: new Set(),
+      starting: false,
+      lastFeedAt: 0,
+      feedStaleTimer: null,
+      merkleLeaves: [],
+      anchored: false,
+      subscribers: new Set(),
+    };
+    store.rooms.set(id, rt);
+    store.officialByFixture.set(fixture.id, id);
+    const joined = joinRoom(id, input);
+    if ("error" in joined) throw new Error(joined.error);
+    const result = { roomId: id, memberId: joined.memberId };
+    if (options.autoStart !== false) void startMatch(id, "");
+    return result;
+  } finally {
+    releaseCreation();
+    store.pendingOfficial.delete(fixture.id);
+  }
+}
+
+export async function joinOfficialHub(
+  fixtureId: string,
+  input: { name: string; walletPubkey?: string },
+): Promise<{ roomId: string; memberId: string } | { error: string }> {
+  const fixture = await getSource().getFixture(fixtureId);
   if (!fixture) return { error: "Fixture not found" };
-
-  const id = uid("room");
-  const hostId = uid("m");
-  const host: Member = {
-    id: hostId,
-    name: input.hostName || "Host",
-    avatar: emojiAvatar(input.hostName || "Host"),
-    walletPubkey: input.hostWallet,
-    points: 0,
-    streak: 0,
-    bestStreak: 0,
-    correct: 0,
-    isHost: true,
-    joinedAt: Date.now(),
-  };
-
-  const rt: RoomRuntime = {
-    id,
-    code: shareCode(),
-    name: input.name || `${fixture.home.name} watch party`,
-    fixture,
-    modes: input.modes,
-    visibility: input.visibility ?? "public",
-    reactionPack: input.reactionPack ?? "classic",
-    voice: input.voice ?? false,
-    spoilerSafe: input.spoilerSafe ?? false,
-    hostId,
-    status: "lobby",
-    createdAt: Date.now(),
-    members: new Map([[hostId, host]]),
-    chat: [],
-    pulse: [],
-    prompts: new Map(),
-    picks: new Map(),
-    score: null,
-    odds: null,
-    win: { home: 33, draw: 34, away: 33 },
-    winHistory: [],
-    winSampleMinute: -1,
-    momentum: 0,
-    recaps: [],
-    keyEvents: [],
-    interpreter: new PulseInterpreter(fixture),
-    sim: null,
-    simMinute: 0,
-    prevProcessedInt: 0,
-    atHalftime: false,
-    halftimeResumeAt: 0,
-    lastPromptMinute: -99,
-    htRecapDone: false,
-    interval: null,
-    closeLiveFeed: null,
-    liveScore: null,
-    liveOdds: null,
-    merkleLeaves: [],
-    anchored: false,
-    subscribers: new Set(),
-  };
-  store.rooms.set(id, rt);
-  return { roomId: id, hostId };
+  try {
+    return await joinOfficialHubForFixture(fixture, input);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export function getRoomRuntime(id: string): RoomRuntime | undefined {
@@ -320,26 +391,33 @@ function system(rt: RoomRuntime, text: string) {
 export async function startMatch(id: string, memberId: string): Promise<{ error?: string; ok?: boolean }> {
   const rt = store.rooms.get(id);
   if (!rt) return { error: "Room not found" };
-  if (memberId !== rt.hostId) return { error: "Only the host can start the match" };
+  if (rt.kind === "party" && memberId !== rt.hostId) return { error: "Only the host can start the match" };
   if (rt.status === "live") return { ok: true };
+  if (rt.starting) return { ok: true };
 
+  rt.starting = true;
   rt.status = "live";
   // start at -1 so the minute-0 kick-off event is included on the first tick
   rt.prevProcessedInt = -1;
   rt.simMinute = 0;
   system(rt, "Kick-off! The room is live.");
 
-  if (sourceMode() === "live") {
-    const { shouldReplayFixture } = await import("@/lib/txline/historical");
-    if (shouldReplayFixture(rt.fixture)) {
-      system(rt, "▶ REPLAY — pacing verified TxLINE match history.");
-      await startHistoricalDriver(rt);
+  try {
+    if (sourceMode() === "live") {
+      const { shouldReplayFixture } = await import("@/lib/txline/historical");
+      if (shouldReplayFixture(rt.fixture)) {
+        rt.replay = true;
+        system(rt, "▶ REPLAY — pacing verified TxLINE match history.");
+        await startHistoricalDriver(rt);
+      } else {
+        await startLiveDriver(rt);
+      }
     } else {
-      await startLiveDriver(rt);
+      rt.sim = new MatchSimulation(rt.fixture);
+      rt.interval = setInterval(() => simTick(rt), TICK_MS);
     }
-  } else {
-    rt.sim = new MatchSimulation(rt.fixture);
-    rt.interval = setInterval(() => simTick(rt), TICK_MS);
+  } finally {
+    rt.starting = false;
   }
   broadcast(rt);
   return { ok: true };
@@ -394,20 +472,49 @@ function simTick(rt: RoomRuntime) {
 async function startLiveDriver(rt: RoomRuntime) {
   const { openLiveMatchFeed } = await import("@/lib/txline/live");
   rt.closeLiveFeed = await openLiveMatchFeed(rt.fixture, {
-    onScore: (s) => {
+    onScore: (s, verifiedEvents = []) => {
+      rt.lastFeedAt = Date.now();
+      if (rt.feedStaleTimer) clearTimeout(rt.feedStaleTimer);
+      rt.feedStaleTimer = null;
       const prev = rt.liveScore;
+      // SSE reconnects can replay frames already processed. Sequence is the
+      // authoritative ordering key; never let one regress room state/events.
+      if (prev && s.seq <= prev.seq) return;
+      if (s.running || isLivePhase(s.phase) || s.phase === GamePhase.Penalties) {
+        if (rt.pendingFinish) clearTimeout(rt.pendingFinish);
+        rt.pendingFinish = null;
+      }
       rt.liveScore = s;
-      const events = prev ? diffToEvents(prev, s) : [];
+      const fallback = prev ? diffScoreToEvents(rt.eventHighWater, s) : seedEventHighWater(rt, s);
+      if (verifiedEvents.length) seedEventHighWater(rt, s);
+      const events = verifiedEvents.length ? verifiedEvents : fallback;
       const odds = rt.liveOdds ?? rt.odds;
       applyTick(rt, s, odds, events);
       if (s.phase === GamePhase.HalfTime && !rt.htRecapDone) void doRecap(rt, "half-time");
-      if (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished) finishMatch(rt);
+      if (s.phase === GamePhase.Finished || s.phase === GamePhase.Abandoned) {
+        finishMatch(rt);
+      } else if (s.phase === GamePhase.FullTime && !rt.pendingFinish) {
+        // TxLINE can emit a regulation-time whistle before extra time. Keep the
+        // room open long enough for ET/penalty frames to cancel this terminal.
+        rt.pendingFinish = setTimeout(() => finishMatch(rt), 120_000);
+      }
     },
     onOdds: (o) => {
       rt.liveOdds = o;
       if (rt.liveScore) applyTick(rt, rt.liveScore, o, []);
     },
-    onError: (e) => system(rt, `Live feed notice: ${String(e).slice(0, 80)}`),
+    onError: (e) => {
+      system(rt, `Live feed notice: ${String(e).slice(0, 80)}`);
+      if (rt.feedStaleTimer) clearTimeout(rt.feedStaleTimer);
+      rt.feedStaleTimer = setTimeout(() => {
+        if (Date.now() - rt.lastFeedAt < 20_000) return;
+        for (const prompt of rt.prompts.values()) {
+          if (prompt.status !== "settled") settlePrompt(rt, prompt, "__void__");
+        }
+        system(rt, "Live Calls paused — waiting for a fresh verified feed.");
+        broadcast(rt);
+      }, 20_000);
+    },
   });
 }
 
@@ -415,10 +522,13 @@ async function startLiveDriver(rt: RoomRuntime) {
 async function startHistoricalDriver(rt: RoomRuntime) {
   const { openHistoricalMatchFeed } = await import("@/lib/txline/historical");
   rt.closeLiveFeed = await openHistoricalMatchFeed(rt.fixture, {
-    onScore: (s) => {
+    onScore: (s, verifiedEvents = []) => {
+      rt.lastFeedAt = Date.now();
       const prev = rt.liveScore;
       rt.liveScore = s;
-      const events = prev ? diffToEvents(prev, s) : [];
+      const fallback = prev ? diffScoreToEvents(rt.eventHighWater, s) : seedEventHighWater(rt, s);
+      if (verifiedEvents.length) seedEventHighWater(rt, s);
+      const events = verifiedEvents.length ? verifiedEvents : fallback;
       const odds = rt.liveOdds ?? rt.odds;
       applyTick(rt, s, odds, events);
       if (s.phase === GamePhase.HalfTime && !rt.htRecapDone) void doRecap(rt, "half-time");
@@ -432,26 +542,51 @@ async function startHistoricalDriver(rt: RoomRuntime) {
 }
 
 /** Synthesize discrete events by diffing two live score snapshots. */
-function diffToEvents(prev: ScoreSnapshot, next: ScoreSnapshot): MatchEvent[] {
+export type EventHighWater = Pick<ScoreSnapshot, "goals" | "yellow" | "red" | "corners">;
+
+function seedEventHighWater(rt: RoomRuntime, score: ScoreSnapshot): MatchEvent[] {
+  for (const stat of ["goals", "corners", "yellow", "red"] as const) {
+    rt.eventHighWater[stat].home = Math.max(rt.eventHighWater[stat].home, score[stat].home);
+    rt.eventHighWater[stat].away = Math.max(rt.eventHighWater[stat].away, score[stat].away);
+  }
+  return [];
+}
+
+/**
+ * Convert cumulative score counters into events without reminting after an
+ * upstream correction (for example yellow 2 → 1 → 2).
+ */
+export function diffScoreToEvents(highWater: EventHighWater, next: ScoreSnapshot): MatchEvent[] {
   const out: MatchEvent[] = [];
   let seq = next.seq * 100;
   const push = (kind: MatchEvent["kind"], side: "home" | "away", label: string) =>
     out.push({ fixtureId: next.fixtureId, seq: seq++, ts: next.ts, minute: next.minute, phase: next.phase, kind, side, label });
   for (const side of ["home", "away"] as const) {
-    const dg = next.goals[side] - prev.goals[side];
+    const dg = next.goals[side] - highWater.goals[side];
     for (let i = 0; i < dg; i++) push("goal", side, "Goal");
-    const dc = next.corners[side] - prev.corners[side];
+    const dc = next.corners[side] - highWater.corners[side];
     for (let i = 0; i < dc; i++) push("corner", side, "Corner");
-    const dy = next.yellow[side] - prev.yellow[side];
+    const dy = next.yellow[side] - highWater.yellow[side];
     for (let i = 0; i < dy; i++) push("yellow", side, "Yellow card");
-    const dr = next.red[side] - prev.red[side];
+    const dr = next.red[side] - highWater.red[side];
     for (let i = 0; i < dr; i++) push("red", side, "Red card");
+  }
+  for (const stat of ["goals", "corners", "yellow", "red"] as const) {
+    highWater[stat].home = Math.max(highWater[stat].home, next[stat].home);
+    highWater[stat].away = Math.max(highWater[stat].away, next[stat].away);
   }
   return out;
 }
 
 /** The one processing core both drivers share. */
 function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | null, newEvents: MatchEvent[]) {
+  newEvents = newEvents.filter((event) => {
+    const key = event.sourceEventId ?? `${event.seq}:${event.kind}:${event.side ?? "-"}`;
+    if (rt.processedEventIds.has(key)) return false;
+    rt.processedEventIds.add(key);
+    return true;
+  });
+  const previousWin = rt.win;
   rt.score = score;
   rt.odds = odds;
 
@@ -472,9 +607,9 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
 
   // 2) merkle leaves + team bonuses + Moment mint
   const beforeWin = {
-    home: rt.win.home / 100,
-    draw: rt.win.draw / 100,
-    away: rt.win.away / 100,
+    home: previousWin.home / 100,
+    draw: previousWin.draw / 100,
+    away: previousWin.away / 100,
   };
   const afterWin = {
     home: win.home / 100,
@@ -494,57 +629,26 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
       if (m.side) m.points += teamBonusForEvent(e, m.side);
     }
 
-    // Card Economy: mint Moments for significant events (ADR-0001)
+    // Card Economy (ADR-0001, skill-gated): significant events become mint
+    // SOURCES. The Moment itself is earned in settlePrompt by a correct call.
     if (e.kind === "goal" || e.kind === "red" || e.kind === "yellow" || e.kind === "corner") {
-      let fanIds = [...rt.members.values()].map((m) => m.walletPubkey ?? m.id);
-      if (fanIds.length === 0) fanIds = [...rt.members.keys()];
-      const sandwich = sandwichFromWin(beforeWin, afterWin);
-      const minted = mintForRoomFans(fanIds, {
-        fixtureId: rt.fixture.id,
-        matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
-        roomId: rt.id,
-        partyMultiplier: partyDropMultiplier(rt.members.size),
+      rt.recentMintables.push({
         event: {
           kind: e.kind,
           side: e.side,
           minute: e.minute,
           seq: e.seq,
           label: e.label || `${e.kind} — ${e.side ?? "?"}`,
+          sourceEventId: e.sourceEventId,
+          playerId: e.playerId,
+          playerName: e.playerName,
+          teamCode: e.teamCode,
+          artKey: e.artKey,
         },
-        oddsSandwich: sandwich,
+        oddsSandwich: sandwichFromWin(beforeWin, afterWin),
         priorHomeProb: beforeWin.home,
       });
-      if (minted.length) {
-        system(rt, `✦ ${minted[0].rarity}★ Moment minted — ${minted[0].label} (${minted.length} fans)`);
-        for (const mm of minted) {
-          earnCredits(mm.ownerId, EARN.momentMinted, "moment minted");
-          addPassXp(mm.ownerId, PASS_XP.momentMinted, "moment minted");
-        }
-      }
-    }
-  }
-
-  // market-swing Moments from pulse cards
-  for (const c of cards) {
-    if (c.kind !== "market-swing") continue;
-    const fanIds = [...rt.members.values()].map((m) => m.walletPubkey ?? m.id);
-    const minted = mintForRoomFans(fanIds, {
-      fixtureId: rt.fixture.id,
-      matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
-      roomId: rt.id,
-      partyMultiplier: partyDropMultiplier(rt.members.size),
-      event: {
-        kind: "market-swing",
-        minute: score.minute,
-        seq: score.seq,
-        label: c.headline ?? "Market swing",
-      },
-      oddsSandwich: sandwichFromWin(beforeWin, afterWin),
-      priorHomeProb: beforeWin.home,
-    });
-    for (const mm of minted) {
-      earnCredits(mm.ownerId, EARN.momentMinted, "market-swing moment");
-      addPassXp(mm.ownerId, PASS_XP.momentMinted, "market-swing moment");
+      if (rt.recentMintables.length > 12) rt.recentMintables.shift();
     }
   }
 
@@ -557,8 +661,37 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
   broadcast(rt);
 }
 
+function recordMomentDrops(
+  rt: RoomRuntime,
+  recipients: { memberId: string; fanId: string }[],
+  minted: { id: string; ownerId: string; kind: string; label: string; rarity: number; minute: number; matchLabel: string; createdAt: number; sourceEventId?: string; playerId?: string; playerName?: string; teamCode?: string; imageUrl?: string; artKey?: string }[],
+) {
+  for (const moment of minted) {
+    const recipient = recipients.find((r) => r.fanId === moment.ownerId);
+    if (!recipient) continue;
+    rt.momentDrops.push({
+      id: moment.id,
+      memberId: recipient.memberId,
+      kind: moment.kind,
+      label: moment.label,
+      rarity: moment.rarity,
+      minute: moment.minute,
+      matchLabel: moment.matchLabel,
+      createdAt: moment.createdAt,
+      sourceEventId: moment.sourceEventId,
+      playerId: moment.playerId,
+      playerName: moment.playerName,
+      teamCode: moment.teamCode,
+      imageUrl: moment.imageUrl,
+      artKey: moment.artKey,
+    });
+  }
+  if (rt.momentDrops.length > 80) rt.momentDrops = rt.momentDrops.slice(-80);
+}
+
 function maybeGeneratePrompt(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | null, win: WinChance) {
   if (!isLivePhase(score.phase)) return;
+  if (sourceMode() === "live" && Date.now() - rt.lastFeedAt > 20_000) return;
   if (score.minute >= 86 || rt.atHalftime) return;
   const live = [...rt.prompts.values()].filter((p) => p.status !== "settled");
   if (live.length >= 3) return;
@@ -567,6 +700,44 @@ function maybeGeneratePrompt(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSn
   if (prompt) {
     rt.prompts.set(prompt.id, prompt);
     rt.lastPromptMinute = score.minute;
+    // Publish the template text instantly, then let the LLM rewrite it into a
+    // moment-specific question. Fire-and-forget: a slow/failed call is a no-op.
+    if (llmConfigured()) void upgradePromptText(rt, prompt);
+  }
+}
+
+/** Rewrite an open prompt's question/labels via the LLM, in place. */
+async function upgradePromptText(rt: RoomRuntime, prompt: SwingPrompt) {
+  try {
+    const s = rt.score;
+    const ctx: PromptContext = {
+      minute: s?.minute ?? 0,
+      phaseLabel: s?.statusNote ?? "Live",
+      home: { name: rt.fixture.home.name, code: rt.fixture.home.code },
+      away: { name: rt.fixture.away.name, code: rt.fixture.away.code },
+      score: { home: s?.goals.home ?? 0, away: s?.goals.away ?? 0 },
+      cards: {
+        yellow: { home: s?.yellow.home ?? 0, away: s?.yellow.away ?? 0 },
+        red: { home: s?.red.home ?? 0, away: s?.red.away ?? 0 },
+      },
+      corners: { home: s?.corners.home ?? 0, away: s?.corners.away ?? 0 },
+      win: { home: rt.win.home, draw: rt.win.draw, away: rt.win.away },
+      momentum: rt.momentum,
+      recentEvents: rt.keyEvents
+        .slice(-6)
+        .map((e) => `${e.minute}' ${e.label}${e.playerName ? ` (${e.playerName})` : ""} — ${e.side === "away" ? rt.fixture.away.name : rt.fixture.home.name}`),
+      narrative: rt.pulse.slice(-4).map((c) => c.headline).filter((h): h is string => !!h),
+    };
+    const res = await rewritePromptText(prompt, ctx);
+    if (!res) return;
+    // Never rewrite once locked/settled or after someone already answered.
+    if (rt.prompts.get(prompt.id) !== prompt || prompt.status !== "open") return;
+    for (const mp of rt.picks.values()) if (mp.has(prompt.id)) return;
+    prompt.question = res.question;
+    for (const o of prompt.options) o.label = res.labels.get(o.key) ?? o.label;
+    broadcast(rt);
+  } catch {
+    /* keep the template text */
   }
 }
 
@@ -599,6 +770,7 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
     system(rt, "Micro-Play — no result that window, no points lost.");
     return;
   }
+  const opt = prompt.options.find((o) => o.key === winningKey);
   let winners = 0;
   for (const m of rt.members.values()) {
     const pick = rt.picks.get(m.id)?.get(prompt.id);
@@ -609,23 +781,47 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       m.bestStreak = Math.max(m.bestStreak, m.streak);
       m.correct += 1;
       winners++;
-      // Called It → stamp related Moments + pack weight (ADR-0004)
       const fanId = m.walletPubkey ?? m.id;
       // platform loops: FC + World Cup Pass XP for skill (streaks pay extra)
       earnCredits(fanId, EARN.correctCall + (m.streak >= 3 ? EARN.streakBonus : 0), "correct call");
       addPassXp(fanId, PASS_XP.correctCall, "correct call");
+      // Skill-gated Card Economy: a correct call EARNS the Moment + pack for
+      // the moment the prompt covered (latest significant event, or a
+      // market-swing fallback so a correct call always pays a card).
+      const src = rt.recentMintables.length ? rt.recentMintables[rt.recentMintables.length - 1] : null;
+      const flatWin = { home: rt.win.home / 100, draw: rt.win.draw / 100, away: rt.win.away / 100 };
+      const minted = mintFromEvent({
+        fixtureId: rt.fixture.id,
+        matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
+        roomId: rt.id,
+        partyMultiplier: partyDropMultiplier(rt.members.size),
+        fanId,
+        event: src?.event ?? {
+          kind: "market-swing",
+          minute: rt.score?.minute ?? prompt.locksAtMinute,
+          seq: rt.score?.seq ?? 0,
+          label: `Called It — ${opt?.label ?? winningKey}`,
+        },
+        oddsSandwich: src?.oddsSandwich ?? sandwichFromWin(flatWin, flatWin),
+        priorHomeProb: src?.priorHomeProb ?? rt.win.home / 100,
+      });
+      // Called It → stamp related Moments + pack weight (ADR-0004)
       const stamped = stampCalledIt(fanId, {
         fixtureId: rt.fixture.id,
         sinceMinute: Math.max(0, prompt.locksAtMinute - 8),
       });
-      if (stamped.length) {
+      if (minted) {
+        recordMomentDrops(rt, [{ memberId: m.id, fanId }], [minted]);
+        earnCredits(fanId, EARN.momentMinted, "correct call moment");
+        addPassXp(fanId, PASS_XP.momentMinted, "correct call moment");
+        system(rt, `✦ ${m.name} earned a ${minted.rarity}★ Moment + pack — ${minted.label}`);
+      } else if (stamped.length) {
         system(rt, `✓ ${m.name} Called It — ${stamped.length} Moment${stamped.length > 1 ? "s" : ""} sealed`);
       }
     } else {
       m.streak = 0;
     }
   }
-  const opt = prompt.options.find((o) => o.key === winningKey);
   system(rt, `Micro-Play settled — ${opt?.label ?? winningKey}. ${winners} called it right.`);
 }
 
@@ -634,6 +830,10 @@ function finishMatch(rt: RoomRuntime) {
   rt.status = "finished";
   if (rt.interval) clearInterval(rt.interval);
   rt.interval = null;
+  if (rt.pendingFinish) clearTimeout(rt.pendingFinish);
+  rt.pendingFinish = null;
+  if (rt.feedStaleTimer) clearTimeout(rt.feedStaleTimer);
+  rt.feedStaleTimer = null;
   if (rt.closeLiveFeed) rt.closeLiveFeed();
   rt.closeLiveFeed = null;
 
@@ -764,6 +964,8 @@ export function buildView(rt: RoomRuntime): RoomView {
     id: rt.id,
     code: rt.code,
     name: rt.name,
+    kind: rt.kind,
+    autoManaged: rt.autoManaged,
     fixture: rt.fixture,
     modes: rt.modes,
     hostId: rt.hostId,
@@ -776,6 +978,7 @@ export function buildView(rt: RoomRuntime): RoomView {
     members,
     chat,
     pulse: rt.pulse.slice(-40),
+    momentDrops: rt.momentDrops.slice(-40),
     prompts,
     recaps: rt.recaps,
     proof: {
@@ -788,6 +991,7 @@ export function buildView(rt: RoomRuntime): RoomView {
     spoilerSafe: rt.spoilerSafe,
     voice: rt.voice,
     reactionPack: rt.reactionPack,
+    replay: rt.replay,
     createdAt: rt.createdAt,
   };
 }
@@ -796,6 +1000,7 @@ export interface RoomSummary {
   id: string;
   code: string;
   name: string;
+  kind: RoomKind;
   fixture: Fixture;
   status: RoomStatus;
   memberCount: number;
@@ -811,6 +1016,7 @@ export function listRooms(): RoomSummary[] {
       id: rt.id,
       code: rt.code,
       name: rt.name,
+      kind: rt.kind,
       fixture: rt.fixture,
       status: rt.status,
       memberCount: rt.members.size,
@@ -830,11 +1036,6 @@ export function listRooms(): RoomSummary[] {
         : null,
     }))
     .sort((a, b) => b.createdAt - a.createdAt);
-}
-
-export function findByCode(code: string): RoomRuntime | undefined {
-  const up = code.toUpperCase();
-  return [...store.rooms.values()].find((r) => r.code === up);
 }
 
 // ── SSE plumbing ─────────────────────────────────────────────────────────────
@@ -873,4 +1074,19 @@ export function getProofData(id: string): { leaves: string[]; root: string } | n
   if (!rt) return null;
   const tree = buildMerkleTree(rt.merkleLeaves);
   return { leaves: rt.merkleLeaves, root: tree.root };
+}
+
+export function __settlePromptForTests(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) {
+  settlePrompt(rt, prompt, winningKey);
+}
+
+export function __resetRoomsForTests() {
+  for (const room of store.rooms.values()) {
+    if (room.interval) clearInterval(room.interval);
+    if (room.pendingFinish) clearTimeout(room.pendingFinish);
+    room.closeLiveFeed?.();
+  }
+  store.rooms.clear();
+  store.officialByFixture.clear();
+  store.pendingOfficial.clear();
 }

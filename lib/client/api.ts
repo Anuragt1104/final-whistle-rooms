@@ -32,14 +32,8 @@ export const api = {
   fixtures: () => get<{ fixtures: Fixture[] }>("/api/fixtures"),
   listRooms: () => get<{ rooms: RoomSummary[] }>("/api/rooms"),
   room: (id: string) => get<{ room: RoomView }>(`/api/rooms/${id}`),
-  resolveCode: (code: string) => get<{ id: string }>(`/api/rooms/resolve?code=${encodeURIComponent(code)}`),
-  createRoom: (body: {
-    name: string;
-    fixtureId: string;
-    modes: { draft: boolean; nextSwing: boolean };
-    hostName: string;
-    hostWallet?: string;
-  }) => post<{ roomId: string; hostId: string }>("/api/rooms", body),
+  watch: (fixtureId: string, body: { name: string; walletPubkey?: string }) =>
+    post<{ roomId: string; memberId: string }>(`/api/fixtures/${fixtureId}/watch`, body),
   join: (id: string, body: { name: string; walletPubkey?: string }) =>
     post<{ memberId: string }>(`/api/rooms/${id}/join`, body),
   pickSide: (id: string, memberId: string, side: "home" | "away") =>

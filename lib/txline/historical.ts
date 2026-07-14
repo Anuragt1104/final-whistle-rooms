@@ -15,9 +15,11 @@ import { mapScores } from "@/lib/txline/live";
 import {
   GamePhase,
   type Fixture,
+  type MatchEvent,
   type OddsSnapshot,
   type ScoreSnapshot,
 } from "@/lib/txline/types";
+import { normalizeMatchRecords } from "@/lib/txline/match-intelligence";
 
 async function txGet(path: string, accept = "application/json"): Promise<Response> {
   const headers = {
@@ -67,7 +69,7 @@ export async function loadHistoricalScores(fixtureId: string): Promise<ScoreSnap
         const s = recordToScore(raw as RawRecord, ++i);
         if (s) snaps.push(s);
       }
-      if (snaps.length >= 2) return thinSnapshots(snaps);
+      if (snaps.length >= 2) return canonicalizeHistoricalScores(snaps);
     }
   } catch {
     /* fall through */
@@ -81,15 +83,55 @@ export async function loadHistoricalScores(fixtureId: string): Promise<ScoreSnap
     const s = recordToScore(r, ++i);
     if (s) snaps.push(s);
   }
-  return thinSnapshots(snaps);
+  return canonicalizeHistoricalScores(snaps);
 }
 
-function thinSnapshots(snaps: ScoreSnapshot[]): ScoreSnapshot[] {
+/**
+ * Turn TxLINE's raw updates log into one replayable match. The upstream log can
+ * contain clock-zero reset records and provisional full-time frames at the end
+ * of regulation even when extra time later starts. Those frames are valid audit
+ * history but are not valid terminal UI states.
+ */
+export function canonicalizeHistoricalScores(snaps: ScoreSnapshot[]): ScoreSnapshot[] {
   if (snaps.length === 0) return snaps;
-  const out: ScoreSnapshot[] = [snaps[0]];
-  for (let i = 1; i < snaps.length; i++) {
+  const ordered = [...snaps].sort((a, b) => a.seq - b.seq || a.updatedAt - b.updatedAt);
+  const cleaned: ScoreSnapshot[] = [];
+  let started = false;
+  let maxMinute = 0;
+  let maxClock = 0;
+  let maxHomeGoals = 0;
+  let maxAwayGoals = 0;
+
+  for (const raw of ordered) {
+    maxHomeGoals = Math.max(maxHomeGoals, raw.goals.home);
+    maxAwayGoals = Math.max(maxAwayGoals, raw.goals.away);
+    const terminal = raw.phase === GamePhase.FullTime || raw.phase === GamePhase.Finished || raw.phase === GamePhase.Abandoned;
+    const hasPlay = raw.running || raw.minute > 0 || raw.goals.home + raw.goals.away + raw.corners.home + raw.corners.away > 0;
+    if (hasPlay) started = true;
+    if (started && raw.phase === GamePhase.PreMatch && raw.minute === 0) continue;
+    // All terminal frames are collapsed into the single authoritative frame
+    // appended below. This is what lets a 1-1 regulation whistle resume into ET.
+    if (terminal) continue;
+
+    let cur = raw;
+    if (raw.running) {
+      maxMinute = Math.max(maxMinute, raw.minute);
+      maxClock = Math.max(maxClock, raw.clockSeconds);
+      if (raw.minute < maxMinute || raw.clockSeconds < maxClock) {
+        cur = { ...raw, minute: maxMinute, clockSeconds: maxClock };
+      }
+    } else {
+      maxMinute = Math.max(maxMinute, raw.minute);
+      maxClock = Math.max(maxClock, raw.clockSeconds);
+    }
+    cleaned.push(cur);
+  }
+
+  if (cleaned.length === 0) cleaned.push(ordered[0]);
+  const out: ScoreSnapshot[] = [cleaned[0]];
+  for (let i = 1; i < cleaned.length; i++) {
     const prev = out[out.length - 1];
-    const cur = snaps[i];
+    const cur = cleaned[i];
     const changed =
       cur.goals.home !== prev.goals.home ||
       cur.goals.away !== prev.goals.away ||
@@ -103,16 +145,21 @@ function thinSnapshots(snaps: ScoreSnapshot[]): ScoreSnapshot[] {
       cur.minute !== prev.minute;
     if (changed) out.push(cur);
   }
-  // ensure a terminal full-time snapshot
   const last = out[out.length - 1];
-  if (last.phase < GamePhase.FullTime) {
-    out.push({ ...last, phase: GamePhase.FullTime, running: false });
-  }
+  out.push({
+    ...last,
+    seq: Math.max(last.seq + 1, ordered[ordered.length - 1].seq),
+    phase: GamePhase.Finished,
+    minute: maxMinute,
+    clockSeconds: maxClock,
+    running: false,
+    goals: { home: maxHomeGoals, away: maxAwayGoals },
+  });
   return out;
 }
 
 export interface HistoricalFeedHandlers {
-  onScore(s: ScoreSnapshot): void;
+  onScore(s: ScoreSnapshot, events?: MatchEvent[]): void;
   onOdds?(o: OddsSnapshot): void;
   onError?(e: unknown): void;
   onDone?(): void;
@@ -144,7 +191,34 @@ export async function openHistoricalMatchFeed(
       return Number.isFinite(n) && n > 0 ? n : 1.5;
     })();
 
+    let verifiedEvents: MatchEvent[] = [];
+    try {
+      const log = await fetchFullLog(fixture.id);
+      const intel = normalizeMatchRecords(fixture, log.records);
+      verifiedEvents = intel.events.map((event) => ({
+        fixtureId: fixture.id,
+        seq: event.seq,
+        ts: new Date(event.ts || Date.now()).toISOString(),
+        minute: event.minute,
+        phase: GamePhase.FirstHalf,
+        kind: event.kind,
+        side: event.side,
+        label: event.label,
+        sourceEventId: event.sourceEventId,
+        playerId: event.playerId,
+        playerName: event.playerName,
+        imageUrl: event.playerPhotoUrl,
+        secondaryPlayerId: event.secondaryPlayerId,
+        secondaryPlayerName: event.secondaryPlayerName,
+        teamCode: event.teamCode,
+        artKey: `${event.kind}:${event.teamCode.toLowerCase()}`,
+      }));
+    } catch {
+      // Score-delta events remain the verified team-level fallback.
+    }
+
     let idx = 0;
+    let lastEventSeq = -1;
     const tick = () => {
       if (closed) return;
       if (idx >= snaps.length) {
@@ -152,7 +226,11 @@ export async function openHistoricalMatchFeed(
         return;
       }
       const cur = snaps[idx++];
-      handlers.onScore(cur);
+      const events = verifiedEvents
+        .filter((event) => event.seq > lastEventSeq && event.seq <= cur.seq)
+        .map((event) => ({ ...event, phase: cur.phase }));
+      if (events.length) lastEventSeq = Math.max(...events.map((event) => event.seq));
+      handlers.onScore(cur, events);
       if (idx >= snaps.length) {
         handlers.onDone?.();
         return;

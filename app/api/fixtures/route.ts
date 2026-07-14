@@ -4,15 +4,26 @@ import { GamePhase, isLivePhase, type Fixture, type ScoreSnapshot } from "@/lib/
 
 export const dynamic = "force-dynamic";
 
-// Enriching every live/finished fixture with its score means a TxLINE call per
-// match, so cache the whole board briefly — the schedule doesn't need to be
-// fresher than this and it keeps /api/fixtures snappy under polling.
-const TTL_MS = 20_000;
+const CATALOG_TTL_MS = 5 * 60_000;
+const LIVE_SCORE_TTL_MS = 15_000;
 let cache: { at: number; fixtures: Fixture[] } | null = null;
+const scoreCache = new Map<string, { at: number; terminal: boolean; score: ScoreSnapshot }>();
+
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (cursor < items.length) {
+        const item = items[cursor++];
+        await fn(item);
+      }
+    }),
+  );
+}
 
 export async function GET() {
   try {
-    if (cache && Date.now() - cache.at < TTL_MS) {
+    if (cache && Date.now() - cache.at < CATALOG_TTL_MS) {
       return NextResponse.json({ fixtures: cache.fixtures });
     }
     const source = getSource();
@@ -24,12 +35,14 @@ export async function GET() {
         getScoreSnapshot?: (f: Fixture) => Promise<ScoreSnapshot>;
       }).getScoreSnapshot?.bind(source);
       if (getScore) {
-        await Promise.all(
-          fixtures
-            .filter((f) => f.status !== "scheduled")
-            .map(async (f) => {
+        await mapLimit(
+          fixtures.filter((f) => f.status !== "scheduled"),
+          8,
+          async (f) => {
               try {
-                const s = await getScore(f);
+                const prior = scoreCache.get(f.id);
+                const canReuse = prior && (prior.terminal || Date.now() - prior.at < LIVE_SCORE_TTL_MS);
+                const s = canReuse ? prior.score : await getScore(f);
                 const ageMs = Date.now() - (s.updatedAt || 0);
                 const fresh = ageMs < 10 * 60_000; // updated within 10 min = actively live
                 f.score = {
@@ -53,10 +66,19 @@ export async function GET() {
                   // had a clock but the feed went silent — it's over, not live
                   f.status = "finished";
                 }
+                scoreCache.set(f.id, {
+                  at: Date.now(),
+                  terminal: f.status === "finished",
+                  score: s,
+                });
               } catch {
-                /* leave this one unscored — best effort */
+                const prior = scoreCache.get(f.id);
+                if (prior) {
+                  const s = prior.score;
+                  f.score = { home: s.goals.home, away: s.goals.away, minute: s.minute, clockSeconds: s.clockSeconds, running: false };
+                }
               }
-            }),
+          },
         );
       }
     }

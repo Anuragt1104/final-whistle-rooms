@@ -121,6 +121,18 @@ test("openPack yields Player Card with Lineage Imprint", () => {
   assert.equal(imprintAxis("goal"), "finishing");
 });
 
+test("openPack is idempotent for network retries", () => {
+  __resetCardEconomyForTests();
+  mintGoal();
+  const packId = inventoryOf("fan1").packs[0].id;
+  const opened = openPack("fan1", packId, () => 0.2);
+  assert.ok(!("error" in opened));
+  const retried = openPack("fan1", packId, () => 0.9);
+  assert.ok(!("error" in retried));
+  assert.deepEqual(retried.cards.map((c) => c.id), opened.cards.map((c) => c.id));
+  assert.equal(inventoryOf("fan1").players.length, 1);
+});
+
 test("craft burns Moments into a Player Card", () => {
   __resetCardEconomyForTests();
   // three 5★-ish moments via low prior

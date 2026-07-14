@@ -12,6 +12,7 @@
  */
 import {
   GamePhase,
+  isLivePhase,
   type Fixture,
   type MatchEvent,
   type OddsMarket,
@@ -22,11 +23,18 @@ import {
 } from "@/lib/txline/types";
 import type { TxLineSource } from "@/lib/txline/source";
 import { getApiToken, getGuestJwt, refreshJwt, txlineBase, txlineHeaders } from "@/lib/txline/auth";
+import type { RawRecord } from "@/lib/explorer/types";
+import { normalizeMatchRecords, type VerifiedMatchEvent } from "@/lib/txline/match-intelligence";
 
 // FIFA World Cup 2026 competition id (override via env if TxLINE uses another).
 const WORLD_CUP_COMPETITION_ID = process.env.TXLINE_COMPETITION_ID
   ? Number(process.env.TXLINE_COMPETITION_ID)
   : undefined;
+
+// Opening day of the 2026 tournament. TxLINE's snapshot endpoint returns the
+// catalog from this day forward, so using "yesterday" silently hid every
+// earlier result from the mobile Fixtures tab.
+const WORLD_CUP_START_EPOCH_DAY = Number(process.env.TXLINE_TOURNAMENT_START_EPOCH_DAY ?? 20615);
 
 const FLAGS: Record<string, string> = {
   argentina: "🇦🇷", brazil: "🇧🇷", france: "🇫🇷", spain: "🇪🇸", germany: "🇩🇪",
@@ -96,8 +104,8 @@ const PHASE_MAP: Record<string, GamePhase> = {
   ET2: GamePhase.ExtraTimeSecondHalf,
   PE: GamePhase.Penalties,
   F: GamePhase.FullTime,
-  FET: GamePhase.FullTime,
-  FPE: GamePhase.FullTime,
+  FET: GamePhase.Finished,
+  FPE: GamePhase.Finished,
   A: GamePhase.Abandoned,
 };
 function mapPhase(gameState?: string): GamePhase {
@@ -151,17 +159,27 @@ function noteFrom(gameState?: string): string | undefined {
 }
 
 function phaseFrom(gameState: string | undefined, running: boolean, minute: number): GamePhase {
-  const gs = (gameState ?? "").toLowerCase();
+  const raw = (gameState ?? "").trim();
+  const upper = raw.toUpperCase();
+  const gs = raw.toLowerCase();
+  const exact = PHASE_MAP[upper];
+
+  // A running clock is never terminal, even when the provider briefly emits a
+  // regulation-time/full-time marker before extra time starts.
+  if (running) {
+    if (exact != null && isLivePhase(exact)) return exact;
+    if (minute > 105) return GamePhase.ExtraTimeSecondHalf;
+    if (minute > 90) return GamePhase.ExtraTimeFirstHalf;
+    if (minute > 45) return GamePhase.SecondHalf;
+    return GamePhase.FirstHalf;
+  }
+
+  if (exact != null) return exact;
   if (gs.includes("ht") || gs.includes("half")) return GamePhase.HalfTime;
-  if (gs === "ft" || gs.includes("finish") || gs.includes("full") || gs === "f" || gs === "fet" || gs === "fpe") return GamePhase.FullTime;
+  if (gs === "ft" || gs.includes("finish") || gs.includes("full") || gs === "f") return GamePhase.FullTime;
   if (gs.includes("pen")) return GamePhase.Penalties;
   // The demo feed labels EVERYTHING "scheduled" — even a match running at 42'.
   // So the GameState string is useless for live/finished; trust the clock.
-  if (running && minute >= 1) {
-    if (minute < 46) return GamePhase.FirstHalf;
-    if (minute <= 118) return GamePhase.SecondHalf;
-    return GamePhase.FullTime;
-  }
   if (minute <= 0) return GamePhase.PreMatch; // not started (clock at 0)
   if (minute >= 90) return GamePhase.FullTime; // stopped past full time
   return GamePhase.HalfTime; // stopped mid-match = paused
@@ -367,8 +385,7 @@ export class LiveSource implements TxLineSource {
   readonly mode = "live" as const;
 
   async listFixtures(): Promise<Fixture[]> {
-    const startEpochDay = Math.floor(Date.now() / 86400000) - 1;
-    const q = new URLSearchParams({ startEpochDay: String(startEpochDay) });
+    const q = new URLSearchParams({ startEpochDay: String(WORLD_CUP_START_EPOCH_DAY) });
     if (WORLD_CUP_COMPETITION_ID) q.set("competitionId", String(WORLD_CUP_COMPETITION_ID));
     const data = await getJson<TxFixture[]>(`/api/fixtures/snapshot?${q}`);
     return data.map(mapFixture).sort((a, b) => +new Date(a.kickoff) - +new Date(b.kickoff));
@@ -415,7 +432,7 @@ function emptyScore(fixture: Fixture): ScoreSnapshot {
  */
 export async function openLiveMatchFeed(
   fixture: Fixture,
-  handlers: { onScore(s: ScoreSnapshot): void; onOdds(o: OddsSnapshot): void; onError?(e: unknown): void },
+  handlers: { onScore(s: ScoreSnapshot, events?: MatchEvent[]): void; onOdds(o: OddsSnapshot): void; onError?(e: unknown): void },
 ): Promise<() => void> {
   const controller = new AbortController();
   const jwt = await getGuestJwt();
@@ -431,6 +448,27 @@ export async function openLiveMatchFeed(
   let lastScoreTs = 0; // ignore stream frames older than what we've shown
   let lastMinute = 0; // ignore frames that drop the clock back (reset glitches)
   let oddsBuffer: TxOdds[] = [];
+  let intelligenceRecords: RawRecord[] = [];
+  const emittedEventIds = new Set<string>();
+
+  const productEvents = (events: VerifiedMatchEvent[], score: ScoreSnapshot): MatchEvent[] => events.map((event) => ({
+    fixtureId: fixture.id,
+    seq: event.seq,
+    ts: new Date(event.ts || score.updatedAt || Date.now()).toISOString(),
+    minute: event.minute,
+    phase: score.phase,
+    kind: event.kind,
+    side: event.side,
+    label: event.label,
+    sourceEventId: event.sourceEventId,
+    playerId: event.playerId,
+    playerName: event.playerName,
+    imageUrl: event.playerPhotoUrl,
+    secondaryPlayerId: event.secondaryPlayerId,
+    secondaryPlayerName: event.secondaryPlayerName,
+    teamCode: event.teamCode,
+    artKey: `${event.kind}:${event.teamCode.toLowerCase()}`,
+  }));
 
   async function consume(path: string, onData: (json: unknown) => void) {
     const res = await fetch(`${txlineBase()}${path}`, { headers, signal: controller.signal });
@@ -465,6 +503,9 @@ export async function openLiveMatchFeed(
     if (scRes.ok) {
       const arr = (await scRes.json()) as TxScores[];
       if (Array.isArray(arr) && arr.length) {
+        intelligenceRecords = arr as unknown as RawRecord[];
+        const initialIntel = normalizeMatchRecords(fixture, intelligenceRecords);
+        for (const event of initialIntel.events) emittedEventIds.add(event.sourceEventId);
         const snap = scoreFromSnapshot(arr, ++scoreSeq);
         lastScoreTs = snap.updatedAt;
         lastMinute = snap.minute;
@@ -494,7 +535,16 @@ export async function openLiveMatchFeed(
     if (lastMinute >= 10 && min < lastMinute - 8 && s.Clock?.Running !== true) return;
     lastScoreTs = ts;
     lastMinute = min;
-    handlers.onScore(mapScores(s, ++scoreSeq, new Date(ts).toISOString()));
+    const score = mapScores(s, ++scoreSeq, new Date(ts).toISOString());
+    intelligenceRecords.push(json as RawRecord);
+    if (intelligenceRecords.length > 5000) intelligenceRecords = intelligenceRecords.slice(-4000);
+    const intel = normalizeMatchRecords(fixture, intelligenceRecords);
+    const fresh = intel.events.filter((event) => {
+      if (emittedEventIds.has(event.sourceEventId)) return false;
+      emittedEventIds.add(event.sourceEventId);
+      return true;
+    });
+    handlers.onScore(score, productEvents(fresh, score));
   }).catch((e) => handlers.onError?.(e));
 
   consume(`/api/odds/stream?fixtureId=${fixture.id}`, (json) => {

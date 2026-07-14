@@ -6,38 +6,66 @@ import '../theme.dart';
 class WinBar extends StatelessWidget {
   final WinChance win;
   final Team home, away;
-  const WinBar({super.key, required this.win, required this.home, required this.away});
+  const WinBar({
+    super.key,
+    required this.win,
+    required this.home,
+    required this.away,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: cardBox(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Text('LIVE WIN CHANCE', style: label(color: AppColors.ink, size: 11)),
-          const Spacer(),
-          Text('plain-English odds', style: body(color: AppColors.mut, size: 11)),
-        ]),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            height: 26,
-            child: LayoutBuilder(builder: (_, c) {
-              final w = c.maxWidth;
-              final hw = w * win.home / 100;
-              final aw = w * win.away / 100;
-              final dw = (w - hw - aw).clamp(0.0, w);
-              return Row(children: [
-                _seg(hw, '${home.code} ${win.home}%', teamColor(home.code)),
-                _seg(dw, 'X ${win.draw}', const Color(0xFF6E665A)),
-                _seg(aw, '${win.away}% ${away.code}', teamColor(away.code)),
-              ]);
-            }),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                'LIVE WIN CHANCE',
+                style: label(color: AppColors.ink, size: 11),
+              ),
+              const Spacer(),
+              Text(
+                'plain-English odds',
+                style: body(color: AppColors.mut, size: 11),
+              ),
+            ],
           ),
-        ),
-      ]),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              height: 26,
+              child: LayoutBuilder(
+                builder: (_, c) {
+                  final w = c.maxWidth;
+                  final hw = w * win.home / 100;
+                  final aw = w * win.away / 100;
+                  final dw = (w - hw - aw).clamp(0.0, w);
+                  return Row(
+                    children: [
+                      _seg(
+                        hw,
+                        '${home.code} ${win.home}%',
+                        teamColor(home.code),
+                      ),
+                      _seg(dw, 'X ${win.draw}', const Color(0xFF6E665A)),
+                      _seg(
+                        aw,
+                        '${win.away}% ${away.code}',
+                        teamColor(away.code),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -49,10 +77,17 @@ class WinBar extends StatelessWidget {
       color: color,
       alignment: Alignment.center,
       child: width > 44
-          ? Text(text,
+          ? Text(
+              text,
               maxLines: 1,
               overflow: TextOverflow.clip,
-              style: const TextStyle(fontFamily: kBody, fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white))
+              style: const TextStyle(
+                fontFamily: kBody,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            )
           : const SizedBox(),
     );
   }
@@ -64,7 +99,12 @@ class WinBar extends StatelessWidget {
 class MomentumMeter extends StatelessWidget {
   final int value; // -100 (away) .. +100 (home)
   final Team home, away;
-  const MomentumMeter({super.key, required this.value, required this.home, required this.away});
+  const MomentumMeter({
+    super.key,
+    required this.value,
+    required this.home,
+    required this.away,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -75,70 +115,101 @@ class MomentumMeter extends StatelessWidget {
     final caption = v.abs() < 12
         ? 'Even contest'
         : v.abs() < 45
-            ? '$leaderCode edging it'
-            : '$leaderCode turning the screw';
-    final captionColor = v.abs() < 12 ? AppColors.mut : (v >= 0 ? homeC : awayC);
+        ? '$leaderCode edging it'
+        : '$leaderCode turning the screw';
+    final captionColor = v.abs() < 12
+        ? AppColors.mut
+        : (v >= 0 ? homeC : awayC);
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: cardBox(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Text('MOMENTUM', style: label(color: AppColors.ink, size: 11)),
-          const Spacer(),
-          Text(caption, style: label(color: captionColor, size: 10.5, weight: FontWeight.w800)),
-        ]),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 12,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: v.toDouble()),
-            duration: const Duration(milliseconds: 700),
-            curve: Curves.easeOutCubic,
-            builder: (context, t, child) => LayoutBuilder(builder: (_, c) {
-              final w = c.maxWidth;
-              final half = w / 2;
-              final len = half * (t.abs() / 100).clamp(0.0, 1.0);
-              final isHome = t >= 0;
-              return Stack(children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.cardAlt,
-                    borderRadius: BorderRadius.circular(99),
-                    border: Border.all(color: AppColors.line),
-                  ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text('MOMENTUM', style: label(color: AppColors.ink, size: 11)),
+              const Spacer(),
+              Text(
+                caption,
+                style: label(
+                  color: captionColor,
+                  size: 10.5,
+                  weight: FontWeight.w800,
                 ),
-                Positioned(
-                  left: isHome ? half - len : half,
-                  top: 1.5,
-                  bottom: 1.5,
-                  width: len,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: (isHome ? homeC : awayC).withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: half - 0.75,
-                  top: 0,
-                  bottom: 0,
-                  width: 1.5,
-                  child: Container(color: const Color(0x33000000)),
-                ),
-              ]);
-            }),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 6),
-        Row(children: [
-          Text(home.code, style: label(color: homeC, size: 8.5, weight: FontWeight.w800)),
-          const Spacer(),
-          Text('attacking pressure · live', style: body(color: AppColors.mut, size: 8.5)),
-          const Spacer(),
-          Text(away.code, style: label(color: awayC, size: 8.5, weight: FontWeight.w800)),
-        ]),
-      ]),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 12,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: v.toDouble()),
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOutCubic,
+              builder: (context, t, child) => LayoutBuilder(
+                builder: (_, c) {
+                  final w = c.maxWidth;
+                  final half = w / 2;
+                  final len = half * (t.abs() / 100).clamp(0.0, 1.0);
+                  final isHome = t >= 0;
+                  return Stack(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.cardAlt,
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: AppColors.line),
+                        ),
+                      ),
+                      Positioned(
+                        left: isHome ? half - len : half,
+                        top: 1.5,
+                        bottom: 1.5,
+                        width: len,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: (isHome ? homeC : awayC).withValues(
+                              alpha: 0.9,
+                            ),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: half - 0.75,
+                        top: 0,
+                        bottom: 0,
+                        width: 1.5,
+                        child: Container(color: const Color(0x33000000)),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Text(
+                home.code,
+                style: label(color: homeC, size: 8.5, weight: FontWeight.w800),
+              ),
+              const Spacer(),
+              Text(
+                'attacking pressure · live',
+                style: body(color: AppColors.mut, size: 8.5),
+              ),
+              const Spacer(),
+              Text(
+                away.code,
+                style: label(color: awayC, size: 8.5, weight: FontWeight.w800),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -149,7 +220,12 @@ class MomentumMeter extends StatelessWidget {
 class WinTimeline extends StatelessWidget {
   final List<int> history; // home win-% per minute, 0..100
   final Team home, away;
-  const WinTimeline({super.key, required this.history, required this.home, required this.away});
+  const WinTimeline({
+    super.key,
+    required this.history,
+    required this.home,
+    required this.away,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -161,24 +237,55 @@ class WinTimeline extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
       decoration: cardBox(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Text('WIN CHANCE TIMELINE', style: label(color: AppColors.ink, size: 11)),
-          const Spacer(),
-          Text('$leader on top · ${now >= 50 ? now : 100 - now}%',
-              style: label(color: now >= 50 ? homeC : awayC, size: 11, weight: FontWeight.w800)),
-        ]),
-        const SizedBox(height: 10),
-        SizedBox(height: 58, child: CustomPaint(painter: _WinTimelinePainter(history, homeC, awayC), size: Size.infinite)),
-        const SizedBox(height: 4),
-        Row(children: [
-          Text(home.code, style: label(color: homeC, size: 8.5, weight: FontWeight.w800)),
-          const Spacer(),
-          Text('kick-off  →  now', style: body(color: AppColors.mut, size: 8.5)),
-          const Spacer(),
-          Text(away.code, style: label(color: awayC, size: 8.5, weight: FontWeight.w800)),
-        ]),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                'WIN CHANCE TIMELINE',
+                style: label(color: AppColors.ink, size: 11),
+              ),
+              const Spacer(),
+              Text(
+                '$leader on top · ${now >= 50 ? now : 100 - now}%',
+                style: label(
+                  color: now >= 50 ? homeC : awayC,
+                  size: 11,
+                  weight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 58,
+            child: CustomPaint(
+              painter: _WinTimelinePainter(history, homeC, awayC),
+              size: Size.infinite,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Text(
+                home.code,
+                style: label(color: homeC, size: 8.5, weight: FontWeight.w800),
+              ),
+              const Spacer(),
+              Text(
+                'kick-off  →  now',
+                style: body(color: AppColors.mut, size: 8.5),
+              ),
+              const Spacer(),
+              Text(
+                away.code,
+                style: label(color: awayC, size: 8.5, weight: FontWeight.w800),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -237,12 +344,17 @@ class _WinTimelinePainter extends CustomPainter {
     // current-value marker
     final last = Offset(x(n - 1), y(h[n - 1]));
     canvas.drawCircle(last, 4, Paint()..color = h[n - 1] >= 50 ? homeC : awayC);
-    canvas.drawCircle(last, 4, Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5);
+    canvas.drawCircle(
+      last,
+      4,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
   }
 
   @override
-  bool shouldRepaint(_WinTimelinePainter old) => old.h.length != h.length || (h.isNotEmpty && old.h.last != h.last);
+  bool shouldRepaint(_WinTimelinePainter old) =>
+      old.h.length != h.length || (h.isNotEmpty && old.h.last != h.last);
 }

@@ -5,7 +5,10 @@ import { inventoryOf, getCard, getMoment, registerCard } from "./economy";
 import type { Axis, DuelRound, PlayerCard, SkillCard, TrumpDuel } from "./types";
 import { AXES } from "./types";
 
-const duels = new Map<string, TrumpDuel>();
+const duelGlobal = globalThis as unknown as { __fwr_duels?: Map<string, TrumpDuel> };
+const duels =
+  duelGlobal.__fwr_duels ??
+  (duelGlobal.__fwr_duels = new Map<string, TrumpDuel>());
 
 function uid(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;

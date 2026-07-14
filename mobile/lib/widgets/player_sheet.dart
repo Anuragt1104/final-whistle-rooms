@@ -1,228 +1,271 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../api/live_data.dart';
 import '../api/models.dart';
 import '../data/flags.dart';
-import '../data/player_images.dart';
-import '../local/fixtures.dart';
-import '../local/match_facts.dart';
 import '../local/squads.dart';
 import '../theme.dart';
 import 'common.dart';
 
-/// FotMob-style player profile: photo (when TheSportsDB has one), position &
-/// shirt number, tournament totals (games, goals, assists, average rating) and
-/// a per-match log — all from the on-device facts engine.
-void showPlayerSheet(BuildContext context, Team team, SquadPlayer player) {
+/// Opens a verified TxLINE player profile. A legacy SquadPlayer is accepted
+/// only by the explicitly labelled demo tournament path.
+void showPlayerSheet(BuildContext context, Team team, Object source) {
+  final player = source is VerifiedPlayer
+      ? source
+      : source is SquadPlayer
+      ? VerifiedPlayer(
+          id: 'demo:${team.code}:${source.number}',
+          name: source.name,
+          position: source.pos,
+          portraitKind: 'illustration',
+          starter: false,
+          onPitch: false,
+          shirtNumber: '${source.number}',
+          stats: const VerifiedPlayerStats(
+            goals: 0,
+            yellowCards: 0,
+            redCards: 0,
+            starts: 0,
+            squadSelections: 0,
+          ),
+        )
+      : throw ArgumentError('Unsupported player source');
   showModalBottomSheet(
     context: context,
     backgroundColor: AppColors.paper,
     isScrollControlled: true,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    ),
     builder: (_) => _PlayerSheet(team: team, player: player),
   );
 }
 
 String positionLabel(String pos) => switch (pos) {
-      'GK' => 'Goalkeeper',
-      'DF' => 'Defender',
-      'MF' => 'Midfielder',
-      'FW' => 'Forward',
-      _ => pos,
-    };
+  'GK' => 'Goalkeeper',
+  'DF' => 'Defender',
+  'MF' => 'Midfielder',
+  'FW' => 'Forward',
+  _ => 'Position not supplied',
+};
 
-class _MatchLine {
-  final Fixture fixture;
-  final double? rating;
-  final int goals, assists;
-  _MatchLine(this.fixture, this.rating, this.goals, this.assists);
-}
-
-class _PlayerSheet extends StatefulWidget {
+class _PlayerSheet extends StatelessWidget {
   final Team team;
-  final SquadPlayer player;
+  final VerifiedPlayer player;
   const _PlayerSheet({required this.team, required this.player});
-  @override
-  State<_PlayerSheet> createState() => _PlayerSheetState();
-}
-
-class _PlayerSheetState extends State<_PlayerSheet> {
-  String? _photo;
-
-  @override
-  void initState() {
-    super.initState();
-    // best-effort real photo via the shared index — degrades to initials
-    _photo = PlayerImages.photoFor(widget.team.name, widget.player.name);
-    if (_photo == null) {
-      PlayerImages.warm(widget.team.name).then((_) {
-        if (!mounted) return;
-        setState(() => _photo = PlayerImages.photoFor(widget.team.name, widget.player.name));
-      });
-    }
-  }
-
-  List<_MatchLine> _matchLog() {
-    final lines = <_MatchLine>[];
-    for (final f in localFixtures()) {
-      if (f.status == 'scheduled') continue;
-      final isHome = f.home.code == widget.team.code;
-      final isAway = f.away.code == widget.team.code;
-      if (!isHome && !isAway) continue;
-      final facts = factsFor(f);
-      final ratings = isHome ? facts.homeRatings : facts.awayRatings;
-      PlayerRating? mine;
-      for (final pr in ratings) {
-        if (pr.player.name == widget.player.name) mine = pr;
-      }
-      final liveMinute = f.status == 'live' ? (f.score?.minute ?? 0) : 999;
-      final goals = facts.events
-          .where((e) => e.kind == 'goal' && e.player == widget.player.name && e.minute <= liveMinute)
-          .length;
-      final assists = facts.events
-          .where((e) => e.kind == 'goal' && e.assist == widget.player.name && e.minute <= liveMinute)
-          .length;
-      lines.add(_MatchLine(f, f.status == 'finished' ? mine?.rating : null, goals, assists));
-    }
-    return lines;
-  }
 
   @override
   Widget build(BuildContext context) {
-    final log = _matchLog();
-    final games = log.where((l) => l.fixture.status == 'finished').length;
-    final goals = log.fold(0, (s, l) => s + l.goals);
-    final assists = log.fold(0, (s, l) => s + l.assists);
-    final rated = log.where((l) => l.rating != null).toList();
-    final avg = rated.isEmpty ? null : rated.fold(0.0, (s, l) => s + l.rating!) / rated.length;
-
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.line, borderRadius: BorderRadius.circular(99)))),
-          const SizedBox(height: 16),
-          // hero
-          Container(
-            decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(18)),
-            padding: const EdgeInsets.all(16),
-            child: Row(children: [
-              _avatar(),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(widget.player.name.toUpperCase(), style: display(24, color: AppColors.cream)),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    InlineFlag(team: widget.team, size: 20),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text('${widget.team.name} · #${widget.player.number} · ${positionLabel(widget.player.pos)}',
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mutInk, size: 12)),
-                    ),
-                  ]),
-                ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.line,
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
-              if (avg != null) _ratingBadge(avg, big: true),
-            ]),
-          ),
-          const SizedBox(height: 12),
-          // tournament totals
-          Row(children: [
-            _stat('$games', 'MATCHES'),
-            const SizedBox(width: 8),
-            _stat('$goals', 'GOALS'),
-            const SizedBox(width: 8),
-            _stat('$assists', 'ASSISTS'),
-            const SizedBox(width: 8),
-            _stat(avg == null ? '—' : avg.toStringAsFixed(1), 'AVG RATING'),
-          ]),
-          const SizedBox(height: 18),
-          const SectionLabel('This World Cup'),
-          if (log.isEmpty)
-            Text('No matches played yet.', style: body(color: AppColors.mut, size: 13))
-          else
-            ...log.map(_matchRow),
-        ]),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.ink, Color(0xFF251A48)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  _portrait(),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          player.name.toUpperCase(),
+                          style: display(24, color: AppColors.cream),
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            InlineFlag(team: team, size: 20),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                '${team.name} · ${positionLabel(player.position)}',
+                                style: body(color: AppColors.mutInk, size: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            if (player.shirtNumber != null)
+                              _pill('#${player.shirtNumber}'),
+                            if (player.starter) _pill('STARTER'),
+                            if (player.onPitch) _pill('ON PITCH', lime: true),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const SectionLabel('Verified tournament totals'),
+            Row(
+              children: [
+                _stat('${player.stats.squadSelections}', 'SQUADS'),
+                const SizedBox(width: 8),
+                _stat('${player.stats.starts}', 'STARTS'),
+                const SizedBox(width: 8),
+                _stat('${player.stats.goals}', 'GOALS'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _stat('${player.stats.yellowCards}', 'YELLOW'),
+                const SizedBox(width: 8),
+                _stat('${player.stats.redCards}', 'RED'),
+                const SizedBox(width: 8),
+                _stat(player.country ?? '—', 'COUNTRY'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: cardBox(),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.verified_rounded,
+                    color: AppColors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Only TxLINE-confirmed selections, starts, goals and cards are shown. Ratings, assists and xG are intentionally omitted when the source does not provide them.',
+                      style: body(color: AppColors.mut, size: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _avatar() {
-    const size = 62.0;
-    if (_photo != null) {
-      return ClipOval(
+  Widget _portrait() {
+    if (player.photoUrl != null && player.portraitKind == 'photo') {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(18),
         child: CachedNetworkImage(
-            imageUrl: _photo!,
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            fadeInDuration: const Duration(milliseconds: 150),
-            placeholder: (_, __) => InitialAvatar(name: widget.player.name, size: size),
-            errorWidget: (_, __, ___) => InitialAvatar(name: widget.player.name, size: size)),
-      );
-    }
-    return InitialAvatar(name: widget.player.name, size: size);
-  }
-
-  Widget _stat(String value, String label_) => Expanded(
-        child: Container(
-          decoration: cardBox(),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Column(children: [
-            Text(value, style: display(20)),
-            const SizedBox(height: 2),
-            Text(label_, style: label(color: AppColors.mut, size: 7.5)),
-          ]),
+          imageUrl: player.photoUrl!,
+          width: 84,
+          height: 100,
+          fit: BoxFit.cover,
+          errorWidget: (_, __, ___) => _fallbackPortrait(),
         ),
       );
+    }
+    return _fallbackPortrait();
+  }
 
-  Widget _matchRow(_MatchLine l) {
-    final f = l.fixture;
-    final isHome = f.home.code == widget.team.code;
-    final opp = isHome ? f.away : f.home;
-    final s = f.score;
-    final scoreText = s == null ? '—' : (isHome ? '${s.home}–${s.away}' : '${s.away}–${s.home}');
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(children: [
-          InlineFlag(team: opp, size: 24),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${isHome ? "vs" : "@"} ${opp.name}  $scoreText${f.status == 'live' ? "  ·  LIVE" : ""}',
-                  maxLines: 1, overflow: TextOverflow.ellipsis, style: body(weight: FontWeight.w700, size: 13)),
-              Text(f.stage, maxLines: 1, overflow: TextOverflow.ellipsis, style: body(color: AppColors.mut, size: 10.5)),
-            ]),
+  Widget _fallbackPortrait() {
+    final initials = player.name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .take(2)
+        .map((p) => p[0])
+        .join();
+    return Container(
+      width: 84,
+      height: 100,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFB8FF36), Color(0xFF8B5CF6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: .24)),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            right: -14,
+            top: -12,
+            child: Icon(
+              Icons.sports_soccer_rounded,
+              size: 66,
+              color: Colors.white.withValues(alpha: .16),
+            ),
           ),
-          if (l.goals > 0) ...[Text('⚽ ${l.goals}', style: body(size: 12, weight: FontWeight.w800)), const SizedBox(width: 8)],
-          if (l.assists > 0) ...[Text('🅰 ${l.assists}', style: body(size: 12, weight: FontWeight.w800)), const SizedBox(width: 8)],
-          if (l.rating != null) _ratingBadge(l.rating!),
-        ]),
+          Text(
+            initials.toUpperCase(),
+            style: display(29, color: AppColors.ink),
+          ),
+          Positioned(
+            bottom: 7,
+            child: Text(team.code, style: label(color: AppColors.ink, size: 9)),
+          ),
+        ],
       ),
     );
   }
-}
 
-/// Sofascore-style rating chip, color-graded from red (poor) to gold (elite).
-Widget _ratingBadge(double rating, {bool big = false}) {
-  final color = rating >= 8.4
-      ? AppColors.gold
-      : rating >= 7.4
-          ? const Color(0xFF1F7A3D)
-          : rating >= 6.5
-              ? const Color(0xFF7A8C1F)
-              : const Color(0xFFD8392B);
-  return Container(
-    padding: EdgeInsets.symmetric(horizontal: big ? 10 : 7, vertical: big ? 6 : 3),
-    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
-    child: Text(rating.toStringAsFixed(1),
-        style: TextStyle(fontFamily: kBody, color: Colors.white, fontWeight: FontWeight.w800, fontSize: big ? 16 : 12)),
+  Widget _pill(String text, {bool lime = false}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: lime
+          ? const Color(0xFFB8FF36)
+          : Colors.white.withValues(alpha: .1),
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Text(
+      text,
+      style: label(color: lime ? AppColors.ink : AppColors.cream, size: 8.5),
+    ),
+  );
+
+  Widget _stat(String value, String title) => Expanded(
+    child: Container(
+      decoration: cardBox(),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 13),
+      child: Column(
+        children: [
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: display(20),
+          ),
+          const SizedBox(height: 3),
+          Text(title, style: label(color: AppColors.mut, size: 8)),
+        ],
+      ),
+    ),
   );
 }
-
-/// Public version for other widgets (line-ups, leaderboards).
-Widget ratingBadge(double rating, {bool big = false}) => _ratingBadge(rating, big: big);

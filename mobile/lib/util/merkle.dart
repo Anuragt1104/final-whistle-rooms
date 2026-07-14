@@ -8,7 +8,8 @@ import 'package:crypto/crypto.dart';
 /// hash the concatenation of children; an odd node duplicates itself.
 Uint8List _sha(List<int> b) => Uint8List.fromList(sha256.convert(b).bytes);
 
-Uint8List leafHash(String data) => _sha(utf8.encode('${String.fromCharCode(0)}$data'));
+Uint8List leafHash(String data) =>
+    _sha(utf8.encode('${String.fromCharCode(0)}$data'));
 
 Uint8List _hashPair(Uint8List a, Uint8List b) {
   final buf = Uint8List(a.length + b.length)
@@ -17,7 +18,8 @@ Uint8List _hashPair(Uint8List a, Uint8List b) {
   return _sha(buf);
 }
 
-String _hex(Uint8List b) => b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+String _hex(Uint8List b) =>
+    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
 Uint8List _hexToBytes(String hex) {
   final out = Uint8List(hex.length ~/ 2);
@@ -46,7 +48,9 @@ class MerkleTree {
       final level = _levels[lvl];
       final isRight = idx % 2 == 1;
       final siblingIdx = isRight ? idx - 1 : idx + 1;
-      final sibling = siblingIdx < level.length ? level[siblingIdx] : level[idx];
+      final sibling = siblingIdx < level.length
+          ? level[siblingIdx]
+          : level[idx];
       steps.add(MerkleStep(_hex(sibling), isRight ? 'left' : 'right'));
       idx = idx ~/ 2;
     }

@@ -64,9 +64,17 @@ Map<String, List<StandingRow>> groupStandings(List<Fixture> fixtures) {
   });
 }
 
-Team _tbd(String label) => Team(id: 'tbd', name: label, code: 'TBD', flag: '🏆', rating: 75);
+Team _tbd(String label) =>
+    Team(id: 'tbd', name: label, code: 'TBD', flag: '🏆', rating: 75);
 
-const knockoutStages = ['Round of 32', 'Round of 16', 'Quarter-final', 'Semi-final', 'Third place', 'Final'];
+const knockoutStages = [
+  'Round of 32',
+  'Round of 16',
+  'Quarter-final',
+  'Semi-final',
+  'Third place',
+  'Final',
+];
 
 /// Build all 32 knockout fixtures from the finished group stage. Rounds whose
 /// feeder matches haven't finished yet get honest "Winner of…" placeholders.
@@ -120,11 +128,19 @@ List<Fixture> buildKnockout(List<Fixture> groupFixtures, DateTime now) {
     return knockoutHomeAdvances(f) ? f.home : f.away;
   }
 
-  List<Fixture> nextRound(List<Fixture> prev, String stage, String idPrefix, double startHours, double gapHours) {
+  List<Fixture> nextRound(
+    List<Fixture> prev,
+    String stage,
+    String idPrefix,
+    double startHours,
+    double gapHours,
+  ) {
     final res = <Fixture>[];
     for (var i = 0; i < prev.length ~/ 2; i++) {
       final a = prev[i * 2], b = prev[i * 2 + 1];
-      final ko = now.add(Duration(minutes: ((startHours + i * gapHours) * 60).round()));
+      final ko = now.add(
+        Duration(minutes: ((startHours + i * gapHours) * 60).round()),
+      );
       var f = Fixture(
         id: '$idPrefix-m${i + 1}',
         competition: 'FIFA World Cup 2026',
@@ -224,7 +240,8 @@ TournamentLeaders tournamentLeaders(List<Fixture> fixtures) {
       totals['${team.code}|$name'] ??= PlayerTotals(name, team);
 
   for (final f in fixtures) {
-    if (f.status == 'scheduled' || f.home.code == 'TBD' || f.away.code == 'TBD') continue;
+    if (f.status == 'scheduled' || f.home.code == 'TBD' || f.away.code == 'TBD')
+      continue;
     final facts = factsFor(f);
     final liveMinute = f.status == 'live' ? (f.score?.minute ?? 0) : 999;
 
@@ -252,8 +269,16 @@ TournamentLeaders tournamentLeaders(List<Fixture> fixtures) {
   }
 
   final all = totals.values.toList();
-  final scorers = [...all.where((p) => p.goals > 0)]..sort((a, b) => b.goals != a.goals ? b.goals - a.goals : b.assists - a.assists);
-  final assisters = [...all.where((p) => p.assists > 0)]..sort((a, b) => b.assists != a.assists ? b.assists - a.assists : b.goals - a.goals);
-  final rated = [...all.where((p) => p.matches >= 2)]..sort((a, b) => b.avgRating.compareTo(a.avgRating));
+  final scorers = [...all.where((p) => p.goals > 0)]
+    ..sort(
+      (a, b) => b.goals != a.goals ? b.goals - a.goals : b.assists - a.assists,
+    );
+  final assisters = [...all.where((p) => p.assists > 0)]
+    ..sort(
+      (a, b) =>
+          b.assists != a.assists ? b.assists - a.assists : b.goals - a.goals,
+    );
+  final rated = [...all.where((p) => p.matches >= 2)]
+    ..sort((a, b) => b.avgRating.compareTo(a.avgRating));
   return TournamentLeaders(scorers, assisters, rated);
 }

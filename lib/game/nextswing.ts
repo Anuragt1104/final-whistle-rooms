@@ -79,7 +79,8 @@ export function generatePrompt(
   type Weighted = { w: number; make: () => SwingPrompt };
   const menu: Weighted[] = [];
 
-  // Market literacy — featured Higher/Lower with explicit favourite %
+  // A plain-language live read. The probability powers scoring internally;
+  // fans should not have to parse sportsbook-style thresholds.
   const leader = win.home >= win.away ? home : away;
   const leaderPct = Math.max(win.home, win.away);
   const leaderSide: "home" | "away" = win.home >= win.away ? "home" : "away";
@@ -87,10 +88,10 @@ export function generatePrompt(
     w: 3.2,
     make: () => ({
       id: pid(),
-      question: `Favourite ${leader} at ${leaderPct}% — call the swing in 5'`,
+      question: `Will ${leader}'s win chance be higher in five minutes?`,
       options: [
-        { key: "up", label: "Higher", hint: "📈 market firm" },
-        { key: "down", label: "Lower", hint: "📉 market soft" },
+        { key: "up", label: "Higher", hint: `Now ${leaderPct}%` },
+        { key: "down", label: "Lower", hint: `Now ${leaderPct}%` },
       ],
       resolver: { kind: "win-swing", side: leaderSide, baseline: leaderPct, minute: Math.min(minute + 5, 90) },
       basePoints: 110 + Math.round(Math.abs(50 - leaderPct)),
@@ -100,15 +101,15 @@ export function generatePrompt(
     }),
   });
 
-  // Odds-move: will home win% clear the baseline?
+  // A second short-window chance question with a clear deadline.
   menu.push({
     w: 2.4,
     make: () => ({
       id: pid(),
-      question: `${home} win% is ${win.home} — clear ${win.home} by ${Math.min(minute + 6, 90)}'?`,
+      question: `Will ${home}'s win chance rise before ${Math.min(minute + 6, 90)}'?`,
       options: [
-        { key: "yes", label: "Yes — rises", hint: pctHint(win.home) },
-        { key: "no", label: "No — stalls/falls" },
+        { key: "yes", label: "Yes, it rises", hint: `Now ${win.home}%` },
+        { key: "no", label: "No, it does not" },
       ],
       resolver: { kind: "odds-move", baseline: win.home, minute: Math.min(minute + 6, 90) },
       basePoints: 130,
@@ -123,7 +124,7 @@ export function generatePrompt(
     w: 2.6,
     make: () => ({
       id: pid(),
-      question: `Who gets the next yellow? (${home} ${yellowH} · ${away} ${yellowA})`,
+      question: `Which team receives the next card?`,
       options: [
         { key: "home", label: home, hint: yellowH >= yellowA ? "hot" : "cooler" },
         { key: "away", label: away, hint: yellowA >= yellowH ? "hot" : "cooler" },
@@ -147,10 +148,10 @@ export function generatePrompt(
     w: 2.2,
     make: () => ({
       id: pid(),
-      question: `Next corner — who wins it? (${cornerHint})`,
+      question: "Who wins the next corner?",
       options: [
-        { key: "home", label: home },
-        { key: "away", label: away },
+        { key: "home", label: home, hint: cornerHint },
+        { key: "away", label: away, hint: cornerHint },
       ],
       resolver: { kind: "next-corner-side" },
       basePoints: 105,
@@ -166,7 +167,7 @@ export function generatePrompt(
     w: 2.0,
     make: () => ({
       id: pid(),
-      question: `Will either side lead by 2+ at ${leadTarget}'? (now ${score.goals.home}–${score.goals.away})`,
+      question: `Will either team lead by two goals at ${leadTarget}'?`,
       options: [
         { key: "yes", label: "Yes — 2-goal cushion" },
         { key: "no", label: "No — stays tight" },
@@ -186,7 +187,7 @@ export function generatePrompt(
     w: 2.0,
     make: () => ({
       id: pid(),
-      question: `Will total goals hit ${goalTarget} by ${goalsDeadline}'? (now ${totalGoals})`,
+      question: `Will the match reach ${goalTarget} total goals by ${goalsDeadline}'?`,
       options: [
         { key: "yes", label: `Yes — reach ${goalTarget}` },
         { key: "no", label: `No — stay under` },

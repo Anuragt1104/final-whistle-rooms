@@ -34,6 +34,8 @@ export interface PulseCard {
   detail: string;
   accent: PulseAccent;
   createdAt: number;
+  /** Verified TxLINE player identity when the action record provides one. */
+  scorer?: string;
   /** Optional: opens a matching Next Swing challenge. */
   challenge?: "corners" | "next-goal";
 }
@@ -145,8 +147,9 @@ export class PulseInterpreter {
             emoji: "⚽",
             headline: `GOAL — ${this.teamName(side)}!`,
             detail:
-              `${this.fixture.home.code} ${score.goals.home}–${score.goals.away} ${this.fixture.away.code}` +
+              `${e.playerName ? `${e.playerName} · ` : ""}${this.fixture.home.code} ${score.goals.home}–${score.goals.away} ${this.fixture.away.code}` +
               (swing >= 4 ? ` · room win chance swung ${swing} points` : ""),
+            scorer: e.playerName,
             accent: side,
             createdAt: now,
           });
@@ -161,7 +164,7 @@ export class PulseInterpreter {
             minute: e.minute,
             emoji: "🟥",
             headline: `Red card — ${this.teamName(side)}`,
-            detail: `Down to 10 men. Momentum is turning ${side === "home" ? this.fixture.away.name : this.fixture.home.name}'s way.`,
+            detail: `${e.playerName ? `${e.playerName} sent off. ` : ""}Down to 10 men. Momentum is turning ${side === "home" ? this.fixture.away.name : this.fixture.home.name}'s way.`,
             accent: side === "home" ? "away" : "home",
             createdAt: now,
           });
