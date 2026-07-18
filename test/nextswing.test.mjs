@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generatePrompt, tryResolve, forceResolve } from '../lib/game/nextswing.ts';
+import {
+  generatePrompt,
+  tryResolve,
+  forceResolve,
+  biasFromIntensity,
+} from '../lib/game/nextswing.ts';
 
 const score = {
   minute: 40,
@@ -87,4 +92,115 @@ test('next-goal-before resolves to the scoring side, else none at the deadline',
   const p = { resolver: { kind: 'next-goal-before', minute: 55 } };
   assert.equal(tryResolve(p, [{ kind: 'goal', side: 'home', minute: 50 }], score, win), 'home');
   assert.equal(forceResolve({ ...p }, { ...score, minute: 55 }, win), 'none');
+});
+
+test('biasFromIntensity: pulse corner storm → corners; flurry → flurry', () => {
+  assert.equal(
+    biasFromIntensity({
+      goalsLast10Min: 0,
+      cardsLast5Min: 0,
+      scoreJustChanged: false,
+      isComeback: false,
+      redCardActive: false,
+      momentumAbs: 10,
+      challenge: 'corners',
+    }),
+    'corners',
+  );
+  assert.equal(
+    biasFromIntensity({
+      goalsLast10Min: 3,
+      cardsLast5Min: 0,
+      scoreJustChanged: true,
+      isComeback: false,
+      redCardActive: false,
+      momentumAbs: 40,
+      flurrySummary: '3 goals in 8 minutes',
+    }),
+    'flurry',
+  );
+  assert.equal(
+    biasFromIntensity({
+      goalsLast10Min: 1,
+      cardsLast5Min: 0,
+      scoreJustChanged: true,
+      isComeback: true,
+      redCardActive: false,
+      momentumAbs: 30,
+    }),
+    'comeback',
+  );
+});
+
+test('flurry bias heavily prefers next-goal / total-goals over coin-flips', () => {
+  const hot = {
+    ...score,
+    goals: { home: 2, away: 1 },
+    minute: 67,
+  };
+  const story = {
+    goalsLast10Min: 3,
+    scoreJustChanged: true,
+    flurrySummary: '3 goals in 11 minutes',
+    lastScorer: 'Messi',
+    lastGoalMinute: 64,
+  };
+  let drama = 0;
+  let total = 0;
+  for (let i = 0; i < 300; i++) {
+    let s = (i * 2654435761) & 0x7fffffff;
+    const rand = () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+    const p = generatePrompt(hot, null, win, rand, 'flurry', story);
+    if (!p) continue;
+    total++;
+    if (p.resolver.kind === 'next-goal-before' || p.resolver.kind === 'total-goals') drama++;
+  }
+  const share = drama / total;
+  assert.ok(share > 0.55, `flurry drama share was ${share.toFixed(2)}`);
+});
+
+test('corners bias prefers next-corner-side', () => {
+  let corners = 0;
+  let total = 0;
+  for (let i = 0; i < 200; i++) {
+    let s = (i * 1103515245) & 0x7fffffff;
+    const rand = () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+    const p = generatePrompt(score, null, win, rand, 'corners');
+    if (!p) continue;
+    total++;
+    if (p.resolver.kind === 'next-corner-side') corners++;
+  }
+  const share = corners / total;
+  assert.ok(share > 0.5, `corners bias share was ${share.toFixed(2)}`);
+});
+
+test('templates include score line so LLM failure still feels match-specific', () => {
+  const p = generatePrompt(
+    { ...score, goals: { home: 0, away: 2 }, minute: 55 },
+    null,
+    win,
+    () => 0.01,
+    'flurry',
+    { flurrySummary: '3 goals in 11 minutes', lastScorer: 'Álvarez', lastGoalMinute: 52 },
+  );
+  assert.ok(p);
+  assert.match(p.question, /0–2|3 goals|Álvarez|grip|reach|goal/i);
+});
+
+test('production templates use plain match language without odds or sportsbook thresholds', () => {
+  const banned = /%|odds|clear by|higher or lower|bet|wager/i;
+  for (let i = 0; i < 400; i++) {
+    let s = (i * 2654435761) & 0x7fffffff;
+    const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    const p = generatePrompt(score, null, win, rand);
+    assert.ok(p);
+    assert.doesNotMatch(p.question, banned);
+    for (const option of p.options) assert.doesNotMatch(`${option.label} ${option.hint ?? ''}`, banned);
+  }
 });

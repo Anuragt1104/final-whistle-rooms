@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "695216174406",
+    "project_id": "final-whistle-live",
+    "storage_bucket": "final-whistle-live.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:695216174406:android:0c4ebd234e6c2570d9e147",
+        "android_client_info": {
+          "package_name": "com.alenkamedia.final_whistle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAADtUsUPl6_Elio1XmsRfCNglcwixzHPs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

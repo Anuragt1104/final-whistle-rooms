@@ -8,11 +8,14 @@ import 'ai_question_writer.dart';
 import 'match_facts.dart';
 import 'players.dart';
 
-/// A fully on-device live match — produces the same RoomView the UI renders,
-/// driven by a timer. This is what makes the app feel alive with zero backend:
-/// a real, watchable match with pulse cards, live odds, Next Swing prompts that
-/// settle, a moving leaderboard (you + simulated fans), and recaps.
+/// On-device **simulation-only** match engine.
+///
+/// Production Live Calls always come from the backend Question Engine.
+/// This class must not be used as a production question generator — it only
+/// powers offline / demo rooms when no server feed is attached.
 class LiveMatchEngine extends ChangeNotifier {
+  /// Hard guard: local prompt generation is simulation/demo only.
+  static const bool simulationOnly = true;
   final Fixture fixture;
   final bool draftMode, nextSwingMode;
   final String myName;
@@ -109,6 +112,8 @@ class LiveMatchEngine extends ChangeNotifier {
   }
 
   int _lastPromptMinute = -99;
+  final List<int> _recentCornerMinutes = [];
+  final List<int> _recentCardMinutes = [];
 
   final List<PulseCard> _pulse = [];
   final List<ChatView> _chat = [];
@@ -538,6 +543,18 @@ class LiveMatchEngine extends ChangeNotifier {
       if (mem.side == side) mem.points += 50;
     }
     if (_rng.nextBool()) _botShout(side == 'home' ? 'home' : 'away');
+    // Fire a drama Micro-Play on the goal — don't wait for the 5' cadence.
+    if (nextSwingMode) _maybePrompt(m, forcedBias: _biasAfterGoal(m, side));
+  }
+
+  String? _biasAfterGoal(int m, String side) {
+    final goalsLast10 = _goals.where((g) => m - g.minute <= 10).length;
+    if (goalsLast10 >= 2) return 'flurry';
+    final scorerGoals = side == 'home' ? gH : gA;
+    final otherGoals = side == 'home' ? gA : gH;
+    if (scorerGoals == otherGoals && otherGoals > 0) return 'comeback';
+    if (scorerGoals == otherGoals + 1 && otherGoals >= 1) return 'comeback';
+    return 'next-goal';
   }
 
   void _corner(String side, int m) {
@@ -551,9 +568,22 @@ class LiveMatchEngine extends ChangeNotifier {
     for (final mem in _members) {
       if (mem.side == side) mem.points += 4;
     }
-    if (_rng.nextDouble() < 0.4) {
-      final team = side == 'home' ? fixture.home : fixture.away;
-      final taker = cornerTaker(fixture, side, (side == 'home' ? cH : cA) - 1);
+    _recentCornerMinutes.add(m);
+    _recentCornerMinutes.removeWhere((t) => m - t > 4);
+    final team = side == 'home' ? fixture.home : fixture.away;
+    final taker = cornerTaker(fixture, side, (side == 'home' ? cH : cA) - 1);
+    if (_recentCornerMinutes.length >= 3) {
+      _addPulse(
+        'corner-storm',
+        '🚩',
+        'Corner storm — ${team.name}',
+        '${_recentCornerMinutes.length} corners in a few minutes. Pressure building.',
+        side,
+        m,
+        scorer: taker,
+      );
+      if (nextSwingMode) _maybePrompt(m, forcedBias: 'corners');
+    } else if (_rng.nextDouble() < 0.4) {
       _addPulse(
         'corner-storm',
         '🚩',
@@ -575,6 +605,8 @@ class LiveMatchEngine extends ChangeNotifier {
     if (_phase == 1) side == 'home' ? yH1++ : yA1++;
     _leafEvent('yellow', side, m);
     _momentum = (_momentum + (side == 'home' ? -5 : 5)).clamp(-100, 100);
+    _recentCardMinutes.add(m);
+    _recentCardMinutes.removeWhere((t) => m - t > 5);
     if (_rng.nextDouble() < 0.5) {
       final booked = bookedPlayer(
         fixture,
@@ -590,6 +622,9 @@ class LiveMatchEngine extends ChangeNotifier {
         m,
         scorer: booked,
       );
+    }
+    if (_recentCardMinutes.length >= 2 && nextSwingMode) {
+      _maybePrompt(m, forcedBias: 'next-card');
     }
   }
 
@@ -625,10 +660,14 @@ class LiveMatchEngine extends ChangeNotifier {
     );
   }
 
-  void _maybePrompt(int m) {
+  void _maybePrompt(int m, {String? forcedBias}) {
+    // Simulation / offline demo only — never a production question source.
+    if (!simulationOnly) return;
     if (m >= 86 || _atHalfTime || _phase == 2) return;
     final open = _prompts.values.where((p) => p.status != 'settled').length;
-    if (open >= 2 || m - _lastPromptMinute < 5) return;
+    if (open >= 2) return;
+    final gap = forcedBias != null ? 2 : 5;
+    if (m - _lastPromptMinute < gap) return;
     _lastPromptMinute = m;
     final lock = min(m + 5, 90);
     final homeLeads = _win.home >= _win.away;
@@ -643,6 +682,10 @@ class LiveMatchEngine extends ChangeNotifier {
     // Moment-specific colour: real squad names + the match's own story so the
     // prompts read like a pundit watching THIS game, not a generic quiz.
     final lastGoal = _goals.isNotEmpty ? _goals.last : null;
+    final goalsLast10 = _goals.where((g) => m - g.minute <= 10).length;
+    final flurrySummary = goalsLast10 >= 2 && lastGoal != null
+        ? '$goalsLast10 goals in ${max(1, m - _goals.where((g) => m - g.minute <= 10).first.minute)} minutes'
+        : null;
     final strikerH = scorerName(fixture, 'home', gH);
     final strikerA = scorerName(fixture, 'away', gA);
     final chaserStriker = homeLeads ? strikerA : strikerH;
@@ -652,12 +695,15 @@ class LiveMatchEngine extends ChangeNotifier {
     final cornerSide = cH >= cA ? 'home' : 'away';
     final taker = cornerTaker(fixture, cornerSide, max(cH, cA));
     final busyKeeper = keeperName(fixture, chaserSide);
-    final swingLine = lastGoal != null && m - lastGoal.minute <= 12
-        ? '${lastGoal.name}\'s ${lastGoal.minute}\' strike has $leaderCode at $leaderPct%'
-        : _momentum.abs() > 30
-              ? '$leaderCode ($leaderPct%) are turning the screw at $m\''
-              : '$leaderCode hold $leaderPct% control at $m\'';
+    final swingLine = flurrySummary != null
+        ? '$flurrySummary — $leaderCode at $leaderPct%'
+        : lastGoal != null && m - lastGoal.minute <= 12
+            ? '${lastGoal.name}\'s ${lastGoal.minute}\' strike has $leaderCode at $leaderPct%'
+            : _momentum.abs() > 30
+                  ? '$leaderCode ($leaderPct%) are turning the screw at $m\''
+                  : '$leaderCode hold $leaderPct% control at $m\'';
 
+    final bias = forcedBias;
     final weighted = <(_PromptDef, double)>[
       (
         _PromptDef(
@@ -688,9 +734,11 @@ class LiveMatchEngine extends ChangeNotifier {
       ),
       (
         _PromptDef(
-          yH + yA > 0
-              ? 'Ref\'s losing patience ($yH–$yA yellows) and $hotBooked is walking a line — who\'s booked next?'
-              : 'First booking incoming — which side cracks under the tackles?',
+          _recentCardMinutes.length >= 2
+              ? 'Chaos brewing (${_recentCardMinutes.length} cards in 5\') — who\'s booked next?'
+              : yH + yA > 0
+                  ? 'Ref\'s losing patience ($yH–$yA yellows) and $hotBooked is walking a line — who\'s booked next?'
+                  : 'First booking incoming — which side cracks under the tackles?',
           [
             _opt('home', fixture.home.code, yH >= yA ? 'edgy' : 'cooler'),
             _opt('away', fixture.away.code, yA >= yH ? 'edgy' : 'cooler'),
@@ -699,38 +747,44 @@ class LiveMatchEngine extends ChangeNotifier {
           lock,
           _Resolver.nextCard,
         ),
-        2.6,
+        bias == 'next-card' || bias == 'red' ? 12.0 : 2.6,
       ),
       (
         _PromptDef(
-          cH + cA > 0
-              ? '$taker is waving the crowd up (corners $cH–$cA) — who forces the next one?'
-              : 'No corners yet at $m\' — who bends the first one in?',
+          bias == 'corners'
+              ? 'Corner storm (corners $cH–$cA) — who forces the next one?'
+              : cH + cA > 0
+                  ? '$taker is waving the crowd up (corners $cH–$cA) — who forces the next one?'
+                  : 'No corners yet at $m\' — who bends the first one in?',
           [_opt('home', fixture.home.code), _opt('away', fixture.away.code)],
           105,
           lock,
           _Resolver.nextCorner,
         ),
-        2.2,
+        bias == 'corners' ? 14.0 : 2.2,
       ),
       (
         _PromptDef(
-          (gH - gA).abs() == 1
-              ? '$leaderCode lead by one — is it a 2-goal cushion by $leadTarget\' or does $busyKeeper hold the line?'
-              : 'Can anyone open a 2-goal gap by $leadTarget\'? (now $gH–$gA)',
+          bias == 'comeback'
+              ? 'Comeback on ($gH–$gA) — 2-goal cushion by $leadTarget\' or stays tight?'
+              : (gH - gA).abs() == 1
+                  ? '$leaderCode lead by one — is it a 2-goal cushion by $leadTarget\' or does $busyKeeper hold the line?'
+                  : 'Can anyone open a 2-goal gap by $leadTarget\'? (now $gH–$gA)',
           [_opt('yes', '2-goal cushion'), _opt('no', 'Stays tight')],
           140,
           min(m + 3, 90),
           _Resolver.leadByTwo,
           leadTarget,
         ),
-        2.0,
+        bias == 'comeback' ? 10.0 : 2.0,
       ),
       (
         _PromptDef(
-          totalGoals > 0
-              ? '$totalGoals in already — do $strikerH & $strikerA push it to $goalTarget by $goalsDeadline\'?'
-              : 'Still 0–0 — is there a goal in this by $goalsDeadline\'?',
+          flurrySummary != null
+              ? '$flurrySummary — do $strikerH & $strikerA push it to $goalTarget by $goalsDeadline\'?'
+              : totalGoals > 0
+                  ? '$totalGoals in already — do $strikerH & $strikerA push it to $goalTarget by $goalsDeadline\'?'
+                  : 'Still 0–0 — is there a goal in this by $goalsDeadline\'?',
           [
             _opt('yes', 'Reaches $goalTarget'),
             _opt('no', 'Stays under'),
@@ -741,11 +795,15 @@ class LiveMatchEngine extends ChangeNotifier {
           goalsDeadline,
           goalTarget,
         ),
-        2.0,
+        bias == 'flurry' ? 12.0 : 2.0,
       ),
       (
         _PromptDef(
-          'Next to beat the keeper before ${min(m + 15, 90)}\' — $strikerH or $strikerA?',
+          lastGoal != null && m - lastGoal.minute <= 3
+              ? '${lastGoal.name}\'s ${lastGoal.minute}\' just went in ($gH–$gA) — reply before ${min(m + 15, 90)}\'?'
+              : flurrySummary != null
+                  ? '$flurrySummary — next goal before ${min(m + 15, 90)}\'?'
+                  : 'Next to beat the keeper before ${min(m + 15, 90)}\' — $strikerH or $strikerA?',
           [
             _opt('home', '$strikerH (${fixture.home.code})', '${_win.home}%'),
             _opt('none', 'Nobody scores'),
@@ -756,7 +814,12 @@ class LiveMatchEngine extends ChangeNotifier {
           _Resolver.nextGoal,
           min(m + 15, 90),
         ),
-        1.4,
+        bias == 'next-goal' ||
+                bias == 'flurry' ||
+                bias == 'red' ||
+                bias == 'comeback'
+            ? 14.0
+            : 1.4,
       ),
       (
         _PromptDef(
@@ -828,6 +891,21 @@ class LiveMatchEngine extends ChangeNotifier {
           for (final g in _goals.reversed.take(6))
             "${g.minute}' ${g.name} (${g.teamCode})",
         ],
+        'narrative': [
+          for (final c in _pulse.reversed.take(4)) c.headline,
+        ],
+        'intensity': {
+          'goalsLast10Min': _goals.where((g) => m - g.minute <= 10).length,
+          'cardsLast5Min': _recentCardMinutes.where((t) => m - t <= 5).length,
+          'scoreJustChanged':
+              _goals.isNotEmpty && m - _goals.last.minute <= 3,
+          'isComeback': false,
+          'redCardActive': rH + rA > 0,
+          'momentumAbs': _momentum.abs(),
+          if (_goals.where((g) => m - g.minute <= 10).length >= 2)
+            'flurrySummary':
+                '${_goals.where((g) => m - g.minute <= 10).length} goals in ${max(1, m - _goals.where((g) => m - g.minute <= 10).first.minute)} minutes',
+        },
         'deadlineMinute': _resMeta[id]?[0],
       },
     );
@@ -997,6 +1075,7 @@ class LiveMatchEngine extends ChangeNotifier {
       _lastSide = accent;
     } else if (kind == 'chaos') {
       _lastEvent = 'card';
+      _lastSide = accent;
     }
   }
 

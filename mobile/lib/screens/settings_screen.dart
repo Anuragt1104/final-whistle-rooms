@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_client.dart';
+import '../data/player_portraits.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../theme.dart';
@@ -116,6 +118,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
+                _row(
+                  Icons.photo_library_outlined,
+                  'Player photo credits',
+                  '24 reusable portraits · exact-ID mapped',
+                  _showPhotoCredits,
+                ),
                 const SizedBox(height: 12),
                 Container(
                   decoration: cardBox(),
@@ -176,6 +184,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ],
     ),
   );
+
+  Future<void> _showPhotoCredits() async {
+    final credits = await loadPortraitAttributions();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.paper,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * .78,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 10, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text('PLAYER PHOTO CREDITS', style: display(20)),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Text(
+                  'Bundled from the original Wikimedia Commons source under the license shown. Images are resized, cropped and color-treated inside cards.',
+                  style: body(color: AppColors.mut, size: 11),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
+                  itemCount: credits.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 7),
+                  itemBuilder: (_, index) {
+                    final credit = credits[index];
+                    return ListTile(
+                      tileColor: AppColors.cream,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          credit.assetPath,
+                          width: 46,
+                          height: 54,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      title: Text(
+                        credit.name,
+                        style: body(weight: FontWeight.w800, size: 13),
+                      ),
+                      subtitle: Text(
+                        '${credit.license} · ${credit.author}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: body(color: AppColors.mut, size: 10),
+                      ),
+                      trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+                      onTap: () => launchUrl(
+                        Uri.parse(credit.sourcePage),
+                        mode: LaunchMode.externalApplication,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _row(
     IconData icon,

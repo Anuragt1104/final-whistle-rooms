@@ -8,6 +8,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Apply Google Services only when google-services.json is present (FCM).
+val hasGoogleServices = file("google-services.json").exists()
+if (hasGoogleServices) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Optional release signing — drop a `key.properties` next to this module's
 // android/ folder (see PLAYSTORE.md). If absent, release falls back to the
 // debug key so `flutter run --release` and local APK builds still work.
@@ -37,8 +43,6 @@ android {
         applicationId = "com.alenkamedia.final_whistle"
         minSdk = maxOf(flutter.minSdkVersion, 23) // Mobile Wallet Adapter needs API 23+
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
     }
 
     signingConfigs {

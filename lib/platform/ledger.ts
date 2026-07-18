@@ -8,6 +8,7 @@
  * records a revenue event here, so the business model is a running system the
  * judges can watch, not a slide.
  */
+import { economyStoreEnabled, persistRevenue, persistWallet } from "@/lib/db/durable";
 
 export type RevenueLayer =
   | "pass" // World Cup Pass premium unlocks
@@ -34,8 +35,30 @@ export interface WalletView {
   lifetimeSpent: number;
 }
 
-const balances = new Map<string, { credits: number; earned: number; spent: number }>();
-const revenue: RevenueEvent[] = [];
+const balances = (() => {
+  const g = globalThis as unknown as {
+    __fwr_ledger?: {
+      balances: Map<string, { credits: number; earned: number; spent: number }>;
+      revenue: RevenueEvent[];
+    };
+  };
+  if (!g.__fwr_ledger) {
+    g.__fwr_ledger = { balances: new Map(), revenue: [] };
+  }
+  return g.__fwr_ledger.balances;
+})();
+const revenue = (() => {
+  const g = globalThis as unknown as {
+    __fwr_ledger?: {
+      balances: Map<string, { credits: number; earned: number; spent: number }>;
+      revenue: RevenueEvent[];
+    };
+  };
+  if (!g.__fwr_ledger) {
+    g.__fwr_ledger = { balances: new Map(), revenue: [] };
+  }
+  return g.__fwr_ledger.revenue;
+})();
 
 function uid(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
@@ -51,6 +74,26 @@ function bal(fanId: string) {
   return b;
 }
 
+function scheduleWallet(fanId: string) {
+  if (!economyStoreEnabled()) return;
+  const b = bal(fanId);
+  void persistWallet(fanId, { ...b }).catch(() => undefined);
+}
+
+export function applyDurableWallet(
+  fanId: string,
+  wallet: { credits: number; earned: number; spent: number },
+) {
+  balances.set(fanId, { ...wallet });
+}
+
+export function applyDurableRevenue(events: unknown[]) {
+  revenue.length = 0;
+  for (const event of events) {
+    if (event && typeof event === "object") revenue.push(event as RevenueEvent);
+  }
+}
+
 export function walletOf(fanId: string): WalletView {
   const b = bal(fanId);
   return { fanId, credits: b.credits, lifetimeEarned: b.earned, lifetimeSpent: b.spent };
@@ -62,6 +105,7 @@ export function earn(fanId: string, amount: number, _reason: string): number {
   const b = bal(fanId);
   b.credits += amount;
   b.earned += amount;
+  scheduleWallet(fanId);
   return b.credits;
 }
 
@@ -71,6 +115,7 @@ export function spend(fanId: string, amount: number, _reason: string): number | 
   if (amount < 0 || b.credits < amount) return null;
   b.credits -= amount;
   b.spent += amount;
+  scheduleWallet(fanId);
   return b.credits;
 }
 
@@ -79,6 +124,7 @@ export function recordRevenue(layer: RevenueLayer, amount: number, unit: "FC" | 
   const ev: RevenueEvent = { id: uid("rev"), layer, amount, unit, detail, fanId, ts: Date.now() };
   revenue.push(ev);
   if (revenue.length > 500) revenue.shift();
+  void persistRevenue(ev).catch(() => undefined);
   return ev;
 }
 

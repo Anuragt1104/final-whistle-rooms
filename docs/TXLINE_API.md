@@ -5,10 +5,16 @@ data layer, verified against the OpenAPI spec (`docs.yaml` v1.5.2). The app
 talks to TxLINE through a single `TxLineSource` interface
 (`lib/txline/source.ts`) with two implementations:
 
-- **`SimulationSource`** (default, `TXLINE_MODE=simulation`) — deterministic,
-  seeded replay of TxLINE-shaped feeds. No credentials, always works. Ideal for
-  judges and the demo video (the brief calls replay mode "not optional").
+- **`SimulationSource`** (`TXLINE_MODE=simulation`) — deterministic, seeded
+  replay of TxLINE-shaped feeds for offline demos and CI. No credentials.
 - **`LiveSource`** (`TXLINE_MODE=live`) — the real client below.
+
+**Honest production vs historical:** the shipped Railway backend runs
+`TXLINE_MODE=live` against real World Cup fixtures/scores/odds streams. Replay
+/ historical endpoints power judge demos when a live match is unavailable —
+they do **not** invent production match state. Stadium Duels and Moment Arena
+use the fixed World Cup roster + immutable Moment lineage snapshots; they are
+not powered by fake “Bot Striker” cards.
 
 ## Runtime host
 
@@ -74,3 +80,16 @@ totals from `.Total` and period splits from `.H1` / `.H2`. Game phase comes from
 ints), and **`Pct`** — the de-margined implied percentages we display. Movement
 is computed by diffing successive payloads for the same `(SuperOddsType +
 MarketParameters + MarketPeriod)` line.
+
+## App surfaces that consume TxLINE proofs / odds sandwiches
+
+| Surface | How TxLINE shows up |
+|---|---|
+| Live rooms | SSE scores + odds → pulse, Next Swing, Merkle room proof |
+| Moment mint | Significant events + odds sandwich + optional `sourceEventId` |
+| Moment proof | Local Merkle over Moment leaves; room roots can anchor on Solana |
+| Moment Arena | Explicit seed Moment; lineage scoring uses kind / fixture / team / Called It |
+
+Internal Duel API (authenticated Solana session, not TxLINE):
+`POST /api/duels`, `POST /api/duels/join`, `POST /api/duels/:id/actions`,
+`GET /api/duels/:id`, `GET /api/duels/:id/stream` (personalized SSE).

@@ -24,6 +24,7 @@ import {
 import type { TxLineSource } from "@/lib/txline/source";
 import { getApiToken, getGuestJwt, refreshJwt, txlineBase, txlineHeaders } from "@/lib/txline/auth";
 import type { RawRecord } from "@/lib/explorer/types";
+import { STATUS_IDS } from "@/lib/explorer/spec";
 import { normalizeMatchRecords, type VerifiedMatchEvent } from "@/lib/txline/match-intelligence";
 
 // FIFA World Cup 2026 competition id (override via env if TxLINE uses another).
@@ -107,6 +108,9 @@ const PHASE_MAP: Record<string, GamePhase> = {
   FET: GamePhase.Finished,
   FPE: GamePhase.Finished,
   A: GamePhase.Abandoned,
+  C: GamePhase.Cancelled,
+  TXCC: GamePhase.CoveragePaused,
+  TXCS: GamePhase.CoveragePaused,
 };
 function mapPhase(gameState?: string): GamePhase {
   if (!gameState) return GamePhase.PreMatch;
@@ -131,26 +135,30 @@ interface TxScores {
   FixtureId?: number;
   fixtureId?: number;
   GameState?: string;
+  /** Prefer this over GameState when present (official SoccerFixtureStatus table). */
+  StatusId?: number;
   Seq?: number;
   Ts?: number;
   Participant1IsHome?: boolean;
   Clock?: { Running?: boolean; Seconds?: number };
   Score?: { Participant1?: ScoreObj; Participant2?: ScoreObj };
   Stats?: Record<string, number>;
+  CoverageSecondaryData?: boolean;
 }
 
-// TxLINE SoccerFixtureStatus codes that aren't plain play — surfaced to fans.
+// Official TxLINE SoccerFixtureStatus notes (NOT cooling breaks).
+// Water-drinking breaks arrive as comment actions with Data.Text, not these codes.
 const STATUS_NOTES: Record<string, string> = {
-  C: "Cooling break",
-  TXCC: "Cooling break",
-  TXCS: "Cooling break",
+  C: "Cancelled",
+  TXCC: "Coverage cancelled",
+  TXCS: "Coverage suspended",
   I: "Interruption",
   HT: "Half-time",
   HTET: "Extra-time half-time",
   WET: "Extra time soon",
   WPE: "Penalties soon",
   PE: "Penalties",
-  P: "Penalty",
+  P: "Postponed",
   A: "Abandoned",
 };
 function noteFrom(gameState?: string): string | undefined {
@@ -163,6 +171,11 @@ function phaseFrom(gameState: string | undefined, running: boolean, minute: numb
   const upper = raw.toUpperCase();
   const gs = raw.toLowerCase();
   const exact = PHASE_MAP[upper];
+
+  // Coverage / cancel codes win even if a clock blip says running.
+  if (upper === "C") return GamePhase.Cancelled;
+  if (upper === "TXCC" || upper === "TXCS") return GamePhase.CoveragePaused;
+  if (upper === "P") return GamePhase.PreMatch;
 
   // A running clock is never terminal, even when the provider briefly emits a
   // regulation-time/full-time marker before extra time starts.
@@ -254,7 +267,10 @@ export function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
   const yellow = total(3, 4, "YellowCards");
   const red = total(5, 6, "RedCards");
   const corners = total(7, 8, "Corners");
-  const phase = phaseFrom(s.GameState, running, minute);
+  // Prefer StatusId (canonical table) over GameState string when both exist.
+  const fromStatusId = s.StatusId != null ? STATUS_IDS[s.StatusId]?.code : undefined;
+  const gameState = fromStatusId ?? s.GameState;
+  const phase = phaseFrom(gameState, running, minute);
 
   return {
     fixtureId,
@@ -265,7 +281,8 @@ export function mapScores(s: TxScores, seq: number, ts: string): ScoreSnapshot {
     clockSeconds,
     running,
     updatedAt: s.Ts ?? Date.now(),
-    statusNote: noteFrom(s.GameState),
+    statusNote: noteFrom(gameState),
+    coverageSecondary: s.CoverageSecondaryData === true,
     goals,
     yellow,
     red,

@@ -35,6 +35,8 @@ function makePrompt() {
     locksAtMinute: 30,
     status: "open",
     createdAt: Date.now(),
+    openedAtMinute: 25,
+    openedAtSeq: 900,
   };
 }
 
@@ -99,6 +101,25 @@ test("correct answer still earns a fallback Moment with no recent event", async 
   const inv = inventoryOf("fan-a2");
   assert.equal(inv.moments.length, 1);
   assert.equal(inv.moments[0].kind, "market-swing");
+  assert.equal(inv.moments[0].sourceEventId, `call:${prompt.id}`);
+});
+
+test("correct-call reward is windowed and retry-idempotent", async () => {
+  __resetRoomsForTests();
+  __resetCardEconomyForTests();
+  const joined = await joinOfficialHubForFixture(fixture, { name: "A", walletPubkey: "fan-window" }, { autoStart: false });
+  const rt = getRoomRuntime(joined.roomId);
+  const prompt = makePrompt();
+  rt.prompts.set(prompt.id, prompt);
+  rt.recentMintables.push({ event: { kind: "goal", side: "home", minute: 20, seq: 899, sourceEventId: "old", label: "Old goal" }, oddsSandwich: { before: { home: .3, draw: .4, away: .3 }, after: { home: .4, draw: .3, away: .3 } }, priorHomeProb: .3 });
+  assert.ok(submitPrediction(rt.id, joined.memberId, prompt.id, "home").ok);
+  __settlePromptForTests(rt, prompt, "home");
+  __settlePromptForTests(rt, prompt, "home");
+  const inv = inventoryOf("fan-window");
+  assert.equal(inv.moments.length, 1);
+  assert.equal(inv.packs.length, 1);
+  assert.equal(inv.moments[0].sourceEventId, `call:${prompt.id}`);
+  assert.equal(rt.momentDrops.length, 1);
 });
 
 test("prompt-writer validator rejects malformed LLM output", () => {

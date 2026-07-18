@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
 import 'live_data.dart';
+import '../duel/duel_models.dart';
+import '../state/identity.dart';
 
 class AppConfig {
   final String mode, cluster, anchorCluster;
@@ -48,6 +51,8 @@ class ApiClient {
   final http.Client _http = http.Client();
   String _baseUrl = _platformDefault();
   String get baseUrl => _baseUrl;
+  String? _duelToken;
+  DateTime? _duelTokenExpiresAt;
 
   static const _defineBase = String.fromEnvironment('API_BASE');
 
@@ -121,6 +126,23 @@ class ApiClient {
     await prefs.setString('api_base', _baseUrl);
   }
 
+  /// Register an FCM device token so the backend can target this install.
+  Future<void> registerDevice(
+    String token,
+    String platform, {
+    List<String> fixtureIds = const [],
+  }) async {
+    try {
+      await _post('/api/devices/register', {
+        'token': token,
+        'platform': platform,
+        'fixtureIds': fixtureIds,
+      });
+    } catch (_) {
+      // push registration is best-effort
+    }
+  }
+
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
   Future<dynamic> _get(
@@ -132,6 +154,7 @@ class ApiClient {
     if (res.statusCode >= 400) {
       throw ApiException(
         data is Map ? (data['error'] ?? 'Request failed') : 'Request failed',
+        statusCode: res.statusCode,
       );
     }
     return data;
@@ -153,9 +176,94 @@ class ApiClient {
     if (res.statusCode >= 400) {
       throw ApiException(
         data is Map ? (data['error'] ?? 'Request failed') : 'Request failed',
+        statusCode: res.statusCode,
       );
     }
     return data;
+  }
+
+  Future<dynamic> _authorizedGet(String path) async {
+    final token = await ensureDuelSession();
+    final res = await _http.get(
+      _uri(path),
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(const Duration(seconds: 8));
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : {};
+    if (res.statusCode >= 400) {
+      throw ApiException(
+        data is Map ? (data['error'] ?? 'Request failed') : 'Request failed',
+        statusCode: res.statusCode,
+      );
+    }
+    return data;
+  }
+
+  Future<dynamic> _authorizedPost(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final token = await ensureDuelSession();
+    final res = await _http
+        .post(
+          _uri(path),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 10));
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : {};
+    if (res.statusCode >= 400) {
+      throw ApiException(
+        data is Map ? (data['error'] ?? 'Request failed') : 'Request failed',
+        statusCode: res.statusCode,
+      );
+    }
+    return data;
+  }
+
+  String newActionId() {
+    final random = Random.secure();
+    final entropy = List.generate(
+      12,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    return '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-$entropy';
+  }
+
+  Future<String> ensureDuelSession() async {
+    final cached = _duelToken;
+    if (cached != null &&
+        (_duelTokenExpiresAt?.isAfter(
+              DateTime.now().add(const Duration(minutes: 1)),
+            ) ??
+            false)) {
+      return cached;
+    }
+    final identity = await IdentityStore.getOrCreate();
+    final nonceRaw = await _post('/api/auth/nonce', {
+      'wallet': identity.pubkey,
+    });
+    final nonce = '${nonceRaw['nonce'] ?? ''}';
+    final message =
+        '${nonceRaw['message'] ?? 'Final Whistle Duel authentication:$nonce'}';
+    final signature = await IdentityStore.sign(message);
+    final verified = await _post('/api/auth/verify', {
+      'wallet': identity.pubkey,
+      'nonce': nonce,
+      'message': message,
+      'signature': signature,
+    });
+    final token = '${verified['token'] ?? verified['sessionToken'] ?? ''}';
+    if (token.isEmpty) throw ApiException('Duel authentication failed');
+    _duelToken = token;
+    final expiresAt = verified['expiresAt'];
+    _duelTokenExpiresAt = expiresAt is num
+        ? DateTime.fromMillisecondsSinceEpoch(expiresAt.toInt())
+        : DateTime.tryParse('$expiresAt') ??
+              DateTime.now().add(const Duration(hours: 1));
+    return token;
   }
 
   Future<dynamic> _delete(
@@ -167,6 +275,7 @@ class ApiClient {
     if (res.statusCode >= 400) {
       throw ApiException(
         data is Map ? (data['error'] ?? 'Request failed') : 'Request failed',
+        statusCode: res.statusCode,
       );
     }
     return data;
@@ -272,11 +381,13 @@ class ApiClient {
     String id,
     String memberId,
     String promptId,
-    String optionKey,
-  ) => _post('/api/rooms/$id/predict', {
+    String optionKey, {
+    String? actionId,
+  }) => _post('/api/rooms/$id/predict', {
     'memberId': memberId,
     'promptId': promptId,
     'optionKey': optionKey,
+    if (actionId != null) 'actionId': actionId,
   });
 
   Future<void> chat(
@@ -370,6 +481,78 @@ class ApiClient {
   Future<Map<String, dynamic>> getDuel(String id) async =>
       (await _get('/api/duels/$id')) as Map<String, dynamic>;
 
+  Future<DuelViewModel> createStadiumDuel({
+    required List<String> hand,
+    required List<String> skillIds,
+    required DuelOpponent opponent,
+    String? actionId,
+  }) async {
+    final raw = await _authorizedPost('/api/duels', {
+      'mode': 'stadium',
+      'opponentType': opponent.name,
+      'opponent': opponent.name,
+      'hand': hand,
+      'skillIds': skillIds,
+      'actionId': actionId ?? newActionId(),
+    });
+    return DuelViewModel.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<DuelViewModel> createMomentArena({
+    required List<String> hand,
+    required List<String> skillIds,
+    required String seedMomentId,
+    String? actionId,
+  }) async {
+    final raw = await _authorizedPost('/api/duels', {
+      'mode': 'arena',
+      'opponent': 'house',
+      'hand': hand,
+      'skillIds': skillIds,
+      'seedMomentId': seedMomentId,
+      'actionId': actionId ?? newActionId(),
+    });
+    return DuelViewModel.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<DuelViewModel> joinStadiumDuel({
+    required String code,
+    required List<String> hand,
+    required List<String> skillIds,
+    String? actionId,
+  }) async {
+    final raw = await _authorizedPost('/api/duels/join', {
+      'code': code.trim().toUpperCase(),
+      'hand': hand,
+      'skillIds': skillIds,
+      'actionId': actionId ?? newActionId(),
+    });
+    return DuelViewModel.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<DuelViewModel> duelAction({
+    required String duelId,
+    required String type,
+    Map<String, dynamic> payload = const {},
+    String? actionId,
+    int? expectedVersion,
+  }) async {
+    final raw = await _authorizedPost('/api/duels/$duelId/actions', {
+      'type': type,
+      ...payload,
+      'actionId': actionId ?? newActionId(),
+      if (expectedVersion != null) 'expectedVersion': expectedVersion,
+    });
+    return DuelViewModel.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<DuelViewModel> duelView(String id) async {
+    final raw = await _authorizedGet('/api/duels/$id');
+    return DuelViewModel.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<String> duelBearerToken() => ensureDuelSession();
+
   // ---- platform economy (Fan Credits, Pass, Market, Shop, Mint, HQ) ----
 
   Future<Map<String, dynamic>> platformWallet(String fanId) async =>
@@ -452,7 +635,9 @@ class ApiClient {
 
 class ApiException implements Exception {
   final String message;
-  ApiException(this.message);
+  final int? statusCode;
+  ApiException(this.message, {this.statusCode});
+  bool get isNotFound => statusCode == 404;
   @override
   String toString() => message;
 }

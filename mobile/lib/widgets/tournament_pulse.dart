@@ -20,7 +20,13 @@ class TournamentPulse extends StatelessWidget {
     (104, 'F'),
   ];
 
-  String _currentStage(int played) {
+  String _currentStage(int played, int total, int remaining) {
+    // Full 104-match WC ladder only when the feed is the complete tournament.
+    if (total < 104) {
+      if (remaining <= 0) return 'COMPLETE';
+      if (remaining == 1) return '1 REMAINING';
+      return '$remaining REMAINING';
+    }
     if (played < 72) return 'GROUP STAGE';
     if (played < 88) return 'ROUND OF 32';
     if (played < 96) return 'ROUND OF 16';
@@ -32,10 +38,13 @@ class TournamentPulse extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = fixtures.length >= 104 ? fixtures.length : 104;
+    // Trust the feed length — never invent a 104-match total for a partial API list.
+    final total = fixtures.isEmpty ? 0 : fixtures.length;
     final played = fixtures.where((f) => f.status == 'finished').length;
     final liveNow = fixtures.where((f) => f.status == 'live').length;
+    final remaining = (total - played - liveNow).clamp(0, total);
     if (fixtures.isEmpty) return const SizedBox.shrink();
+    final fullLadder = total >= 104;
     return Container(
       decoration: cardBox(),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -60,7 +69,7 @@ class TournamentPulse extends StatelessWidget {
                   borderRadius: BorderRadius.circular(99),
                 ),
                 child: Text(
-                  _currentStage(played),
+                  _currentStage(played, total, remaining),
                   style: label(
                     color: AppColors.cream,
                     size: 8,
@@ -77,6 +86,15 @@ class TournamentPulse extends StatelessWidget {
                 ' of $total played',
                 style: body(color: AppColors.mut, size: 11.5),
               ),
+              if (remaining > 0)
+                Text(
+                  ' · $remaining left',
+                  style: body(
+                    color: AppColors.ink,
+                    size: 11.5,
+                    weight: FontWeight.w800,
+                  ),
+                ),
               if (liveNow > 0)
                 Text(
                   ' · $liveNow live',
@@ -93,6 +111,9 @@ class TournamentPulse extends StatelessWidget {
           LayoutBuilder(
             builder: (_, box) {
               final w = box.maxWidth;
+              final progress = total == 0
+                  ? 0.0
+                  : (played / total).clamp(0.0, 1.0);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -108,10 +129,7 @@ class TournamentPulse extends StatelessWidget {
                           ),
                         ),
                         TweenAnimationBuilder<double>(
-                          tween: Tween(
-                            begin: 0,
-                            end: (played / total).clamp(0.0, 1.0),
-                          ),
+                          tween: Tween(begin: 0, end: progress),
                           duration: const Duration(milliseconds: 900),
                           curve: Curves.easeOutCubic,
                           builder: (_, v, __) => FractionallySizedBox(
@@ -127,57 +145,58 @@ class TournamentPulse extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // stage boundary ticks
-                        for (final (n, _) in _stageBoundaries.take(
-                          _stageBoundaries.length - 1,
-                        ))
-                          Positioned(
-                            left: w * n / total - 1,
-                            top: 2,
-                            bottom: 2,
-                            child: Container(
-                              width: 2,
-                              color: played >= n
-                                  ? const Color(0x66FFFFFF)
-                                  : AppColors.line,
+                        if (fullLadder)
+                          for (final (n, _) in _stageBoundaries.take(
+                            _stageBoundaries.length - 1,
+                          ))
+                            Positioned(
+                              left: w * n / total - 1,
+                              top: 2,
+                              bottom: 2,
+                              child: Container(
+                                width: 2,
+                                color: played >= n
+                                    ? const Color(0x66FFFFFF)
+                                    : AppColors.line,
+                              ),
                             ),
-                          ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  // stage labels under their segments
-                  SizedBox(
-                    height: 12,
-                    child: Stack(
-                      children: [
-                        for (var i = 0; i < _stageBoundaries.length; i++)
-                          Positioned(
-                            left: i == 0
-                                ? 0
-                                : w * _stageBoundaries[i - 1].$1 / total,
-                            width: i == 0
-                                ? w * 72 / total
-                                : w *
-                                      (_stageBoundaries[i].$1 -
-                                          _stageBoundaries[i - 1].$1) /
-                                      total,
-                            child: Center(
-                              child: Text(
-                                _stageBoundaries[i].$2,
-                                style: label(
-                                  color: played >= _stageBoundaries[i].$1
-                                      ? AppColors.orange
-                                      : AppColors.mut,
-                                  size: 7,
-                                  weight: FontWeight.w800,
+                  if (fullLadder) ...[
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      height: 12,
+                      child: Stack(
+                        children: [
+                          for (var i = 0; i < _stageBoundaries.length; i++)
+                            Positioned(
+                              left: i == 0
+                                  ? 0
+                                  : w * _stageBoundaries[i - 1].$1 / total,
+                              width: i == 0
+                                  ? w * 72 / total
+                                  : w *
+                                        (_stageBoundaries[i].$1 -
+                                            _stageBoundaries[i - 1].$1) /
+                                        total,
+                              child: Center(
+                                child: Text(
+                                  _stageBoundaries[i].$2,
+                                  style: label(
+                                    color: played >= _stageBoundaries[i].$1
+                                        ? AppColors.orange
+                                        : AppColors.mut,
+                                    size: 7,
+                                    weight: FontWeight.w800,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               );
             },

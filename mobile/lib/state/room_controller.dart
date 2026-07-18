@@ -18,6 +18,8 @@ class RoomController extends ChangeNotifier {
   RoomView? _remoteRoom;
   bool connected = false;
   bool notFound = false;
+  /// Network / parse failure distinct from a true 404.
+  String? loadError;
   String? memberId;
   Map<String, String> _myPicks = {};
 
@@ -37,8 +39,18 @@ class RoomController extends ChangeNotifier {
     _myPicks = await LocalStore.picks(roomId);
     try {
       _remoteRoom = await api.room(roomId);
-    } catch (_) {
-      notFound = true;
+      notFound = false;
+      loadError = null;
+    } catch (e) {
+      if (e is ApiException && e.isNotFound) {
+        notFound = true;
+        loadError = null;
+      } else {
+        notFound = false;
+        loadError = e is ApiException
+            ? e.message
+            : 'Can\'t reach the server — check Settings → Server.';
+      }
     }
     notifyListeners();
 
@@ -46,6 +58,7 @@ class RoomController extends ChangeNotifier {
     _sse!.rooms.listen((r) {
       _remoteRoom = r;
       notFound = false;
+      loadError = null;
       notifyListeners();
     });
     _sse!.connection.listen((c) {

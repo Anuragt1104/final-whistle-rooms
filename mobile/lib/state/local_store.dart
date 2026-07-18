@@ -166,4 +166,41 @@ class LocalStore {
     final p = await SharedPreferences.getInstance();
     await p.setBool('reduced_motion', value);
   }
+
+  static Future<bool> duelMuted() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool('duel_muted') ?? false;
+  }
+
+  static Future<void> setDuelMuted(bool value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('duel_muted', value);
+  }
+
+  static Future<String?> activeDuelId() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString('active_duel_id');
+  }
+
+  static Future<void> setActiveDuelId(String? duelId) async {
+    final p = await SharedPreferences.getInstance();
+    if (duelId == null || duelId.isEmpty) {
+      await p.remove('active_duel_id');
+    } else {
+      await p.setString('active_duel_id', duelId);
+    }
+  }
+
+  static Future<int> lastAnimatedDuelRound(String duelId) async {
+    final p = await SharedPreferences.getInstance();
+    return p.getInt('duel_animated_$duelId') ?? 0;
+  }
+
+  static Future<void> setLastAnimatedDuelRound(
+    String duelId,
+    int round,
+  ) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('duel_animated_$duelId', round);
+  }
 }

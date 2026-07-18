@@ -21,6 +21,16 @@ export interface PromptContext {
   recentEvents: string[];
   /** Recent pulse-feed headlines — the room's running narrative. */
   narrative: string[];
+  /** High-drama flags so rewrites lean into flurries, comebacks, and cards. */
+  intensity?: {
+    goalsLast10Min: number;
+    cardsLast5Min: number;
+    scoreJustChanged: boolean;
+    isComeback: boolean;
+    redCardActive: boolean;
+    momentumAbs: number;
+    flurrySummary?: string;
+  };
 }
 
 const SYSTEM_PROMPT =
@@ -28,6 +38,8 @@ const SYSTEM_PROMPT =
   "You are given the match situation and a mechanically-generated question with fixed option keys. " +
   "Rewrite ONLY the question text and option labels to be vivid, specific to this exact moment — " +
   "reference the score, minute, named players, momentum, and stakes when the context provides them. " +
+  "When intensity is high (goal flurries, comebacks, red cards, chaos), lean hard into the drama — " +
+  "name the flurry, the chase, the 10-men stakes — without inventing events that are not in context. " +
   "Rules: the rewritten question MUST ask for exactly the same thing the original resolves " +
   "(same outcome, same deadline minute, same teams/sides per option key); never change what an option key means; " +
   "no betting/money language; question under 120 characters; each label under 32 characters; " +

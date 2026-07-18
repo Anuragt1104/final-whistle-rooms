@@ -1,3 +1,3 @@
-# Between-match Trump Duel and Moment Arena — not roster fantasy
+# Between-match Stadium Duel and Moment Arena — not roster fantasy
 
-Playable cards are used in short 1v1 Duels between Fixtures (and in optional Parties), not as a season-long fantasy roster that auto-scores from live stats. Default mode is Trump Duel (axis comparison, Skill modifiers). Featured mode is Moment Arena seeded by a verified Moment. This keeps real-time watching focused on Moments and Micro-Plays, and puts strategic card play in a demoable, mobile-length loop.
+Playable cards are used in short 1v1 Duels between Fixtures (and in optional Parties), not as a season-long fantasy roster that auto-scores from live stats. Default mode is **Stadium Duel** (House commitment or Friend invite; axis comparison + Skill modifiers). Featured mode is **Moment Arena** seeded by an explicitly chosen verified Moment with lineage scoring. Authoritative state lives in `lib/duel/` behind signed Solana sessions; clients never supply opponent cards. This keeps real-time watching focused on Moments and Micro-Plays, and puts strategic card play in a demoable, mobile-length loop.

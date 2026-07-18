@@ -1,14 +1,13 @@
-import 'dart:math' as math;
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
-import '../api/api_client.dart';
 import '../api/cards.dart';
-import '../state/identity.dart';
+import '../duel/duel_controller.dart';
+import '../duel/duel_models.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/duel/duel_stadium.dart';
 import '../widgets/gyro_card.dart';
 
 const _axes = ['finishing', 'chaos', 'clutch', 'marketShock', 'aura'];
@@ -16,736 +15,982 @@ const _axes = ['finishing', 'chaos', 'clutch', 'marketShock', 'aura'];
 class DuelScreen extends StatefulWidget {
   final List<PlayerCardModel> players;
   final List<MomentCard> moments;
-  const DuelScreen({super.key, required this.players, required this.moments});
+  final List<SkillCardModel> skills;
+  final String? resumeDuelId;
+  /// 0 House · 1 Friend · 2 Moment Arena
+  final int initialSetupMode;
+
+  const DuelScreen({
+    super.key,
+    required this.players,
+    required this.moments,
+    this.skills = const [],
+    this.resumeDuelId,
+    this.initialSetupMode = 2,
+  });
+
   @override
   State<DuelScreen> createState() => _DuelScreenState();
 }
 
 class _DuelScreenState extends State<DuelScreen> {
-  final _api = ApiClient.instance;
-  final Set<String> _hand = {};
+  late final DuelController _controller = DuelController(
+    players: widget.players,
+    moments: widget.moments,
+    skills: widget.skills,
+  );
   final CardMotionController _motion = CardMotionController();
-  TrumpDuelModel? _duel;
-  String _axis = 'finishing';
-  String? _playCardId;
-  String? _seedMomentId;
-  String? _err;
-  bool _busy = false;
-  Timer? _arenaTimer;
-  int? _visibleArenaRounds;
+  final TextEditingController _code = TextEditingController();
+  late int _setupMode; // House, Friend, Moment Arena
+  bool _showJoin = false;
 
   @override
   void initState() {
     super.initState();
+    _setupMode = widget.initialSetupMode.clamp(0, 2);
+    _controller.addListener(_onChange);
     _motion.start();
-    if (widget.moments.isNotEmpty) _seedMomentId = widget.moments.first.id;
+    _controller.init(resumeDuelId: widget.resumeDuelId);
+  }
+
+  void _onChange() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _arenaTimer?.cancel();
+    _controller.removeListener(_onChange);
+    _controller.dispose();
+    _code.dispose();
     _motion.dispose();
     super.dispose();
   }
 
-  Future<String> _fanId() async => (await IdentityStore.getOrCreate()).pubkey;
-
-  Future<void> _start({bool arena = false}) async {
-    if (_hand.length != 3) {
-      setState(() => _err = 'Lock exactly 3 Player Cards into your hand');
-      return;
-    }
-    if (arena && _seedMomentId == null) {
-      setState(() => _err = 'Choose a Moment to charge the arena');
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _err = null;
-    });
-    try {
-      final fanId = await _fanId();
-      final hand = _hand.toList();
-      final raw = arena
-          ? await _api.createArena(
-              fanId: fanId,
-              seedMomentId: _seedMomentId!,
-              hand: hand,
-            )
-          : await _api.createDuel(fanId: fanId, hand: hand, vsBot: true);
-      if (!mounted) return;
-      setState(() {
-        _duel = TrumpDuelModel.fromJson(raw);
-        _playCardId = hand.first;
-        _busy = false;
-        _visibleArenaRounds = arena ? 0 : null;
-      });
-      if (arena) _animateArenaRounds();
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          _err = e.toString();
-          _busy = false;
-        });
-    }
-  }
-
-  void _animateArenaRounds() {
-    _arenaTimer?.cancel();
-    _arenaTimer = Timer.periodic(const Duration(milliseconds: 850), (timer) {
-      final total = _duel?.rounds.length ?? 0;
-      if (!mounted || (_visibleArenaRounds ?? total) >= total) {
-        timer.cancel();
-        return;
-      }
-      HapticFeedback.mediumImpact();
-      setState(() => _visibleArenaRounds = (_visibleArenaRounds ?? 0) + 1);
-    });
-  }
-
-  Future<void> _playRound() async {
-    final d = _duel;
-    if (d == null || _playCardId == null) return;
-    setState(() => _busy = true);
-    try {
-      final fanId = await _fanId();
-      final raw = await _api.playDuelRound(
-        duelId: d.id,
-        fanId: fanId,
-        axis: _axis,
-        cardId: _playCardId!,
-      );
-      if (!mounted) return;
-      final next = TrumpDuelModel.fromJson(raw);
-      final used = next.rounds
-          .map((r) => (r as Map)['aCardId']?.toString())
-          .whereType<String>()
-          .toSet();
-      final remaining = next.challengerHand
-          .where((id) => !used.contains(id))
-          .toList();
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _duel = next;
-        _playCardId = remaining.isEmpty ? null : remaining.first;
-        _busy = false;
-      });
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          _err = e.toString();
-          _busy = false;
-        });
-    }
-  }
-
-  PlayerCardModel _player(String id) => widget.players.firstWhere(
-    (p) => p.id == id,
-    orElse: () => widget.players.first,
-  );
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF07130F),
-      appBar: AppBar(
-        foregroundColor: Colors.white,
-        backgroundColor: const Color(0xFF07130F),
-        title: Text(
-          _duel == null ? 'BUILD YOUR HAND' : 'STADIUM DUEL',
-          style: label(color: Colors.white, weight: FontWeight.w800),
-        ),
+    final duel = _controller.view;
+    return PopScope(
+      canPop: !_controller.presentation.busy,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF03110C),
+        body: duel == null ? _setup() : _stadium(duel),
       ),
-      body: _duel == null ? _pickHand() : _arena(),
     );
   }
 
-  Widget _pickHand() {
-    return Column(
+  Widget _setup() => SafeArea(
+    child: Column(
       children: [
-        _stadiumHeader(
-          'CHOOSE YOUR THREE',
-          '${_hand.length}/3 locked · best of three',
+        _topBar('BUILD YOUR DUEL'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+          child: Row(
+            children: [
+              _modeButton('HOUSE', 0, Icons.stadium_rounded),
+              const SizedBox(width: 7),
+              _modeButton('FRIEND', 1, Icons.group_rounded),
+              const SizedBox(width: 7),
+              _modeButton('MOMENT', 2, Icons.bolt_rounded),
+            ],
+          ),
         ),
-        _handSlots(),
         Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 2.5 / 3.5,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 14,
-            ),
-            itemCount: widget.players.length,
-            itemBuilder: (_, i) {
-              final p = widget.players[i];
-              final selected = _hand.contains(p.id);
-              return GyroTiltCard(
-                motion: _motion,
-                selected: selected,
-                borderColor: selected
-                    ? AppColors.orangeBright
-                    : teamColor(p.teamCode),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() {
-                    if (selected)
-                      _hand.remove(p.id);
-                    else if (_hand.length < 3)
-                      _hand.add(p.id);
-                  });
-                },
-                child: PlayerCardFace(
-                  name: p.name,
-                  teamCode: p.teamCode,
-                  position: p.position,
-                  imageUrl: p.imageUrl,
-                  axes: p.axes,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+            children: [
+              if (_controller.players.length < 3) ...[
+                _messageCard(
+                  'Need 3 Player Cards to duel. Load a demo set to test Arena now.',
                 ),
-              );
-            },
-          ),
-        ),
-        if (widget.moments.isNotEmpty) _momentCharger(),
-        if (_err != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              _err!,
-              style: body(color: const Color(0xFFFF8A80), size: 12),
-            ),
-          ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: GhostButton(
-                    'Moment Arena',
-                    expand: true,
-                    onTap: _busy || _hand.length != 3 || _seedMomentId == null
+                const SizedBox(height: 10),
+                PrimaryButton(
+                  'Load demo cards',
+                  icon: Icons.auto_awesome_rounded,
+                  expand: true,
+                  busy: _controller.seeding,
+                  onTap: _controller.loadDemoCards,
+                ),
+                const SizedBox(height: 18),
+              ] else ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _controller.seeding
                         ? null
-                        : () => _start(arena: true),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: PrimaryButton(
-                    'Face the House',
-                    expand: true,
-                    busy: _busy,
-                    onTap: _busy || _hand.length != 3 ? null : () => _start(),
+                        : _controller.loadDemoCards,
+                    child: Text(
+                      _controller.seeding ? 'Loading…' : 'Reload demo cards',
+                      style: label(color: AppColors.orangeBright, size: 10),
+                    ),
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _stadiumHeader(String title, String sub) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(colors: [Color(0xFF153D2C), Color(0xFF07130F)]),
-    ),
-    child: Column(
-      children: [
-        Text(title, style: display(25, color: Colors.white)),
-        const SizedBox(height: 3),
-        Text(sub, style: body(color: const Color(0xFF93B9A8), size: 12)),
-      ],
-    ),
-  );
-
-  Widget _handSlots() {
-    final ids = _hand.toList();
-    return Container(
-      height: 68,
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D2119),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF28563F)),
-      ),
-      child: Row(
-        children: List.generate(3, (i) {
-          final p = i < ids.length ? _player(ids[i]) : null;
-          return Expanded(
-            child: Container(
-              margin: EdgeInsets.only(right: i == 2 ? 0 : 7),
-              decoration: BoxDecoration(
-                color: const Color(0xFF07130F),
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(
-                  color: p == null
-                      ? const Color(0xFF28563F)
-                      : AppColors.orangeBright,
-                ),
+              _sectionTitle(
+                'LOCK YOUR THREE',
+                '${_controller.selectedHand.length}/3 selected',
               ),
-              alignment: Alignment.center,
-              child: Text(
-                p?.name.split(' ').last.toUpperCase() ?? 'EMPTY',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: label(
-                  color: p == null ? const Color(0xFF587A6B) : Colors.white,
-                  size: 9,
-                  weight: FontWeight.w800,
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-
-  Widget _momentCharger() => SizedBox(
-    height: 58,
-    child: ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(right: 10),
-          child: Center(
-            child: Text(
-              'ARENA CHARGE',
-              style: label(
-                color: const Color(0xFF93B9A8),
-                size: 9,
-                weight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-        ...widget.moments.map((m) {
-          final on = m.id == _seedMomentId;
-          return GestureDetector(
-            onTap: () => setState(() => _seedMomentId = m.id),
-            child: Container(
-              width: 112,
-              margin: const EdgeInsets.only(right: 8, bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: on
-                    ? rarityBorder(m.rarity).withValues(alpha: 0.28)
-                    : const Color(0xFF0D2119),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: on ? rarityBorder(m.rarity) : const Color(0xFF28563F),
-                ),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                '${kindGlyph(m.kind)} ${m.rarity}★ ${m.minute}\'',
-                maxLines: 1,
-                style: label(color: Colors.white, size: 9),
-              ),
-            ),
-          );
-        }),
-      ],
-    ),
-  );
-
-  Widget _arena() {
-    final d = _duel!;
-    final visibleRounds = d.mode == 'arena'
-        ? d.rounds.take(_visibleArenaRounds ?? d.rounds.length).toList()
-        : d.rounds;
-    final arenaAnimating =
-        d.mode == 'arena' && visibleRounds.length < d.rounds.length;
-    final mine = visibleRounds
-        .where((r) => (r as Map)['winnerId'] == d.challengerId)
-        .length;
-    final house = visibleRounds
-        .where((r) => (r as Map)['winnerId'] == 'bot')
-        .length;
-    final used = visibleRounds
-        .map((r) => (r as Map)['aCardId']?.toString())
-        .whereType<String>()
-        .toSet();
-    final remaining = d.challengerHand
-        .where((id) => !used.contains(id))
-        .toList();
-    final last = visibleRounds.isEmpty ? null : visibleRounds.last as Map;
-    return Stack(
-      children: [
-        Positioned.fill(child: CustomPaint(painter: _PitchPainter())),
-        SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              _scoreBoard(mine, house, visibleRounds.length),
-              Expanded(
-                child: Center(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 520),
-                    transitionBuilder: (child, a) => ScaleTransition(
-                      scale: CurvedAnimation(
-                        parent: a,
-                        curve: Curves.easeOutBack,
-                      ),
-                      child: FadeTransition(opacity: a, child: child),
-                    ),
-                    child: Container(
-                      key: ValueKey(visibleRounds.length),
-                      width: 300,
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: const Color(0xE60A1812),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: AppColors.orangeBright,
-                          width: 1.5,
-                        ),
-                        boxShadow: const [
-                          BoxShadow(color: Color(0x66000000), blurRadius: 28),
-                        ],
-                      ),
-                      child: last == null
-                          ? Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  '🂠',
-                                  style: TextStyle(fontSize: 54),
-                                ),
-                                Text(
-                                  'THE HOUSE AWAITS',
-                                  style: display(19, color: Colors.white),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '${last['axis']}'.toUpperCase(),
-                                  style: label(
-                                    color: AppColors.orangeBright,
-                                    size: 10,
-                                    weight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _duelCard(_player('${last['aCardId']}')),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                      child: Text(
-                                        'VS',
-                                        style: display(
-                                          20,
-                                          color: AppColors.orangeBright,
-                                        ),
-                                      ),
-                                    ),
-                                    _houseCardBack(),
-                                  ],
-                                ),
-                                const SizedBox(height: 9),
-                                Text(
-                                  '${last['aValue']}  VS  ${last['bValue']}',
-                                  style: display(32, color: Colors.white),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  last['winnerId'] == d.challengerId
-                                      ? 'ROUND TO YOU 👑'
-                                      : last['winnerId'] == 'bot'
-                                      ? 'HOUSE TAKES IT'
-                                      : 'DRAW',
-                                  style: label(
-                                    color: last['winnerId'] == d.challengerId
-                                        ? const Color(0xFF6EF2A4)
-                                        : const Color(0xFFFF8A80),
-                                    size: 11,
-                                    weight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
+              const SizedBox(height: 9),
+              if (_controller.players.isEmpty)
+                _messageCard('No Player Cards yet — tap Load demo cards.')
+              else
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    childAspectRatio: .70,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 10,
                   ),
+                  itemCount: _controller.players.length,
+                  itemBuilder: (_, index) =>
+                      _setupCard(_controller.players[index]),
                 ),
-              ),
-              if (arenaAnimating) ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
-                  child: Column(
-                    children: [
-                      const LinearProgressIndicator(
-                        color: AppColors.orangeBright,
-                        backgroundColor: Color(0xFF28563F),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'REVEALING MOMENT ARENA · ${visibleRounds.length}/${d.rounds.length}',
-                        style: label(color: const Color(0xFF93B9A8), size: 9),
-                      ),
-                    ],
-                  ),
+              if (_controller.skills.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                _sectionTitle(
+                  'OPTIONAL SKILLS',
+                  '${_controller.selectedSkills.length}/3 equipped',
                 ),
-              ] else if (d.status == 'playing') ...[
-                _axisRail(),
-                SizedBox(
-                  height: 178,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                    itemCount: remaining.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (_, i) {
-                      final p = _player(remaining[i]);
-                      final on = p.id == _playCardId;
-                      return GestureDetector(
-                        onTap: () => setState(() => _playCardId = p.id),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          width: 112,
-                          transform: Matrix4.translationValues(
-                            0,
-                            on ? -7 : 0,
-                            0,
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: _controller.skills
+                      .map(
+                        (skill) => FilterChip(
+                          selected: _controller.selectedSkills.contains(
+                            skill.id,
                           ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(15),
-                            border: Border.all(
-                              color: on
-                                  ? AppColors.orangeBright
-                                  : Colors.transparent,
-                              width: 3,
-                            ),
+                          onSelected: (_) =>
+                              _controller.toggleSkill(skill.id),
+                          label: Text(skill.name),
+                          selectedColor: AppColors.orange,
+                          backgroundColor: const Color(0xFF10251C),
+                          checkmarkColor: Colors.white,
+                          labelStyle: label(
+                            color: Colors.white,
+                            size: 9,
                           ),
-                          clipBehavior: Clip.antiAlias,
-                          child: PlayerCardFace(
-                            name: p.name,
-                            teamCode: p.teamCode,
-                            position: p.position,
-                            imageUrl: p.imageUrl,
-                            axes: p.axes,
+                          side: const BorderSide(
+                            color: Color(0xFF315C48),
                           ),
                         ),
-                      );
-                    },
-                  ),
+                      )
+                      .toList(),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                  child: PrimaryButton(
-                    'PLAY ${_axis.toUpperCase()}',
-                    icon: Icons.flash_on_rounded,
-                    expand: true,
-                    busy: _busy,
-                    onTap: _busy || _playCardId == null ? null : _playRound,
-                  ),
+              ],
+              if (_setupMode == 2) ...[
+                const SizedBox(height: 18),
+                _sectionTitle(
+                  'CHARGE WITH A VERIFIED MOMENT',
+                  'Choose one explicitly',
                 ),
-              ] else
-                _finished(d, mine, house),
-              if (_err != null)
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    _err!,
-                    style: body(color: const Color(0xFFFF8A80)),
-                  ),
+                const SizedBox(height: 8),
+                if (_controller.moments.isEmpty)
+                  _messageCard(
+                    'Load demo cards (or earn a Moment live) to charge Arena.',
+                  )
+                else
+                  ..._controller.moments.map(_momentChoice),
+              ],
+              if (_setupMode == 1) ...[
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GhostButton(
+                        _showJoin ? 'Create Invite' : 'Join Invite',
+                        expand: true,
+                        onTap: () => setState(() => _showJoin = !_showJoin),
+                      ),
+                    ),
+                  ],
                 ),
+                if (_showJoin) ...[
+                  const SizedBox(height: 9),
+                  TextField(
+                    controller: _code,
+                    textCapitalization: TextCapitalization.characters,
+                    maxLength: 6,
+                    style: display(22, color: Colors.white),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      hintText: '6-CHARACTER CODE',
+                      hintStyle: label(
+                        color: AppColors.mutInk,
+                        size: 10,
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFF10251C),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF315C48),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+              if (_controller.error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _controller.error!,
+                  style: body(color: const Color(0xFFFF8A80), size: 12),
+                ),
+              ],
+              const SizedBox(height: 16),
+              PrimaryButton(
+                _setupMode == 2
+                    ? 'Enter Moment Arena'
+                    : _setupMode == 1 && _showJoin
+                    ? 'Join Stadium Duel'
+                    : _setupMode == 1
+                    ? 'Create Friend Duel'
+                    : 'Face the House',
+                icon: _setupMode == 2
+                    ? Icons.bolt_rounded
+                    : Icons.sports_mma_rounded,
+                expand: true,
+                busy: _controller.busy,
+                onTap: _startSelectedMode,
+              ),
             ],
           ),
         ),
       ],
+    ),
+  );
+
+  Future<void> _startSelectedMode() async {
+    HapticFeedback.mediumImpact();
+    if (_setupMode == 2) {
+      await _controller.createArena();
+    } else if (_setupMode == 1 && _showJoin) {
+      await _controller.joinFriend(_code.text);
+    } else {
+      await _controller.createStadium(
+        _setupMode == 1 ? DuelOpponent.friend : DuelOpponent.house,
+      );
+    }
+  }
+
+  Widget _setupCard(PlayerCardModel player) {
+    final selected = _controller.selectedHand.contains(player.id);
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        _controller.toggleHand(player.id);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        transform: Matrix4.translationValues(0, selected ? -5 : 0, 0),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? AppColors.orangeBright
+                : Colors.transparent,
+            width: 3,
+          ),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x55F05223),
+                    blurRadius: 14,
+                  ),
+                ]
+              : null,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: GyroTiltCard(
+          motion: _motion,
+          intensity: 0,
+          enableTilt: false,
+          selected: selected,
+          rarity: 3,
+          seed: cardSeed('${player.id}|duel-setup'),
+          borderColor: teamColor(player.teamCode),
+          frameShape: CardFrameShape.stadiumCrown,
+          child: DuelPlayerCardFace(
+            playerId: player.playerId,
+            name: player.name,
+            teamCode: player.teamCode,
+            position: player.position,
+            imageUrl: player.imageUrl,
+            axes: player.axes,
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _duelCard(PlayerCardModel player) => Container(
-    width: 78,
-    height: 108,
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: teamColor(player.teamCode), width: 1.5),
-    ),
-    child: PlayerCardFace(
-      name: player.name,
-      teamCode: player.teamCode,
-      position: player.position,
-      imageUrl: player.imageUrl,
-      axes: const {},
-    ),
-  );
-
-  Widget _houseCardBack() => Container(
-    width: 78,
-    height: 108,
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF8B5CF6), Color(0xFF101B16)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: const Color(0xFFB8FF36), width: 1.5),
-    ),
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        const Icon(Icons.shield_rounded, color: Color(0xFFB8FF36), size: 42),
-        Positioned(
-          bottom: 8,
-          child: Text('HOUSE', style: label(color: Colors.white, size: 8)),
+  Widget _momentChoice(MomentCard moment) {
+    final selected = _controller.selectedMomentId == moment.id;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Pressable(
+        haptic: HapticFeedbackType.selection,
+        onTap: () => _controller.selectMoment(moment.id),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.orange.withValues(alpha: .2)
+                : const Color(0xFF10251C),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: selected
+                  ? AppColors.orangeBright
+                  : const Color(0xFF315C48),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: kindAccent(moment.kind),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  kindGlyph(moment.kind),
+                  style: const TextStyle(fontSize: 22),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      moment.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: body(
+                        color: Colors.white,
+                        size: 12.5,
+                        weight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      "${moment.matchLabel} · ${moment.minute}' · ${moment.rarity}★",
+                      style: body(color: AppColors.mutInk, size: 10),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.circle_outlined,
+                color: selected
+                    ? AppColors.orangeBright
+                    : AppColors.mutInk,
+              ),
+            ],
+          ),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 
-  Widget _scoreBoard(int mine, int house, int round) => Container(
-    padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-    decoration: const BoxDecoration(
-      color: Color(0xE607130F),
-      border: Border(bottom: BorderSide(color: Color(0xFF28563F))),
-    ),
+  Widget _topBar(String title) => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
     child: Row(
       children: [
-        _scoreSide('YOU', mine, const Color(0xFF6EF2A4)),
+        IconButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+        ),
         Expanded(
-          child: Column(
-            children: [
-              Text(
-                'ROUND ${math.min(round + 1, 3)}',
-                style: label(color: const Color(0xFF93B9A8), size: 9),
-              ),
-              Text('⚔', style: display(25, color: AppColors.orangeBright)),
-            ],
+          child: Text(
+            title,
+            style: label(color: AppColors.cream, size: 12, weight: FontWeight.w900),
           ),
         ),
-        _scoreSide('HOUSE', house, const Color(0xFFFF8A80)),
       ],
     ),
   );
 
-  Widget _scoreSide(String name, int score, Color color) => Column(
-    children: [
-      Text(
-        name,
-        style: label(color: color, size: 10, weight: FontWeight.w800),
-      ),
-      const SizedBox(height: 3),
-      Row(
-        children: List.generate(
-          2,
-          (i) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Icon(
-              i < score
-                  ? Icons.workspace_premium_rounded
-                  : Icons.circle_outlined,
-              size: 18,
-              color: color,
+  Widget _modeButton(String labelText, int mode, IconData icon) {
+    final selected = _setupMode == mode;
+    return Expanded(
+      child: Pressable(
+        haptic: HapticFeedbackType.selection,
+        onTap: () => setState(() {
+          _setupMode = mode;
+          _showJoin = false;
+        }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.orange : const Color(0xFF10251C),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppColors.orangeBright : const Color(0xFF315C48),
             ),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(height: 4),
+              Text(
+                labelText,
+                style: label(color: Colors.white, size: 9, weight: FontWeight.w900),
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _sectionTitle(String title, String detail) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          title,
+          style: label(color: AppColors.cream, size: 11, weight: FontWeight.w900),
+        ),
+      ),
+      Text(detail, style: body(color: AppColors.mutInk, size: 11)),
     ],
   );
 
-  Widget _axisRail() => SizedBox(
-    height: 42,
-    child: ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      children: _axes.map((a) {
-        final on = a == _axis;
-        return Padding(
-          padding: const EdgeInsets.only(right: 7),
-          child: ChoiceChip(
-            label: Text(a == 'marketShock' ? 'MARKET' : a.toUpperCase()),
-            selected: on,
-            onSelected: (_) => setState(() => _axis = a),
-            selectedColor: AppColors.orange,
-            backgroundColor: const Color(0xFF0D2119),
-            side: const BorderSide(color: Color(0xFF28563F)),
-            labelStyle: label(
-              color: on ? Colors.white : const Color(0xFF93B9A8),
-              size: 9,
-              weight: FontWeight.w800,
+  Widget _messageCard(String text) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFF10251C),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: const Color(0xFF315C48)),
+    ),
+    child: Text(text, style: body(color: AppColors.mutInk, size: 12)),
+  );
+
+  Widget _stadium(DuelViewModel duel) {
+    final presentation = _controller.presentation;
+    final dimmed =
+        presentation.phase == DuelPresentationPhase.floodlights ||
+        presentation.phase == DuelPresentationPhase.flipping;
+    return DuelStadiumBackdrop(
+      dimmed: dimmed,
+      child: SafeArea(
+        child: Column(
+          children: [
+            _liveTopBar(duel),
+            const SizedBox(height: 8),
+            DuelConditionRibbon(duel: duel),
+            const SizedBox(height: 10),
+            Expanded(child: _arenaBody(duel)),
+            if (duel.phase == DuelPhase.finished)
+              _finishedPanel(duel)
+            else
+              _controls(duel),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _liveTopBar(DuelViewModel duel) => Padding(
+    padding: const EdgeInsets.fromLTRB(10, 2, 12, 0),
+    child: Row(
+      children: [
+        IconButton(
+          onPressed: _controller.presentation.busy
+              ? null
+              : () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.close_rounded, color: Colors.white),
+        ),
+        _crown(duel.yourScore, 'YOU'),
+        const SizedBox(width: 8),
+        Text('VS', style: label(color: AppColors.mutInk, size: 10)),
+        const SizedBox(width: 8),
+        _crown(duel.opponentScore, duel.opponent == DuelOpponent.house ? 'HOUSE' : 'FOE'),
+        const Spacer(),
+        if (duel.attackerId == duel.fanId)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Text(
+              'ATTACKER',
+              style: label(color: AppColors.orangeBright, size: 9, weight: FontWeight.w900),
             ),
           ),
-        );
-      }).toList(),
+        Icon(
+          _controller.connected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+          size: 16,
+          color: _controller.connected ? const Color(0xFF4ED58A) : AppColors.mutInk,
+        ),
+        const SizedBox(width: 8),
+        DuelTurnClock(deadline: duel.deadlineAt),
+      ],
     ),
   );
 
-  Widget _finished(TrumpDuelModel d, int mine, int house) {
-    final won = d.winnerId != 'bot';
+  Widget _crown(int score, String who) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: const Color(0xFF173C2C),
+      borderRadius: BorderRadius.circular(99),
+      border: Border.all(color: const Color(0xFF315C48)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.workspace_premium_rounded, size: 13, color: AppColors.orangeBright),
+        const SizedBox(width: 4),
+        Text(
+          '$who $score',
+          style: label(color: Colors.white, size: 9, weight: FontWeight.w900),
+        ),
+      ],
+    ),
+  );
+
+  Widget _arenaBody(DuelViewModel duel) {
+    if (duel.phase == DuelPhase.waitingForOpponent) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('WAITING FOR FRIEND', style: display(22, color: Colors.white)),
+            const SizedBox(height: 10),
+            Text('Invite code', style: body(color: AppColors.mutInk, size: 12)),
+            const SizedBox(height: 6),
+            Text(duel.code, style: display(36, color: AppColors.orangeBright)),
+            const SizedBox(height: 14),
+            GhostButton(
+              'Share invite',
+              onTap: () => Share.share(
+                'Join my Final Whistle Stadium Duel: ${duel.code}\nfinalwhistle://duels/${duel.id}',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final presentation = _controller.presentation;
+    final visible = presentation.visibleRound ??
+        (presentation.busy ? null : duel.latestRound);
+    final showOpp = presentation.busy
+        ? presentation.showOpponentCard
+        : visible != null;
+    final showScores = presentation.busy
+        ? presentation.showScores
+        : visible != null;
+    final showMods = presentation.busy
+        ? presentation.showModifiers
+        : visible != null;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Column(
         children: [
-          Text(won ? '🏆' : '🛡️', style: const TextStyle(fontSize: 40)),
-          Text(
-            won ? 'ARENA CONQUERED' : 'THE HOUSE HOLDS',
-            style: display(
-              24,
-              color: won ? const Color(0xFF6EF2A4) : const Color(0xFFFF8A80),
+          Expanded(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: _combatCard(
+                title: duel.opponent == DuelOpponent.house ? 'HOUSE' : 'OPPONENT',
+                card: showOpp ? visible?.opponentCard : null,
+                score: showScores ? visible?.opponentScore : null,
+                modifiers: showMods ? visible?.opponentModifiers ?? const [] : const [],
+                locked: !showOpp && (duel.opponentSubmitted || duel.opponent == DuelOpponent.house),
+                faceDown: !showOpp,
+              ),
             ),
           ),
-          Text(
-            '$mine – $house · ${d.mode == 'arena' ? "Moment Arena" : "Trump Duel"}',
-            style: body(color: const Color(0xFF93B9A8), size: 12),
-          ),
-          const SizedBox(height: 14),
-          GhostButton(
-            'Back to Album',
-            expand: true,
-            onTap: () => Navigator.pop(context),
+          if (visible != null && showScores) ...[
+            Text(
+              visible.axis.toUpperCase(),
+              style: label(color: AppColors.cream, size: 11, weight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              showScores
+                  ? '${visible.yourScore ?? '—'}  ·  ${visible.opponentScore ?? '—'}'
+                  : '—  ·  —',
+              style: display(28, color: Colors.white),
+            ),
+            if (presentation.showResult || !presentation.busy) ...[
+              const SizedBox(height: 4),
+              Text(
+                visible.winnerId == null
+                    ? 'DRAW'
+                    : visible.winnerId == duel.fanId
+                    ? 'YOU TAKE THE ROUND'
+                    : 'OPPONENT TAKES THE ROUND',
+                style: label(
+                  color: AppColors.orangeBright,
+                  size: 10,
+                  weight: FontWeight.w900,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+          ] else
+            const SizedBox(height: 18),
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: _combatCard(
+                title: 'YOU',
+                card: visible?.yourCard ??
+                    (duel.yourHand
+                            .where((c) => c.id == _controller.selectedCardId)
+                            .firstOrNull),
+                score: showScores ? visible?.yourScore : null,
+                modifiers: showMods ? visible?.yourModifiers ?? const [] : const [],
+                locked: false,
+                faceDown: false,
+                prominent: true,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
-}
 
-class _PitchPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = const Color(0xFF0D2B1F);
-    canvas.drawRect(Offset.zero & size, paint);
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3
-      ..color = const Color(0x334ED58A);
-    final field = Rect.fromLTWH(14, 16, size.width - 28, size.height - 32);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(field, const Radius.circular(18)),
-      paint,
+  Widget _combatCard({
+    required String title,
+    required DuelCardSnapshot? card,
+    required int? score,
+    required List<DuelModifierModel> modifiers,
+    required bool locked,
+    required bool faceDown,
+    bool prominent = false,
+  }) {
+    final width = prominent ? 148.0 : 118.0;
+    final height = prominent ? 198.0 : 158.0;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(title, style: label(color: AppColors.mutInk, size: 9)),
+        const SizedBox(height: 6),
+        faceDown || card == null
+            ? Container(
+                width: width,
+                height: height,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF1A3A2C), Color(0xFF0B1F16)],
+                  ),
+                  border: Border.all(color: const Color(0xFF3C6B54)),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  locked ? 'LOCKED' : 'WAITING',
+                  style: label(
+                    color: Colors.white54,
+                    size: 11,
+                    weight: FontWeight.w900,
+                  ),
+                ),
+              )
+            : GyroTiltCard(
+                width: width,
+                height: height,
+                motion: _motion,
+                intensity: prominent ? 1 : 0.35,
+                enableTilt: prominent,
+                rarity: 4,
+                seed: cardSeed('${card.id}|duel-live'),
+                borderColor: teamColor(card.teamCode),
+                frameShape: CardFrameShape.stadiumCrown,
+                child: DuelPlayerCardFace(
+                  playerId: card.playerId ?? '',
+                  name: card.name,
+                  teamCode: card.teamCode,
+                  position: card.position,
+                  imageUrl: card.imageUrl,
+                  axes: card.axes,
+                ),
+              ),
+        if (score != null) ...[
+          const SizedBox(height: 6),
+          Text('$score', style: display(22, color: Colors.white)),
+        ],
+        if (modifiers.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 4,
+            children: modifiers
+                .map(
+                  (m) => Text(
+                    '${m.label} +${m.value}',
+                    style: label(color: AppColors.orangeBright, size: 8),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ],
     );
-    canvas.drawLine(
-      Offset(14, size.height / 2),
-      Offset(size.width - 14, size.height / 2),
-      paint,
-    );
-    canvas.drawCircle(Offset(size.width / 2, size.height / 2), 54, paint);
-    for (double y = 16; y < size.height; y += 72) {
-      canvas.drawRect(
-        Rect.fromLTWH(14, y, size.width - 28, 36),
-        Paint()..color = const Color(0x0DFFFFFF),
-      );
-    }
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget _controls(DuelViewModel duel) {
+    if (_controller.presentation.busy) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(14, 8, 14, 16),
+        child: Text(
+          'Reveal in progress…',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Color(0xFF9BB7A8), fontSize: 12),
+        ),
+      );
+    }
+    if (duel.phase == DuelPhase.roundComplete) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
+        child: PrimaryButton(
+          'Next round',
+          expand: true,
+          busy: _controller.busy,
+          onTap: _controller.acknowledgeRound,
+        ),
+      );
+    }
+    if (duel.phase == DuelPhase.axisSelection && duel.yourTurn) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _axes
+                  .map(
+                    (axis) => ChoiceChip(
+                      selected: _controller.selectedAxis == axis,
+                      label: Text(axis.toUpperCase()),
+                      onSelected: (_) => _controller.chooseLocalAxis(axis),
+                      selectedColor: AppColors.orange,
+                      labelStyle: label(color: Colors.white, size: 9),
+                      backgroundColor: const Color(0xFF10251C),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 10),
+            PrimaryButton(
+              'Lock attribute',
+              expand: true,
+              busy: _controller.busy,
+              onTap: _controller.chooseAxis,
+            ),
+          ],
+        ),
+      );
+    }
+    if (duel.phase == DuelPhase.cardSelection) {
+      final available = duel.yourHand
+          .where((card) => !duel.usedCardIds.contains(card.id))
+          .toList();
+      final skills = widget.skills
+          .where((skill) => !duel.usedSkillIds.contains(skill.id))
+          .toList();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 12),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 118,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: available.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, index) {
+                  final card = available[index];
+                  final selected = _controller.selectedCardId == card.id;
+                  return GestureDetector(
+                    onTap: () => _controller.selectCard(card.id),
+                    child: SizedBox(
+                      width: 84,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.orangeBright
+                                : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        child: GyroTiltCard(
+                          motion: _motion,
+                          intensity: 0,
+                          enableTilt: false,
+                          rarity: 3,
+                          seed: cardSeed('${card.id}|hand'),
+                          borderColor: teamColor(card.teamCode),
+                          child: DuelPlayerCardFace(
+                            playerId: card.playerId ?? '',
+                            name: card.name,
+                            teamCode: card.teamCode,
+                            position: card.position,
+                            imageUrl: card.imageUrl,
+                            axes: card.axes,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (skills.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 34,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    ChoiceChip(
+                      selected: _controller.selectedSkillId == null,
+                      label: const Text('No skill'),
+                      onSelected: (_) => _controller.selectSkill(null),
+                      selectedColor: AppColors.orange,
+                      labelStyle: label(color: Colors.white, size: 9),
+                      backgroundColor: const Color(0xFF10251C),
+                    ),
+                    ...skills.map(
+                      (skill) => Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: ChoiceChip(
+                          selected: _controller.selectedSkillId == skill.id,
+                          label: Text(skill.name),
+                          onSelected: (_) => _controller.selectSkill(skill.id),
+                          selectedColor: AppColors.orange,
+                          labelStyle: label(color: Colors.white, size: 9),
+                          backgroundColor: const Color(0xFF10251C),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            if (duel.youSubmitted)
+              Text(
+                'Card locked — waiting for opponent',
+                style: body(color: AppColors.mutInk, size: 12),
+              )
+            else
+              PrimaryButton(
+                'Play card',
+                expand: true,
+                busy: _controller.busy,
+                onTap: _controller.selectedCardId == null
+                    ? null
+                    : _controller.submitCard,
+              ),
+            if (_controller.error != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _controller.error!,
+                style: body(color: const Color(0xFFFF8A80), size: 11),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+    return const SizedBox(height: 16);
+  }
+
+  Widget _finishedPanel(DuelViewModel duel) {
+    final won = duel.winnerId == duel.fanId;
+    final draw = duel.winnerId == null;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xF216251F),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF315C48)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            draw
+                ? 'HONEST DRAW'
+                : won
+                ? 'VICTORY'
+                : 'DEFEAT',
+            textAlign: TextAlign.center,
+            style: display(26, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          ...duel.rounds.map(
+            (round) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                'R${round.round} ${round.axis} · ${round.yourScore ?? '—'}–${round.opponentScore ?? '—'}'
+                '${round.autoPlayed ? ' · auto' : ''}',
+                style: body(color: AppColors.mutInk, size: 11),
+              ),
+            ),
+          ),
+          if (duel.houseCommitment != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'House commitment ${duel.houseCommitment!.substring(0, duel.houseCommitment!.length.clamp(0, 12))}…',
+              style: label(color: AppColors.cream, size: 8),
+            ),
+          ],
+          if (duel.arena?.proof != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Moment proof verified',
+              style: label(color: const Color(0xFF4ED58A), size: 9),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: GhostButton(
+                  'Share',
+                  expand: true,
+                  onTap: () => Share.share(
+                    'Final Whistle ${duel.mode.name} duel ${draw ? 'drew' : won ? 'won' : 'lost'} ${duel.yourScore}-${duel.opponentScore}',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: PrimaryButton(
+                  'Rematch',
+                  expand: true,
+                  busy: _controller.busy,
+                  onTap: _controller.rematch,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          GhostButton(
+            'Back to Album',
+            expand: true,
+            onTap: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
 }

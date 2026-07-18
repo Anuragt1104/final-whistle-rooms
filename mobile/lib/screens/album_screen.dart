@@ -8,10 +8,9 @@ import '../state/local_store.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/gyro_card.dart';
-import 'duel_screen.dart';
 import 'card_detail_screen.dart';
 
-/// Album — four collectible-first tabs. Store/Market live behind one action.
+/// Album — Moments / Packs / Players. Duels open from Home → Play.
 class AlbumScreen extends StatefulWidget {
   const AlbumScreen({super.key});
   @override
@@ -39,8 +38,7 @@ class _AlbumScreenState extends State<AlbumScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
-    _motion.start();
+    _tabs = TabController(length: 3, vsync: this);
     _bootstrap();
   }
 
@@ -94,12 +92,22 @@ class _AlbumScreenState extends State<AlbumScreen>
         _listings = listings;
         _myListings = mine;
         _shopTiers = tiers;
+        _err = null;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
+      // Soft-fail: keep tabs usable with empty inventory + retry, not a raw stack.
       setState(() {
-        _err = e.toString();
+        _inv ??= FanInventory(
+          fanId: '',
+          moments: const [],
+          players: const [],
+          skills: const [],
+          packs: const [],
+          packWeightBonus: 0,
+        );
+        _err = 'server';
         _loading = false;
       });
     }
@@ -504,30 +512,17 @@ class _AlbumScreenState extends State<AlbumScreen>
             Tab(text: 'Moments'),
             Tab(text: 'Packs'),
             Tab(text: 'Players'),
-            Tab(text: 'Duels'),
           ],
         ),
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
-              : _err != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _err!,
-                      textAlign: TextAlign.center,
-                      style: body(color: AppColors.mut),
-                    ),
-                  ),
-                )
               : TabBarView(
                   controller: _tabs,
                   children: [
                     _momentsTab(),
                     _packsTab(),
                     _playersTab(),
-                    _duelsTab(),
                   ],
                 ),
         ),
@@ -542,13 +537,23 @@ class _AlbumScreenState extends State<AlbumScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_err == 'server') ...[
+              Text(
+                'Can\'t reach the server — check Settings → Server, then retry.',
+                textAlign: TextAlign.center,
+                style: body(color: AppColors.mut),
+              ),
+              const SizedBox(height: 12),
+              PrimaryButton('Retry', expand: true, onTap: _load),
+              const SizedBox(height: 16),
+            ],
             Text(
               hint,
               textAlign: TextAlign.center,
               style: body(color: AppColors.mut),
             ),
             const SizedBox(height: 16),
-            if (_demoMode)
+            if (_showSeedButton)
               PrimaryButton('Load demo cards', expand: true, onTap: _seedDemo),
           ],
         ),
@@ -557,6 +562,7 @@ class _AlbumScreenState extends State<AlbumScreen>
   }
 
   bool get _demoMode => ApiClient.instance.cachedConfig?.mode == 'simulation';
+  bool get _showSeedButton => _demoMode;
 
   Widget _momentFilters() {
     const kinds = ['all', 'goal', 'yellow', 'red', 'corner', 'market-swing'];
@@ -868,6 +874,12 @@ class _AlbumScreenState extends State<AlbumScreen>
                 motion: _motion,
                 selected: sel,
                 borderColor: rarityBorder(m.rarity),
+                intensity: 0,
+                enableTilt: false,
+                rarity: m.rarity,
+                seed: cardSeed('${m.id}|${m.artKey ?? m.kind}'),
+                foilAccent: kindAccent(m.kind),
+                reduceParallax: true,
                 onTap: () => Navigator.push(
                   context,
                   fwrRoute(
@@ -888,6 +900,7 @@ class _AlbumScreenState extends State<AlbumScreen>
                   minute: m.minute,
                   calledIt: m.calledIt,
                   imageUrl: m.imageUrl,
+                  playerId: m.playerId,
                   playerName: m.playerName,
                   teamCode: m.teamCode,
                   artKey: m.artKey,
@@ -900,7 +913,7 @@ class _AlbumScreenState extends State<AlbumScreen>
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             child: Text(
-              'Tap to inspect · long-press to select for Craft · tilt the device',
+              'Tap to inspect · long-press to select for Craft',
               textAlign: TextAlign.center,
               style: body(size: 11, color: AppColors.mut),
             ),
@@ -963,6 +976,13 @@ class _AlbumScreenState extends State<AlbumScreen>
                 return GyroTiltCard(
                   motion: _motion,
                   borderColor: teamColor(p.teamCode),
+                  intensity: 0,
+                  enableTilt: false,
+                  rarity: 3,
+                  seed: cardSeed('${p.id}|${p.teamCode}'),
+                  foilAccent: teamColor(p.teamCode),
+                  reduceParallax: true,
+                  frameShape: CardFrameShape.stadiumCrown,
                   onLongPress: () => _playerActions(p),
                   onTap: () => Navigator.push(
                     context,
@@ -975,11 +995,13 @@ class _AlbumScreenState extends State<AlbumScreen>
                     ),
                   ),
                   child: PlayerCardFace(
+                    playerId: p.playerId,
                     name: p.name,
                     teamCode: p.teamCode,
                     position: p.position,
                     imageUrl: p.imageUrl,
                     axes: p.axes,
+                    frameShape: CardFrameShape.stadiumCrown,
                   ),
                 );
               }, childCount: players.length),
@@ -1004,56 +1026,41 @@ class _AlbumScreenState extends State<AlbumScreen>
             ),
           ),
         if (skills.isNotEmpty)
-          SliverList(
-            delegate: SliverChildBuilderDelegate((context, i) {
-              final s = skills[i];
-              return ListTile(
-                dense: true,
-                title: Text(s.name),
-                subtitle: Text(s.description),
-              );
-            }, childCount: skills.length),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 14,
+                crossAxisSpacing: 12,
+                childAspectRatio: 2.5 / 3.5,
+              ),
+              delegate: SliverChildBuilderDelegate((context, i) {
+                final s = skills[i];
+                return GyroTiltCard(
+                  motion: _motion,
+                  intensity: 0,
+                  enableTilt: false,
+                  rarity: 3,
+                  seed: cardSeed('${s.id}|${s.name}'),
+                  borderColor: const Color(0xFFB8FF36),
+                  foilAccent: const Color(0xFF9B6BFF),
+                  reduceParallax: true,
+                  onTap: () => Navigator.push(
+                    context,
+                    fwrRoute(CardDetailScreen.skill(s)),
+                  ),
+                  child: SkillCardFace(
+                    name: s.name,
+                    description: s.description,
+                    effect: s.effect,
+                  ),
+                );
+              }, childCount: skills.length),
+            ),
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
       ],
-    );
-  }
-
-  Widget _duelsTab() {
-    final players = _inv?.players ?? [];
-    if (players.length < 3 && _albumEmpty && _demoMode) {
-      return _emptyDemoPrompt(
-        hint: 'Need 3 Player Cards to duel. Load the demo set first.',
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            players.length < 3
-                ? 'Need 3 Player Cards to duel. Open packs first.'
-                : 'Pick a Hand of 3 and challenge the House bot, or seed a Moment Arena.',
-            style: body(color: AppColors.mut),
-          ),
-          const SizedBox(height: 16),
-          PrimaryButton(
-            'Enter Stadium Duel',
-            onTap: players.length < 3
-                ? null
-                : () => Navigator.push(
-                    context,
-                    fwrRoute(
-                      DuelScreen(
-                        players: players,
-                        moments: _inv?.moments ?? [],
-                      ),
-                    ),
-                  ).then((_) => _load()),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1212,6 +1219,7 @@ class _PackOpeningOverlay extends StatefulWidget {
 class _PackOpeningOverlayState extends State<_PackOpeningOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  final CardMotionController _motion = CardMotionController();
 
   @override
   void initState() {
@@ -1234,6 +1242,7 @@ class _PackOpeningOverlayState extends State<_PackOpeningOverlay>
   @override
   void dispose() {
     _controller.dispose();
+    _motion.dispose();
     super.dispose();
   }
 
@@ -1313,11 +1322,13 @@ class _PackOpeningOverlayState extends State<_PackOpeningOverlay>
                                     child: Stack(
                                       alignment: Alignment.center,
                                       children: [
-                                        Icon(
-                                          Icons.bolt_rounded,
-                                          size: 190,
-                                          color: Colors.white.withValues(
-                                            alpha: .14,
+                                        Positioned.fill(
+                                          child: Opacity(
+                                            opacity: .42,
+                                            child: CollectibleCardBack(
+                                              label: '',
+                                              accent: accent,
+                                            ),
                                           ),
                                         ),
                                         Column(
@@ -1374,12 +1385,31 @@ class _PackOpeningOverlayState extends State<_PackOpeningOverlay>
                                             ),
                                           ),
                                         )
-                                      : PlayerCardFace(
-                                          name: player.name,
-                                          teamCode: player.teamCode,
-                                          position: player.position,
-                                          imageUrl: player.imageUrl,
-                                          axes: player.axes,
+                                      : GyroTiltCard(
+                                          motion: _motion,
+                                          intensity: 1,
+                                          enableTilt: true,
+                                          rarity: widget.pack.weight >= 2.5
+                                              ? 5
+                                              : widget.pack.weight >= 1.5
+                                              ? 4
+                                              : 3,
+                                          seed: cardSeed(
+                                            '${player.id}|${widget.pack.id}',
+                                          ),
+                                          borderColor: accent,
+                                          frameShape:
+                                              CardFrameShape.stadiumCrown,
+                                          child: PlayerCardFace(
+                                            playerId: player.playerId,
+                                            name: player.name,
+                                            teamCode: player.teamCode,
+                                            position: player.position,
+                                            imageUrl: player.imageUrl,
+                                            axes: player.axes,
+                                            frameShape:
+                                                CardFrameShape.stadiumCrown,
+                                          ),
                                         )),
                           ),
                         ),

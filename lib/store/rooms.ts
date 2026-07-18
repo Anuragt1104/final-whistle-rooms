@@ -20,14 +20,25 @@ import {
 } from "@/lib/txline/types";
 import { MatchSimulation } from "@/lib/txline/simulation";
 import { PulseInterpreter, type PulseCard, winChance, type WinChance } from "@/lib/engine/pulse";
-import { generatePrompt, tryResolve, forceResolve, lockSnapshot, type SwingPrompt } from "@/lib/game/nextswing";
+import {
+  generatePrompt,
+  tryResolve,
+  forceResolve,
+  lockSnapshot,
+  biasFromIntensity,
+  type MatchIntensity,
+  type MatchStory,
+  type SwingPrompt,
+} from "@/lib/game/nextswing";
 import { swingPoints, teamBonusForEvent, TEAM_BONUS } from "@/lib/game/scoring";
+import { notifyGoal } from "@/lib/push/goals";
 import { generateRecap } from "@/lib/recap/generate";
 import { getSource, sourceMode } from "@/lib/txline/source";
 import { buildMerkleTree } from "@/lib/util/merkle";
 import { shareCode, uid } from "@/lib/util/id";
 import {
   mintFromEvent,
+  mintFanLore,
   partyDropMultiplier,
   sandwichFromWin,
   stampCalledIt,
@@ -37,6 +48,19 @@ import { llmConfigured } from "@/lib/llm/client";
 import { rewritePromptText, type PromptContext } from "@/lib/game/prompt-writer";
 import { EARN, earn as earnCredits } from "@/lib/platform/ledger";
 import { addXp as addPassXp, XP as PASS_XP } from "@/lib/platform/pass";
+import {
+  getFixtureCoordinator,
+  questionEngineMode,
+  questionLlmMode,
+  tickSignal,
+  archiveFixtureTape,
+  prefetchFanBuzz,
+  frozenFanBuzz,
+  persistQuestionInstance,
+  persistQuestionAnswer,
+  type EngineCommand,
+  type QuestionSpec,
+} from "@/lib/game/question-engine";
 import type {
   ChatView,
   MemberView,
@@ -107,6 +131,7 @@ interface RoomRuntime {
   // Significant match moments buffered as mint SOURCES. Nothing mints on the
   // event itself — a fan earns the Moment by answering a Micro-Play correctly.
   recentMintables: Array<{ event: MintContext["event"]; oddsSandwich: OddsSandwich; priorHomeProb: number }>;
+  rewardedCalls: Set<string>;
 
   // live match state
   score: ScoreSnapshot | null;
@@ -117,6 +142,9 @@ interface RoomRuntime {
   momentum: number;
   recaps: RecapView[];
   keyEvents: MatchEvent[];
+  /** Buffered score snapshots for fixture_event_tapes archive. */
+  tapeScores: ScoreSnapshot[];
+  answerActions: Map<string, string>; // `${memberId}:${promptId}` -> actionId
 
   // engine internals
   interpreter: PulseInterpreter;
@@ -136,6 +164,7 @@ interface RoomRuntime {
   processedEventIds: Set<string>;
   starting: boolean;
   lastFeedAt: number;
+  lineupStatus: "unknown" | "announced";
   feedStaleTimer: ReturnType<typeof setTimeout> | null;
 
   // proof
@@ -228,6 +257,7 @@ export async function joinOfficialHubForFixture(
       prompts: new Map(),
       picks: new Map(),
       recentMintables: [],
+      rewardedCalls: new Set(),
       score: null,
       odds: null,
       win: { home: 33, draw: 34, away: 33 },
@@ -236,6 +266,8 @@ export async function joinOfficialHubForFixture(
       momentum: 0,
       recaps: [],
       keyEvents: [],
+      tapeScores: [],
+      answerActions: new Map(),
       interpreter: new PulseInterpreter(fixture),
       sim: null,
       simMinute: 0,
@@ -258,6 +290,7 @@ export async function joinOfficialHubForFixture(
       processedEventIds: new Set(),
       starting: false,
       lastFeedAt: 0,
+      lineupStatus: "unknown",
       feedStaleTimer: null,
       merkleLeaves: [],
       anchored: false,
@@ -265,6 +298,13 @@ export async function joinOfficialHubForFixture(
     };
     store.rooms.set(id, rt);
     store.officialByFixture.set(fixture.id, id);
+    try {
+      const { getFixtureMatchData } = await import("@/lib/txline/intelligence-service");
+      const match = await getFixtureMatchData(fixture.id);
+      rt.lineupStatus = match?.lineupStatus === "confirmed" ? "announced" : "unknown";
+    } catch {
+      // The hub still opens; the app shows an honest unavailable lineup state.
+    }
     const joined = joinRoom(id, input);
     if ("error" in joined) throw new Error(joined.error);
     const result = { roomId: id, memberId: joined.memberId };
@@ -363,6 +403,7 @@ export function submitPrediction(
   memberId: string,
   promptId: string,
   optionKey: string,
+  actionId?: string,
 ): { error?: string; ok?: boolean } {
   const rt = store.rooms.get(id);
   if (!rt) return { error: "Room not found" };
@@ -372,12 +413,29 @@ export function submitPrediction(
   if (!prompt) return { error: "Prompt not found" };
   if (prompt.status !== "open") return { error: "Prediction window closed" };
   if (!prompt.options.some((o) => o.key === optionKey)) return { error: "Invalid option" };
+  const actionKey = `${memberId}:${promptId}`;
+  if (actionId) {
+    const prior = rt.answerActions.get(actionKey);
+    if (prior && prior === actionId) return { ok: true }; // idempotent retry
+    if (prior && prior !== actionId && rt.picks.get(memberId)?.has(promptId)) {
+      return { error: "Already answered" };
+    }
+    rt.answerActions.set(actionKey, actionId);
+  }
   let mp = rt.picks.get(memberId);
   if (!mp) {
     mp = new Map();
     rt.picks.set(memberId, mp);
   }
   mp.set(promptId, optionKey);
+  const fanId = m.walletPubkey ?? m.id;
+  void persistQuestionAnswer({
+    questionId: promptId,
+    fanId,
+    optionKey,
+    actionId,
+    roomId: rt.id,
+  });
   broadcast(rt);
   return { ok: true };
 }
@@ -393,26 +451,29 @@ export async function startMatch(id: string, memberId: string): Promise<{ error?
   if (!rt) return { error: "Room not found" };
   if (rt.kind === "party" && memberId !== rt.hostId) return { error: "Only the host can start the match" };
   if (rt.status === "live") return { ok: true };
+  if (rt.closeLiveFeed) return { ok: true };
   if (rt.starting) return { ok: true };
 
   rt.starting = true;
-  rt.status = "live";
   // start at -1 so the minute-0 kick-off event is included on the first tick
   rt.prevProcessedInt = -1;
   rt.simMinute = 0;
-  system(rt, "Kick-off! The room is live.");
-
   try {
     if (sourceMode() === "live") {
       const { shouldReplayFixture } = await import("@/lib/txline/historical");
       if (shouldReplayFixture(rt.fixture)) {
+        rt.status = "live";
         rt.replay = true;
         system(rt, "▶ REPLAY — pacing verified TxLINE match history.");
         await startHistoricalDriver(rt);
       } else {
+        rt.status = "lobby";
+        system(rt, "Official Match Hub open — waiting for verified kick-off.");
         await startLiveDriver(rt);
       }
     } else {
+      rt.status = "live";
+      system(rt, "Kick-off! The room is live.");
       rt.sim = new MatchSimulation(rt.fixture);
       rt.interval = setInterval(() => simTick(rt), TICK_MS);
     }
@@ -481,6 +542,10 @@ async function startLiveDriver(rt: RoomRuntime) {
       // authoritative ordering key; never let one regress room state/events.
       if (prev && s.seq <= prev.seq) return;
       if (s.running || isLivePhase(s.phase) || s.phase === GamePhase.Penalties) {
+        if (rt.status === "lobby") {
+          rt.status = "live";
+          system(rt, "Kick-off verified — Live Calls are open.");
+        }
         if (rt.pendingFinish) clearTimeout(rt.pendingFinish);
         rt.pendingFinish = null;
       }
@@ -580,6 +645,8 @@ export function diffScoreToEvents(highWater: EventHighWater, next: ScoreSnapshot
 
 /** The one processing core both drivers share. */
 function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | null, newEvents: MatchEvent[]) {
+  rt.tapeScores ??= [];
+  rt.answerActions ??= new Map();
   newEvents = newEvents.filter((event) => {
     const key = event.sourceEventId ?? `${event.seq}:${event.kind}:${event.side ?? "-"}`;
     if (rt.processedEventIds.has(key)) return false;
@@ -652,13 +719,99 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
     }
   }
 
-  // 3) Next Swing — generate, lock, resolve
+  // 3) Live Calls — Question Engine V2 (on/shadow) or legacy NextSwing (off)
   if (rt.modes.nextSwing) {
-    maybeGeneratePrompt(rt, score, odds, win);
-    resolvePrompts(rt, newEvents, score, win);
+    const major = newEvents.some((e) => e.kind === "goal" || e.kind === "red");
+    const intensity = computeIntensity(rt, score, newEvents, cards);
+    rt.tapeScores.push(score);
+    if (rt.tapeScores.length > 4000) rt.tapeScores = rt.tapeScores.slice(-4000);
+
+    const mode = questionEngineMode();
+    if (mode === "on" || mode === "shadow") {
+      const cmds = runQuestionEngine(rt, score, win, newEvents, intensity, major);
+      if (mode === "on") {
+        applyEngineCommands(rt, cmds, intensity);
+      } else {
+        // Shadow: log metrics only; keep publishing via legacy path.
+        for (const c of cmds) {
+          if (c.type === "metric") {
+            // eslint-disable-next-line no-console
+            console.info(`[qe-shadow] ${rt.fixture.id} ${c.name}=${c.value}${c.detail ? ` ${c.detail}` : ""}`);
+          }
+        }
+        maybeGeneratePrompt(rt, score, odds, win, intensity, major);
+        resolvePrompts(rt, newEvents, score, win);
+      }
+    } else {
+      maybeGeneratePrompt(rt, score, odds, win, intensity, major);
+      resolvePrompts(rt, newEvents, score, win);
+    }
+  }
+
+  // 4) Push goal alerts to every installed app (FCM topic). Skips cleanly when
+  // FCM env is unset. Clients suppress the tray while actively viewing this room.
+  for (const e of newEvents) {
+    if (e.kind !== "goal" || !e.side) continue;
+    const team = e.side === "away" ? rt.fixture.away : rt.fixture.home;
+    void notifyGoal({
+      roomId: rt.id,
+      fixtureId: rt.fixture.id,
+      roomName: rt.name,
+      stage: rt.fixture.stage,
+      homeName: rt.fixture.home.name,
+      awayName: rt.fixture.away.name,
+      homeGoals: score.goals.home,
+      awayGoals: score.goals.away,
+      minute: e.minute,
+      teamName: team.name,
+      scorer: e.playerName || team.name,
+      side: e.side,
+      sourceEventId: e.sourceEventId,
+    });
   }
 
   broadcast(rt);
+}
+
+function computeIntensity(
+  rt: RoomRuntime,
+  score: ScoreSnapshot,
+  newEvents: MatchEvent[],
+  pulseCards: PulseCard[],
+): MatchIntensity {
+  const minute = score.minute;
+  const goalTimes = rt.keyEvents
+    .filter((e) => e.kind === "goal" && minute - e.minute <= 10)
+    .map((e) => e.minute);
+  const goalsLast10 = goalTimes.length;
+  // Cards aren't always in keyEvents — count yellows/reds from this tick + pulse chaos
+  const cardsThisTick = newEvents.filter((e) => e.kind === "yellow" || e.kind === "red").length;
+  const chaosPulse = pulseCards.find((c) => c.challenge === "next-goal" || c.challenge === "corners");
+  const scoreJustChanged = newEvents.some((e) => e.kind === "goal");
+  const redActive = score.red.home + score.red.away > 0;
+  const lastGoal = [...rt.keyEvents].reverse().find((e) => e.kind === "goal");
+  // Comeback: equalizer or trailing side just scored
+  let isComeback = false;
+  if (scoreJustChanged && lastGoal?.side) {
+    const scorerGoals = lastGoal.side === "home" ? score.goals.home : score.goals.away;
+    const otherGoals = lastGoal.side === "home" ? score.goals.away : score.goals.home;
+    if (scorerGoals === otherGoals && otherGoals > 0) isComeback = true;
+    else if (scorerGoals === otherGoals + 1 && otherGoals >= 1) isComeback = true;
+  }
+  const flurrySummary =
+    goalsLast10 >= 2
+      ? `${goalsLast10} goals in ${Math.max(1, minute - Math.min(...goalTimes))} minutes`
+      : undefined;
+  return {
+    goalsLast10Min: goalsLast10,
+    cardsLast5Min: cardsThisTick + (chaosPulse?.challenge === "next-goal" ? 2 : 0),
+    scoreJustChanged,
+    isComeback,
+    redCardActive: redActive || newEvents.some((e) => e.kind === "red"),
+    momentumAbs: Math.abs(rt.momentum),
+    flurrySummary,
+    challenge: chaosPulse?.challenge,
+  };
 }
 
 function recordMomentDrops(
@@ -689,25 +842,253 @@ function recordMomentDrops(
   if (rt.momentDrops.length > 80) rt.momentDrops = rt.momentDrops.slice(-80);
 }
 
-function maybeGeneratePrompt(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | null, win: WinChance) {
+function runQuestionEngine(
+  rt: RoomRuntime,
+  score: ScoreSnapshot,
+  win: WinChance,
+  newEvents: MatchEvent[],
+  intensity: MatchIntensity,
+  major: boolean,
+): EngineCommand[] {
+  const feedFreshness =
+    rt.lastFeedAt === 0
+      ? "waiting" as const
+      : score.phase === GamePhase.CoveragePaused || score.phase === GamePhase.Cancelled
+        ? "paused" as const
+        : Date.now() - rt.lastFeedAt > 20_000
+          ? "stale" as const
+          : "fresh" as const;
+
+  if (rt.atHalftime && !rt.htRecapDone) {
+    prefetchFanBuzz(rt.fixture.id, "halftime");
+  }
+  if (rt.lineupStatus === "announced") {
+    prefetchFanBuzz(rt.fixture.id, "lineup");
+  }
+
+  const lastGoal = [...rt.keyEvents].reverse().find((e) => e.kind === "goal");
+  const coord = getFixtureCoordinator({
+    fixtureId: rt.fixture.id,
+    homeCode: rt.fixture.home.code,
+    awayCode: rt.fixture.away.code,
+    homeName: rt.fixture.home.name,
+    awayName: rt.fixture.away.name,
+  });
+  return coord.advance(tickSignal(score, newEvents, feedFreshness), score, win, newEvents, {
+    feedFreshness,
+    majorEvent: major,
+    goalsLast10Min: intensity.goalsLast10Min,
+    cardsLast5Min: intensity.cardsLast5Min,
+    redCardActive: intensity.redCardActive,
+    isComeback: intensity.isComeback,
+    flurrySummary: intensity.flurrySummary,
+    lastScorer: lastGoal?.playerName ?? lastGoal?.label,
+    lastGoalMinute: lastGoal?.minute,
+    atHalftime: rt.atHalftime || score.phase === GamePhase.HalfTime,
+    lineupConfirmed: rt.lineupStatus === "announced",
+  });
+}
+
+function specToSwing(q: QuestionSpec): SwingPrompt {
+  return {
+    id: q.id,
+    question: q.question,
+    options: q.options,
+    resolver: q.resolver,
+    basePoints: q.basePoints,
+    locksAtMinute: q.locksAtMinute,
+    status: q.status === "void" || q.status === "corrected" ? "settled" : q.status === "scheduled" ? "open" : q.status,
+    winningKey: q.winningKey,
+    createdAt: q.createdAt,
+    openedAtMinute: q.openedAtMinute,
+    openedAtSeq: q.openedAtSeq,
+    lockState: q.lockState,
+    lane: q.lane,
+    category: q.category,
+    ruleId: q.ruleId,
+    reason: q.reason,
+    urgency: q.urgency,
+    openedClockSec: q.openedClockSec,
+    answerClosesAt: q.answerClosesAt,
+    resolutionDeadlineClockSec: q.resolutionDeadlineClockSec,
+    feedFreshness: q.feedFreshness,
+    sourceAttribution: q.sourceAttribution,
+    rewardPreview: q.rewardPreview,
+    fanBuzzUrl: q.fanBuzzUrl,
+    fanBuzzFact: q.fanBuzzFact,
+  };
+}
+
+function applyEngineCommands(rt: RoomRuntime, cmds: EngineCommand[], intensity?: MatchIntensity) {
+  for (const cmd of cmds) {
+    switch (cmd.type) {
+      case "open": {
+        const buzz = frozenFanBuzz(rt.fixture.id);
+        if (buzz && cmd.question.lane === "break") {
+          cmd.question.fanBuzzUrl = buzz.url;
+          cmd.question.fanBuzzFact = `${buzz.publisher}: ${buzz.fact}`;
+          cmd.question.category = "fan-buzz";
+          // Cap Fan Lore mint for room members answering break-deck calls later
+          // is handled on first correct settle; pre-mint lore for hostless hubs
+          // when editorial context is on.
+          for (const m of rt.members.values()) {
+            const lore = mintFanLore({
+              fanId: m.walletPubkey ?? m.id,
+              fixtureId: rt.fixture.id,
+              matchLabel: `${rt.fixture.home.code} vs ${rt.fixture.away.code}`,
+              fact: buzz.fact,
+              publisherUrl: buzz.url,
+              roomId: rt.id,
+            });
+            if (lore) {
+              recordMomentDrops(rt, [{ memberId: m.id, fanId: lore.ownerId }], [lore]);
+            }
+          }
+        }
+        const prompt = specToSwing(cmd.question);
+        rt.prompts.set(prompt.id, prompt);
+        rt.lastPromptMinute = rt.score?.minute ?? rt.lastPromptMinute;
+        void persistQuestionInstance(cmd.question);
+        if (questionLlmMode() !== "off" && llmConfigured()) {
+          void upgradePromptText(rt, prompt, intensity);
+        }
+        break;
+      }
+      case "lock": {
+        const p = rt.prompts.get(cmd.questionId);
+        if (p && p.status === "open") {
+          p.status = "locked";
+          p.lockState = cmd.lockState;
+        }
+        break;
+      }
+      case "settle": {
+        const p = rt.prompts.get(cmd.questionId);
+        if (p && p.status !== "settled") {
+          settlePrompt(rt, p, cmd.winningKey);
+          void persistQuestionInstance(swingToSpec(p, rt.fixture.id));
+        }
+        break;
+      }
+      case "void": {
+        const p = rt.prompts.get(cmd.questionId);
+        if (p && p.status !== "settled") {
+          settlePrompt(rt, p, "__void__");
+          void persistQuestionInstance(swingToSpec(p, rt.fixture.id));
+        }
+        break;
+      }
+      case "correct": {
+        const p = rt.prompts.get(cmd.questionId);
+        if (!p) break;
+        p.winningKey = cmd.winningKey;
+        p.status = "corrected";
+        // Compensate newly-correct fans only — never claw back prior grants.
+        for (const m of rt.members.values()) {
+          const pick = rt.picks.get(m.id)?.get(p.id);
+          if (pick !== cmd.winningKey) continue;
+          const rewardKey = `${m.id}:${p.id}`;
+          if (rt.rewardedCalls.has(rewardKey)) continue;
+          rt.rewardedCalls.add(rewardKey);
+          m.points += swingPoints(p.basePoints, m.streak);
+          m.streak += 1;
+          m.bestStreak = Math.max(m.bestStreak, m.streak);
+          m.correct += 1;
+          const fanId = m.walletPubkey ?? m.id;
+          earnCredits(fanId, EARN.correctCall, "corrected call");
+          addPassXp(fanId, PASS_XP.correctCall, "corrected call");
+        }
+        void persistQuestionInstance(swingToSpec(p, rt.fixture.id));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
+function swingToSpec(p: SwingPrompt, fixtureId: string): QuestionSpec {
+  return {
+    id: p.id,
+    fixtureId,
+    ruleId: p.ruleId ?? "legacy",
+    ruleVersion: 1,
+    lane: p.lane ?? "main",
+    category: (p.category as QuestionSpec["category"]) ?? "next-event",
+    question: p.question,
+    options: p.options,
+    resolver: p.resolver,
+    basePoints: p.basePoints,
+    reason: p.reason ?? "",
+    urgency: p.urgency ?? 0.5,
+    openedClockSec: p.openedClockSec ?? 0,
+    locksAtMinute: p.locksAtMinute,
+    answerClosesAt: p.answerClosesAt,
+    resolutionDeadlineClockSec: p.resolutionDeadlineClockSec ?? (p.locksAtMinute + 12) * 60,
+    status: p.status === "settled" ? "settled" : p.status === "locked" ? "locked" : "open",
+    winningKey: p.winningKey,
+    createdAt: p.createdAt,
+    openedAtMinute: p.openedAtMinute,
+    openedAtSeq: p.openedAtSeq,
+    lockState: p.lockState,
+    feedFreshness: p.feedFreshness as QuestionSpec["feedFreshness"],
+    sourceAttribution: p.sourceAttribution,
+    rewardPreview: p.rewardPreview,
+    fanBuzzUrl: p.fanBuzzUrl,
+    fanBuzzFact: p.fanBuzzFact,
+  };
+}
+
+function maybeGeneratePrompt(
+  rt: RoomRuntime,
+  score: ScoreSnapshot,
+  odds: OddsSnapshot | null,
+  win: WinChance,
+  intensity?: MatchIntensity,
+  majorEvent = false,
+) {
   if (!isLivePhase(score.phase)) return;
   if (sourceMode() === "live" && Date.now() - rt.lastFeedAt > 20_000) return;
   if (score.minute >= 86 || rt.atHalftime) return;
   const live = [...rt.prompts.values()].filter((p) => p.status !== "settled");
-  if (live.length >= 3) return;
-  if (score.minute - rt.lastPromptMinute < 4) return;
-  const prompt = generatePrompt(score, odds, win, Math.random);
+  if (live.length >= 2) return;
+  const bias = biasFromIntensity(intensity);
+  // Major events (goal/red) or pulse challenges: 2' debounce; otherwise 4'
+  const gap = majorEvent || bias ? 2 : 4;
+  if (score.minute - rt.lastPromptMinute < gap) return;
+
+  const lastGoal = [...rt.keyEvents].reverse().find((e) => e.kind === "goal");
+  const story: MatchStory = {
+    lastScorer: lastGoal?.playerName ?? lastGoal?.label,
+    lastGoalMinute: lastGoal?.minute,
+    goalsLast10Min: intensity?.goalsLast10Min,
+    cardsLast5Min: intensity?.cardsLast5Min,
+    scoreJustChanged: intensity?.scoreJustChanged,
+    isComeback: intensity?.isComeback,
+    redCardActive: intensity?.redCardActive,
+    flurrySummary: intensity?.flurrySummary,
+  };
+
+  const prompt = generatePrompt(score, odds, win, Math.random, bias, story);
   if (prompt) {
+    prompt.openedAtMinute = score.minute;
+    prompt.openedAtSeq = score.seq;
     rt.prompts.set(prompt.id, prompt);
     rt.lastPromptMinute = score.minute;
     // Publish the template text instantly, then let the LLM rewrite it into a
     // moment-specific question. Fire-and-forget: a slow/failed call is a no-op.
-    if (llmConfigured()) void upgradePromptText(rt, prompt);
+    if (questionLlmMode() !== "off" && llmConfigured()) {
+      void upgradePromptText(rt, prompt, intensity);
+    }
   }
 }
 
 /** Rewrite an open prompt's question/labels via the LLM, in place. */
-async function upgradePromptText(rt: RoomRuntime, prompt: SwingPrompt) {
+async function upgradePromptText(
+  rt: RoomRuntime,
+  prompt: SwingPrompt,
+  intensity?: MatchIntensity,
+) {
   try {
     const s = rt.score;
     const ctx: PromptContext = {
@@ -727,6 +1108,17 @@ async function upgradePromptText(rt: RoomRuntime, prompt: SwingPrompt) {
         .slice(-6)
         .map((e) => `${e.minute}' ${e.label}${e.playerName ? ` (${e.playerName})` : ""} — ${e.side === "away" ? rt.fixture.away.name : rt.fixture.home.name}`),
       narrative: rt.pulse.slice(-4).map((c) => c.headline).filter((h): h is string => !!h),
+      intensity: intensity
+        ? {
+            goalsLast10Min: intensity.goalsLast10Min,
+            cardsLast5Min: intensity.cardsLast5Min,
+            scoreJustChanged: intensity.scoreJustChanged,
+            isComeback: intensity.isComeback,
+            redCardActive: intensity.redCardActive,
+            momentumAbs: intensity.momentumAbs,
+            flurrySummary: intensity.flurrySummary,
+          }
+        : undefined,
     };
     const res = await rewritePromptText(prompt, ctx);
     if (!res) return;
@@ -762,12 +1154,13 @@ function resolvePrompts(rt: RoomRuntime, newEvents: MatchEvent[], score: ScoreSn
 }
 
 function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) {
+  if (prompt.status === "settled") return;
   prompt.status = "settled";
   prompt.winningKey = winningKey;
   // nothing relevant happened in the window — close it out without scoring or
   // resetting anyone's streak (a fair "no result").
   if (winningKey === "__void__") {
-    system(rt, "Micro-Play — no result that window, no points lost.");
+    system(rt, "Live Call — no result that window, no points lost.");
     return;
   }
   const opt = prompt.options.find((o) => o.key === winningKey);
@@ -776,6 +1169,9 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
     const pick = rt.picks.get(m.id)?.get(prompt.id);
     if (pick === undefined) continue;
     if (pick === winningKey) {
+      const rewardKey = `${m.id}:${prompt.id}`;
+      if (rt.rewardedCalls.has(rewardKey)) continue;
+      rt.rewardedCalls.add(rewardKey);
       m.points += swingPoints(prompt.basePoints, m.streak);
       m.streak += 1;
       m.bestStreak = Math.max(m.bestStreak, m.streak);
@@ -788,7 +1184,11 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       // Skill-gated Card Economy: a correct call EARNS the Moment + pack for
       // the moment the prompt covered (latest significant event, or a
       // market-swing fallback so a correct call always pays a card).
-      const src = rt.recentMintables.length ? rt.recentMintables[rt.recentMintables.length - 1] : null;
+      const openedMinute = prompt.openedAtMinute ?? Math.max(0, prompt.locksAtMinute - 5);
+      const openedSeq = prompt.openedAtSeq ?? 0;
+      const src = [...rt.recentMintables].reverse().find(
+        (candidate) => candidate.event.minute >= openedMinute && candidate.event.seq >= openedSeq,
+      ) ?? null;
       const flatWin = { home: rt.win.home / 100, draw: rt.win.draw / 100, away: rt.win.away / 100 };
       const minted = mintFromEvent({
         fixtureId: rt.fixture.id,
@@ -801,6 +1201,7 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
           minute: rt.score?.minute ?? prompt.locksAtMinute,
           seq: rt.score?.seq ?? 0,
           label: `Called It — ${opt?.label ?? winningKey}`,
+          sourceEventId: `call:${prompt.id}`,
         },
         oddsSandwich: src?.oddsSandwich ?? sandwichFromWin(flatWin, flatWin),
         priorHomeProb: src?.priorHomeProb ?? rt.win.home / 100,
@@ -808,7 +1209,7 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       // Called It → stamp related Moments + pack weight (ADR-0004)
       const stamped = stampCalledIt(fanId, {
         fixtureId: rt.fixture.id,
-        sinceMinute: Math.max(0, prompt.locksAtMinute - 8),
+        sinceMinute: openedMinute,
       });
       if (minted) {
         recordMomentDrops(rt, [{ memberId: m.id, fanId }], [minted]);
@@ -822,7 +1223,7 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       m.streak = 0;
     }
   }
-  system(rt, `Micro-Play settled — ${opt?.label ?? winningKey}. ${winners} called it right.`);
+  system(rt, `Live Call settled — ${opt?.label ?? winningKey}. ${winners} called it right.`);
 }
 
 function finishMatch(rt: RoomRuntime) {
@@ -855,6 +1256,13 @@ function finishMatch(rt: RoomRuntime) {
     }
   }
   void doRecap(rt, "full-time");
+  void archiveFixtureTape({
+    fixtureId: rt.fixture.id,
+    kickoff: rt.fixture.kickoff,
+    scores: rt.tapeScores ?? [],
+    events: rt.keyEvents,
+    archivedAt: Date.now(),
+  });
   broadcast(rt);
 }
 
@@ -930,16 +1338,32 @@ export function buildView(rt: RoomRuntime): RoomView {
         const pick = mp.get(p.id);
         if (pick && tally[pick] !== undefined) tally[pick] += 1;
       }
+      const settled =
+        p.status === "settled" || p.status === "void" || p.status === "corrected";
       return {
         id: p.id,
         question: p.question,
         options: p.options,
         basePoints: p.basePoints,
         locksAtMinute: p.locksAtMinute,
-        status: p.status,
-        winningKey: p.winningKey,
+        status: p.status === "scheduled" ? "open" : p.status,
+        // Never expose winningKey before settle.
+        winningKey: settled ? p.winningKey : undefined,
         tally,
         createdAt: p.createdAt,
+        lane: p.lane,
+        category: p.category,
+        ruleId: p.ruleId,
+        reason: p.reason,
+        urgency: p.urgency,
+        openedClockSec: p.openedClockSec,
+        answerClosesAt: p.answerClosesAt,
+        resolutionDeadlineClockSec: p.resolutionDeadlineClockSec,
+        feedFreshness: p.feedFreshness,
+        sourceAttribution: p.sourceAttribution,
+        rewardPreview: p.rewardPreview,
+        fanBuzzUrl: p.fanBuzzUrl,
+        fanBuzzFact: p.fanBuzzFact,
       };
     });
 
@@ -970,6 +1394,10 @@ export function buildView(rt: RoomRuntime): RoomView {
     modes: rt.modes,
     hostId: rt.hostId,
     status: rt.status,
+    lifecycle: rt.status === "finished" ? "finished" : rt.status === "live" ? "live" : "pregame",
+    feedFreshness: rt.lastFeedAt === 0 ? "waiting" : Date.now() - rt.lastFeedAt <= 20_000 ? "fresh" : "stale",
+    lineupStatus: rt.lineupStatus,
+    sourceUpdatedAt: rt.score?.updatedAt,
     momentum: rt.momentum,
     win: rt.win,
     winHistory: [...rt.winHistory],

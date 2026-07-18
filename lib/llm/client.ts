@@ -1,14 +1,19 @@
 /**
  * Provider-agnostic LLM chat client (server-side only).
  *
- * Prefers a generic OpenAI-compatible endpoint (Groq free tier, xAI, …) via
- * LLM_API_URL + LLM_API_KEY + LLM_MODEL, and falls back to the Anthropic key
- * already used for recaps. Callers must treat every throw as "use the local
- * template" — this client never retries and never blocks a game tick.
+ * Provider order: OpenAI-compatible (LLM_API_URL + LLM_API_KEY + LLM_MODEL) →
+ * Anthropic (ANTHROPIC_API_KEY). No keyless / Pollinations fallback in
+ * production — llmConfigured() is false unless an explicit provider is set.
+ * Callers must treat every throw as "use the local template".
+ * Set LLM_DISABLE=1 or QUESTION_LLM=off to turn AI rewriting off.
  */
 
 export function llmConfigured(): boolean {
-  return !!((process.env.LLM_API_URL && process.env.LLM_API_KEY) || process.env.ANTHROPIC_API_KEY);
+  if (process.env.LLM_DISABLE === "1") return false;
+  if ((process.env.QUESTION_LLM ?? "configured").toLowerCase() === "off") return false;
+  return Boolean(
+    (process.env.LLM_API_URL && process.env.LLM_API_KEY) || process.env.ANTHROPIC_API_KEY,
+  );
 }
 
 export interface ChatJSONOptions {
@@ -20,12 +25,24 @@ export interface ChatJSONOptions {
 
 /** Ask the configured LLM for a JSON object; parsed result or throw. */
 export async function chatJSON(opts: ChatJSONOptions): Promise<unknown> {
-  const timeoutMs = opts.timeoutMs ?? 3000;
+  if (!llmConfigured()) throw new Error("No LLM configured");
   const maxTokens = opts.maxTokens ?? 400;
-  const text =
-    process.env.LLM_API_URL && process.env.LLM_API_KEY
-      ? await openAICompatible(opts.system, opts.user, maxTokens, timeoutMs)
-      : await anthropic(opts.system, opts.user, maxTokens, timeoutMs);
+  let text: string;
+  if (process.env.LLM_API_URL && process.env.LLM_API_KEY) {
+    text = await openAICompatible(
+      process.env.LLM_API_URL,
+      process.env.LLM_API_KEY,
+      process.env.LLM_MODEL ?? "llama-3.3-70b-versatile",
+      opts.system,
+      opts.user,
+      maxTokens,
+      opts.timeoutMs ?? 4000,
+    );
+  } else if (process.env.ANTHROPIC_API_KEY) {
+    text = await anthropic(opts.system, opts.user, maxTokens, opts.timeoutMs ?? 4000);
+  } else {
+    throw new Error("No LLM configured");
+  }
   return JSON.parse(stripFences(text));
 }
 
@@ -35,16 +52,24 @@ function stripFences(text: string): string {
   return m ? m[1] : t;
 }
 
-async function openAICompatible(system: string, user: string, maxTokens: number, timeoutMs: number): Promise<string> {
-  const base = (process.env.LLM_API_URL as string).replace(/\/$/, "");
+async function openAICompatible(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+  timeoutMs: number,
+): Promise<string> {
+  const base = baseUrl.replace(/\/$/, "");
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${process.env.LLM_API_KEY}`,
+      authorization: `Bearer ${apiKey}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.LLM_MODEL ?? "llama-3.3-70b-versatile",
+      model,
       temperature: 0.8,
       max_tokens: maxTokens,
       response_format: { type: "json_object" },

@@ -32,9 +32,14 @@ class _PassScreenState extends State<PassScreen> {
       final id = await IdentityStore.getOrCreate();
       _fanId = id.pubkey;
       final d = await _api.passState(_fanId);
-      if (mounted) setState(() => _data = d);
+      if (mounted) setState(() {
+        _data = d;
+        _err = null;
+      });
     } catch (e) {
-      if (mounted) setState(() => _err = 'Pass needs the server — $e');
+      if (mounted) {
+        setState(() => _err = 'server');
+      }
     }
   }
 
@@ -111,10 +116,17 @@ class _PassScreenState extends State<PassScreen> {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  _err!,
-                  textAlign: TextAlign.center,
-                  style: body(color: AppColors.mut),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Can\'t reach the server — check Settings → Server, then retry.',
+                      textAlign: TextAlign.center,
+                      style: body(color: AppColors.mut),
+                    ),
+                    const SizedBox(height: 16),
+                    PrimaryButton('Retry', expand: true, onTap: _load),
+                  ],
                 ),
               ),
             )

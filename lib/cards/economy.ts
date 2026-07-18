@@ -22,6 +22,21 @@ function uid(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 }
 
+function lineageSnapshot(moment: Moment | undefined) {
+  if (!moment) return undefined;
+  return {
+    parentMomentId: moment.id,
+    fixtureId: moment.fixtureId,
+    kind: moment.kind,
+    teamCode: moment.teamCode,
+    rarity: moment.rarity,
+    calledIt: moment.calledIt,
+    sourceEventId: moment.sourceEventId,
+    oddsSandwich: structuredClone(moment.oddsSandwich),
+    proofRef: moment.leafData,
+  } as const;
+}
+
 type EconomyStore = {
   inventories: Map<string, FanInventory>;
   momentIndex: Map<string, Moment>;
@@ -54,6 +69,26 @@ export function inventoryOf(fanId: string): FanInventory {
     inventories.set(fanId, inv);
   }
   return inv;
+}
+
+function indexInventory(inv: FanInventory) {
+  for (const moment of inv.moments) {
+    momentIndex.set(moment.id, moment);
+    cardIndex.set(moment.id, moment);
+  }
+  for (const player of inv.players) cardIndex.set(player.id, player);
+  for (const skill of inv.skills) cardIndex.set(skill.id, skill);
+}
+
+/** Apply a durable inventory row into the in-memory maps after Postgres hydrate. */
+export function applyDurableInventory(fanId: string, inventory: unknown) {
+  const inv = inventory as FanInventory;
+  inventories.set(fanId, inv);
+  indexInventory(inv);
+}
+
+export function applyDurableLeaves(leafKey: string, leaves: string[]) {
+  momentLeaves.set(leafKey, leaves);
 }
 
 export function getMoment(id: string): Moment | undefined {
@@ -176,6 +211,54 @@ export function mintFromEvent(ctx: MintContext): Moment | null {
   return moment;
 }
 
+const fanLoreCap = new Map<string, number>(); // `${fanId}:${fixtureId}` -> count
+
+/**
+ * Mint a capped Fan Lore collectible from editorial Fan Buzz.
+ * No TxLINE proof badge, no auto-pack — craftable in the normal 3-card craft only.
+ */
+export function mintFanLore(opts: {
+  fanId: string;
+  fixtureId: string;
+  matchLabel: string;
+  fact: string;
+  publisherUrl: string;
+  roomId?: string;
+}): Moment | null {
+  const key = `${opts.fanId}:${opts.fixtureId}`;
+  const n = fanLoreCap.get(key) ?? 0;
+  if (n >= 1) return null; // one Fan Lore per fan per fixture
+  fanLoreCap.set(key, n + 1);
+
+  const leafData = ["fan-lore", opts.fixtureId, opts.fanId, opts.publisherUrl].join(":");
+  const moment: Moment = {
+    id: uid("lore"),
+    type: "moment",
+    ownerId: opts.fanId,
+    fixtureId: opts.fixtureId,
+    matchLabel: opts.matchLabel,
+    kind: "fan-lore",
+    minute: 0,
+    label: opts.fact.slice(0, 80),
+    sourceEventId: `fan-lore:${opts.publisherUrl}`,
+    rarity: 1,
+    oddsSandwich: {
+      before: { home: 0.33, draw: 0.34, away: 0.33 },
+      after: { home: 0.33, draw: 0.34, away: 0.33 },
+    },
+    calledIt: false,
+    leafData,
+    roomId: opts.roomId,
+    createdAt: Date.now(),
+  };
+  const inv = inventoryOf(opts.fanId);
+  inv.moments.push(moment);
+  momentIndex.set(moment.id, moment);
+  cardIndex.set(moment.id, moment);
+  // Intentionally no pack grant — Fan Lore is craft-only fuel.
+  return moment;
+}
+
 /**
  * Mint Moments for every Fan in a room on a significant event.
  * Returns minted Moments (one per fan).
@@ -258,6 +341,7 @@ export function openPack(fanId: string, packId: string, rand: () => number = Mat
     imageUrl: roster.imageUrl,
     axes,
     lineageMomentId: parentMoment?.id,
+    lineage: lineageSnapshot(parentMoment),
     leafData: lineageLeaf,
     createdAt: Date.now(),
   };
@@ -322,6 +406,10 @@ export function craft(
     /* ok — burn mixed; use min rarity for imprint seed */
   }
 
+  // Capture immutable provenance before the source records are burned.
+  const parent = [...moments].sort((a, b) => b.rarity - a.rarity)[0];
+  const lineage = lineageSnapshot(parent);
+
   // burn
   inv.moments = inv.moments.filter((m) => !momentIds.includes(m.id));
   for (const id of momentIds) {
@@ -329,7 +417,7 @@ export function craft(
     cardIndex.delete(id);
   }
 
-  const seedKind = moments.sort((a, b) => b.rarity - a.rarity)[0].kind;
+  const seedKind = parent.kind;
   const roster = pickRosterWeighted(rand);
   const axes = applyLineageImprint({ ...roster.axes }, seedKind);
   const leafData = `craft:${roster.id}:${momentIds.join("+")}:${fanId}`;
@@ -345,7 +433,8 @@ export function craft(
     position: roster.position,
     imageUrl: roster.imageUrl,
     axes,
-    lineageMomentId: moments[0].id,
+    lineageMomentId: lineage?.parentMomentId,
+    lineage,
     leafData,
     createdAt: Date.now(),
   };
@@ -389,14 +478,26 @@ export function sandwichFromWin(
 }
 
 /**
- * Demo / test seed — fills an empty fan inventory so Album, Craft, and Duels
- * are playable without waiting for a live match mint. Idempotent: if the fan
- * already has any cards/packs, returns the existing inventory unchanged.
+ * Demo / test seed — fills inventory so Album, Craft, and Duels are playable
+ * without a live mint. Idempotent once the fan has ≥3 Player Cards and ≥1 Moment.
  */
 export function seedDemoInventory(fanId: string): { inventory: FanInventory; seeded: boolean } {
   const inv = inventoryOf(fanId);
-  if (inv.moments.length > 0 || inv.players.length > 0 || inv.packs.length > 0) {
+  if (inv.players.length >= 3 && inv.moments.length > 0) {
     return { inventory: inv, seeded: false };
+  }
+  // Wipe partial junk so a clean demo set is always available for Arena testing.
+  if (inv.moments.length > 0 || inv.players.length > 0 || inv.packs.length > 0) {
+    for (const m of inv.moments) {
+      momentIndex.delete(m.id);
+      cardIndex.delete(m.id);
+    }
+    for (const p of inv.players) cardIndex.delete(p.id);
+    for (const s of inv.skills) cardIndex.delete(s.id);
+    inv.moments = [];
+    inv.players = [];
+    inv.skills = [];
+    inv.packs = [];
   }
 
   const fixtureId = "demo-fixture";
@@ -535,6 +636,7 @@ export function seedDemoInventory(fanId: string): { inventory: FanInventory; see
       imageUrl: roster.imageUrl,
       axes,
       lineageMomentId: parent.id,
+      lineage: lineageSnapshot(parent),
       leafData,
       createdAt: Date.now(),
     };

@@ -1,13 +1,25 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// Local notifications for live match moments (goals, red cards). Fired while
-/// the app is watching a live TxLINE room.
+/// Local notifications for live match moments (goals, red cards).
+/// Prefer [showGoal] for witty copy; [show] for generic alerts.
 class Notifications {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   static bool _inited = false;
   static int _id = 1000;
+  static final _rng = Random();
+
+  static const _goalTitles = [
+    '⚽ NET BULGES',
+    '⚽ THEY\'VE SCORED',
+    '⚽ GOAL ALERT',
+    '⚽ BACK OF THE NET',
+    '⚽ IT\'S IN',
+    '⚽ ABSOLUTE ROCKET',
+  ];
 
   static Future<void> init() async {
     if (_inited) return;
@@ -35,6 +47,36 @@ class Notifications {
     _inited = true;
   }
 
+  /// Witty goal tray notification — used when the user is NOT in that room.
+  static Future<void> showGoal({
+    required String teamName,
+    required String scorer,
+    required String homeName,
+    required String awayName,
+    required int homeGoals,
+    required int awayGoals,
+    required int minute,
+    String? stage,
+    String? roomName,
+  }) async {
+    final title = '${_goalTitles[_rng.nextInt(_goalTitles.length)]} — $teamName';
+    final bodies = [
+      '$scorer just ruined someone\'s evening. $homeName $homeGoals–$awayGoals $awayName · $minute\'',
+      '$scorer finds the onion bag! $homeName $homeGoals–$awayGoals $awayName ($minute\')',
+      'Cue the chaos — $scorer puts $teamName ahead of the night. $homeGoals–$awayGoals at $minute\'',
+      '$teamName strike through $scorer. Scoreboard reads $homeGoals–$awayGoals · $minute\'',
+      'Hold that thought — $scorer has spoken. $homeName $homeGoals–$awayGoals $awayName',
+    ];
+    final body = bodies[_rng.nextInt(bodies.length)];
+    await show(
+      title,
+      body,
+      subText: stage != null
+          ? (roomName != null ? '$stage · $roomName' : stage)
+          : (roomName ?? 'FINAL WHISTLE'),
+    );
+  }
+
   static Future<void> show(String title, String body, {String? subText}) async {
     try {
       await init();
@@ -46,7 +88,6 @@ class Notifications {
           importance: Importance.max,
           priority: Priority.high,
           ticker: title,
-          // brand the notification with the app logo + orange accent
           icon: '@mipmap/ic_launcher',
           largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
           color: const Color(0xFFE9531E),
@@ -55,7 +96,6 @@ class Notifications {
           ledColor: const Color(0xFFE9531E),
           ledOnMs: 600,
           ledOffMs: 200,
-          // expandable, detailed body with a Final Whistle footer
           styleInformation: BigTextStyleInformation(
             body,
             htmlFormatBigText: true,

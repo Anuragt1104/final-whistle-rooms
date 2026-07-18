@@ -12,10 +12,13 @@ group joins on their phones. The room reacts in real time to verified TxLINE
 data through three layers — a **plain-English match pulse** (goals, cards,
 corners, and odds swings translated for mainstream fans), a **room game loop**
 (*Tournament Draft* + live *Next Swing* predictions, points and streaks only),
-and an **AI room recap**. Every event the room reacts to is hashed into a Merkle
-root that can be anchored on Solana — trust as a fan feature. Instead of asking
-fans to juggle a scores app, a group chat, a predictor and a pundit feed, it
-folds them into one room that watches together.
+and an **AI room recap**. Moments craft into Player Cards with immutable TxLINE
+lineage; fans then play authoritative **Stadium Duels** (House commitment or
+Friend invite) and **Moment Arena** rounds scored from verified provenance.
+Every event the room reacts to is hashed into a Merkle root that can be
+anchored on Solana — trust as a fan feature. Instead of asking fans to juggle a
+scores app, a group chat, a predictor and a pundit feed, it folds them into one
+room that watches together.
 
 ---
 
@@ -45,8 +48,12 @@ folds them into one room that watches together.
 7. **Verify it (4:00–4:35).** Tap **Verified** → Merkle root, a live inclusion
    proof (✓ verified), and the optional on-chain anchor. Explain it maps to
    TxLINE's `stat-validation` / `odds-validation` endpoints.
-8. **Full-time + the pitch (4:35–5:00).** Final recap, room winner. Close on the
-   business model.
+8. **Stadium Duel / Moment Arena (optional cut-in).** Open Album → Duels → Face
+   the House (or charge Arena with an explicit Moment). Show the cinematic
+   reveal, House commitment hash, and FC/XP settlement — powered by signed
+   Solana sessions + Postgres-backed Duel state, not simulated bot cards.
+9. **Full-time + the pitch.** Final recap, room winner. Close on the business
+   model.
 
 ---
 

@@ -8,20 +8,17 @@ import '../api/cards.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
 import '../state/room_controller.dart';
-import '../state/notifications.dart';
+import '../state/room_presence.dart';
 import '../local/live_engine.dart';
 import '../theme.dart';
 import 'team_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/ticket.dart';
 import '../widgets/live_match.dart';
-import '../widgets/score_rail.dart';
-import '../widgets/pulse_feed.dart';
 import '../widgets/next_swing_card.dart';
 import '../widgets/leaderboard.dart';
 import '../widgets/chat_dock.dart';
 import '../widgets/recap_card.dart';
-import '../widgets/proof_sheet.dart';
 import '../widgets/motm_poll.dart';
 import '../widgets/player_avatar.dart';
 import '../widgets/gyro_card.dart';
@@ -41,11 +38,10 @@ class RoomScreen extends StatefulWidget {
   State<RoomScreen> createState() => _RoomScreenState();
 }
 
-class _RoomScreenState extends State<RoomScreen> {
+class _RoomScreenState extends State<RoomScreen> with WidgetsBindingObserver {
   late final RoomController _c = widget.engine != null
-      ? RoomController.local(widget.engine)
+      ? RoomController.local(widget.engine!)
       : RoomController(widget.roomId);
-  int _seg = 0;
   bool _aiOn = false;
   bool _revealed = false; // spoiler-safe reveal
   Identity? _identity;
@@ -75,6 +71,8 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    RoomPresence.enter(widget.roomId);
     _c.init();
     _c.addListener(_onChange);
     _scroll.addListener(_onScroll);
@@ -98,6 +96,14 @@ class _RoomScreenState extends State<RoomScreen> {
     _markMatchWatched();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    RoomPresence.setForeground(state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed && mounted) {
+      RoomPresence.enter(widget.roomId, fixtureId: _c.room?.fixture.id);
+    }
+  }
+
   bool _watchMarked = false;
   void _markMatchWatched() {
     if (_watchMarked) return;
@@ -105,6 +111,7 @@ class _RoomScreenState extends State<RoomScreen> {
     if (fx == null)
       return; // remote room still loading — retried from _onChange
     _watchMarked = true;
+    RoomPresence.enter(widget.roomId, fixtureId: fx.id);
     LocalStore.markWatched(
       fx.id,
     ); // fan stat: matches watched (once per fixture)
@@ -198,39 +205,26 @@ class _RoomScreenState extends State<RoomScreen> {
           goalCards.length > 1; // seeded history, not a fresh goal
       _lastGoals = goalCards.length;
       if (!isCatchUp && room != null) {
+        // In-room only: banner + haptics. Tray push is handled by PushService
+        // (and suppressed while RoomPresence says we're viewing this room).
         HapticFeedback.heavyImpact();
         final g = goalCards.last;
         final side = g.accent == 'away' ? 'away' : 'home';
         final team = side == 'away' ? room.fixture.away : room.fixture.home;
         final scorer = g.scorer ?? team.name;
         _goalBanner(team, scorer, g.minute);
-        // system notification only for real (live TxLINE) rooms, not replays
-        if (!_c.isLocal && room.score != null) {
-          final s = room.score!;
-          Notifications.show(
-            '⚽ GOAL — ${team.name} · $scorer',
-            "${room.fixture.home.name} ${s.goals.home}–${s.goals.away} ${room.fixture.away.name}   ·   ${s.minute}'",
-            subText: '${room.fixture.stage} · ${room.name}',
-          );
-        }
       }
     }
     if (redCards.length > _lastReds) {
       _lastReds = redCards.length;
-      if (!_c.isLocal && room != null) {
-        final r = redCards.last;
-        Notifications.show(
-          '🟥 RED CARD',
-          r.detail.isNotEmpty ? r.detail : r.headline,
-          subText: '${room.fixture.home.name} v ${room.fixture.away.name}',
-        );
-      }
     }
     setState(() {});
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    RoomPresence.leave(widget.roomId);
     _scroll.dispose();
     _c.removeListener(_onChange);
     _c.dispose();
@@ -243,7 +237,7 @@ class _RoomScreenState extends State<RoomScreen> {
   String? _scoreText(RoomView r) {
     if (_hidden(r)) return null;
     final s = r.score;
-    if (s == null || r.status == 'lobby') return null;
+    if (s == null || r.status == 'lobby' || s.phase == 0) return null;
     return '${s.goals.home} - ${s.goals.away}';
   }
 
@@ -301,6 +295,31 @@ class _RoomScreenState extends State<RoomScreen> {
     return out;
   }
 
+  List<String> _teamScorers(RoomView room, String side) => room.pulse
+      .where((c) => c.kind == 'goal' && c.accent == side)
+      .map((c) {
+        final team = side == 'away'
+            ? room.fixture.away
+            : room.fixture.home;
+        return '${c.scorer ?? team.name} ${c.minute}’';
+      })
+      .toList();
+
+  List<String> _recentImportantEvents(RoomView room) {
+    final events = room.pulse.reversed
+        .where(
+          (c) =>
+              c.kind == 'goal' ||
+              c.kind == 'red' ||
+              c.kind == 'yellow' ||
+              c.kind == 'substitution',
+        )
+        .take(2)
+        .map((c) => '${c.emoji} ${c.minute}’ ${c.headline}')
+        .toList();
+    return events.isEmpty ? ['Key match events will appear here'] : events;
+  }
+
   @override
   Widget build(BuildContext context) {
     final room = _c.room;
@@ -329,6 +348,26 @@ class _RoomScreenState extends State<RoomScreen> {
         ),
       );
     }
+    if (_c.loadError != null && room == null) {
+      return Scaffold(
+        backgroundColor: AppColors.paper,
+        appBar: AppBar(
+          backgroundColor: AppColors.paper,
+          foregroundColor: AppColors.ink,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              _c.loadError!,
+              textAlign: TextAlign.center,
+              style: body(color: AppColors.mut),
+            ),
+          ),
+        ),
+      );
+    }
     if (room == null) {
       return const Scaffold(
         backgroundColor: AppColors.paper,
@@ -342,13 +381,12 @@ class _RoomScreenState extends State<RoomScreen> {
   // ---------------- LIVE / LOBBY ----------------
   Widget _liveRoom(RoomView room) {
     final me = _c.me;
-    final showSyntheticAnalysis =
-        _c.isLocal || ApiClient.instance.cachedConfig?.mode == 'simulation';
     final showSwing =
         room.modes.nextSwing &&
-        (room.status == 'live' || room.prompts.isNotEmpty);
+        room.score != null &&
+        room.score!.phase != 0 &&
+        (room.score!.running || room.prompts.isNotEmpty);
     final showDraft = room.modes.draft && _c.joined && me?.side == null;
-    final latestRecap = room.recaps.isNotEmpty ? room.recaps.last : null;
 
     return Scaffold(
       backgroundColor: AppColors.paper,
@@ -383,6 +421,9 @@ class _RoomScreenState extends State<RoomScreen> {
                             ? AppColors.orange
                             : AppColors.inkSoft),
                   watching: room.members.length,
+                  homeScorers: _teamScorers(room, 'home'),
+                  awayScorers: _teamScorers(room, 'away'),
+                  recentEvents: _recentImportantEvents(room),
                   onBack: () => Navigator.of(context).maybePop(),
                   topRadius: 0,
                   topInset: MediaQuery.of(context).padding.top,
@@ -392,131 +433,53 @@ class _RoomScreenState extends State<RoomScreen> {
               Expanded(
                 child: ListView(
                   controller: _scroll,
-                  padding: EdgeInsets.fromLTRB(16, 12, 16, _seg == 0 ? 88 : 16),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
                   children: [
-                    _controls(room),
-                    const SizedBox(height: 12),
-                    _segmentBar(),
-                    const SizedBox(height: 12),
-                    if (_seg == 0) ...[
-                      _presenceRow(room),
+                    if (room.score?.statusNote != null) ...[
+                      _statusBanner(room.score!.statusNote!),
                       const SizedBox(height: 12),
-                      if (room.score?.statusNote != null) ...[
-                        _statusBanner(room.score!.statusNote!),
-                        const SizedBox(height: 12),
-                      ],
-                      if (room.status == 'lobby') ...[
-                        _lobbyBanner(room),
-                        const SizedBox(height: 12),
-                      ],
-                      if (showDraft) ...[
-                        _sidePicker(room),
-                        const SizedBox(height: 12),
-                      ],
-                      if (showSwing) ...[
-                        NextSwingCard(
-                          prompts: room.prompts,
-                          myPicks: _c.myPicks,
-                          onPick: _c.predict,
-                          streak: _c.me?.streak ?? 0,
-                          bestStreak: ((_c.me?.bestStreak ?? 0) > _lifetimeBest)
-                              ? (_c.me?.bestStreak ?? 0)
-                              : _lifetimeBest,
-                          onShare: () => _shareScore(room),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (room.shootout != null && !_hidden(room)) ...[
-                        ShootoutCard(
-                          s: room.shootout!,
-                          fixture: room.fixture,
-                          home: room.fixture.home,
-                          away: room.fixture.away,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (showSyntheticAnalysis &&
-                          room.score != null &&
-                          !_hidden(room)) ...[
-                        WinBar(
-                          win: room.win,
-                          home: room.fixture.home,
-                          away: room.fixture.away,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (showSyntheticAnalysis &&
-                          room.score != null &&
-                          room.status == 'live' &&
-                          !_hidden(room) &&
-                          (room.score!.phase != 0)) ...[
-                        MomentumMeter(
-                          value: room.momentum,
-                          home: room.fixture.home,
-                          away: room.fixture.away,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (showSyntheticAnalysis &&
-                          room.score != null &&
-                          !_hidden(room) &&
-                          room.winHistory.length >= 3) ...[
-                        WinTimeline(
-                          history: room.winHistory,
-                          home: room.fixture.home,
-                          away: room.fixture.away,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (room.score != null &&
-                          room.status != 'lobby' &&
-                          !_hidden(room)) ...[
-                        MatchStatsPanel(
-                          score: room.score!,
-                          home: room.fixture.home,
-                          away: room.fixture.away,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (latestRecap != null) ...[
-                        RecapCard(recap: latestRecap, aiOn: _aiOn),
-                        const SizedBox(height: 12),
-                      ],
-                      PulseFeed(pulse: room.pulse, fixture: room.fixture),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Text(
-                            'THE TERRACE',
-                            style: label(
-                              color: AppColors.ink,
-                              size: 11.5,
-                              weight: FontWeight.w800,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            '${room.chat.where((c) => c.kind != "system").length} shouts',
-                            style: body(color: AppColors.mut, size: 11),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      ChatFeed(chat: room.chat, hostId: room.hostId),
-                    ] else ...[
-                      Leaderboard(
-                        room: room,
-                        meId: _c.memberId,
-                        meIsPro: _isPro,
-                      ),
-                      if (room.recaps.isNotEmpty) const SizedBox(height: 12),
-                      ...room.recaps.reversed.map(
-                        (r) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: RecapCard(recap: r, aiOn: _aiOn),
-                        ),
-                      ),
                     ],
+                    _betsSection(room, showDraft: showDraft, showSwing: showSwing),
+                    const SizedBox(height: 12),
+                    if (room.shootout != null && !_hidden(room)) ...[
+                      ShootoutCard(
+                        s: room.shootout!,
+                        fixture: room.fixture,
+                        home: room.fixture.home,
+                        away: room.fixture.away,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (room.score != null &&
+                        room.status != 'lobby' &&
+                        room.score!.phase != 0 &&
+                        !_hidden(room)) ...[
+                      MatchStatsPanel(
+                        score: room.score!,
+                        home: room.fixture.home,
+                        away: room.fixture.away,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Row(
+                      children: [
+                        Text(
+                          'SOCIAL',
+                          style: label(
+                            color: AppColors.ink,
+                            size: 11.5,
+                            weight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${room.chat.where((c) => c.kind != "system").length} shouts',
+                          style: body(color: AppColors.mut, size: 11),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ChatFeed(chat: room.chat, hostId: room.hostId),
                   ],
                 ),
               ),
@@ -524,8 +487,7 @@ class _RoomScreenState extends State<RoomScreen> {
           ),
           // The "Shout it out" composer is hidden until you scroll to the terrace
           // chat, then slides up from the bottom (Terrace tab only).
-          if (_seg == 0)
-            Positioned(
+          Positioned(
               left: 0,
               right: 0,
               bottom: 0,
@@ -546,6 +508,93 @@ class _RoomScreenState extends State<RoomScreen> {
               ),
             ),
           if (!_c.joined) _JoinGate(room: room, onJoin: _join),
+        ],
+      ),
+    );
+  }
+
+  Widget _betsSection(
+    RoomView room, {
+    required bool showDraft,
+    required bool showSwing,
+  }) {
+    final pickedSide = _c.me?.side;
+    final pickedTeam = pickedSide == 'away'
+        ? room.fixture.away
+        : room.fixture.home;
+    return Container(
+      decoration: cardBox(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: AppColors.cardAlt,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            child: Row(
+              children: [
+                Text(
+                  'BETS',
+                  style: label(
+                    color: AppColors.ink,
+                    size: 12,
+                    weight: FontWeight.w900,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  'POINTS ONLY',
+                  style: label(color: AppColors.mut, size: 9),
+                ),
+              ],
+            ),
+          ),
+          if (showDraft)
+            _sidePicker(room, embedded: true)
+          else if (room.modes.draft && pickedSide != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+              child: Row(
+                children: [
+                  TeamBadge(team: pickedTeam, size: 32),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TEAM DRAFT',
+                          style: label(color: AppColors.mut, size: 9),
+                        ),
+                        Text(
+                          pickedTeam.name,
+                          style: body(size: 13, weight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppColors.orange,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          if (room.modes.nextSwing) ...[
+            const Divider(color: AppColors.line, height: 1),
+            NextSwingCard(
+              prompts: showSwing ? room.prompts : const [],
+              myPicks: _c.myPicks,
+              onPick: _c.predict,
+              streak: _c.me?.streak ?? 0,
+              bestStreak: ((_c.me?.bestStreak ?? 0) > _lifetimeBest)
+                  ? (_c.me?.bestStreak ?? 0)
+                  : _lifetimeBest,
+              onShare: () => _shareScore(room),
+              embedded: true,
+            ),
+          ],
         ],
       ),
     );
@@ -590,131 +639,6 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
-  Widget _controls(RoomView room) {
-    final extras = <Widget>[];
-    if (_isReplay && room.status == 'live') {
-      extras.add(
-        AppChip(
-          _c.isLocal ? '▶ DEMO REPLAY' : '▶ VERIFIED TXLINE REPLAY',
-          color: AppColors.gold,
-        ),
-      );
-    }
-    if (_hidden(room)) {
-      extras.add(
-        AppChip(
-          '🙈 Tap to reveal score',
-          color: AppColors.ink,
-          onTap: () => setState(() => _revealed = true),
-        ),
-      );
-    }
-    return Container(
-      decoration: cardBox(),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'OFFICIAL MATCH HUB',
-                    style: label(color: AppColors.orange, size: 10.5),
-                  ),
-                  Text(
-                    'Auto-following TxLINE',
-                    style: body(color: AppColors.mut, size: 11.5),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              AppChip(
-                room.proof.anchored
-                    ? '🛡 ⛓ on-chain'
-                    : '🛡 Verified · ${room.proof.leafCount}',
-                color: AppColors.ink,
-                onTap: () => showProofSheet(
-                  context,
-                  widget.roomId,
-                  _c.isHost,
-                  localProof: _c.localProof(),
-                ),
-              ),
-            ],
-          ),
-          if (extras.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(spacing: 8, runSpacing: 8, children: extras),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _presenceRow(RoomView room) {
-    final shown = room.members.take(4).toList();
-    final official = room.kind == 'official';
-    final hostName = official
-        ? (room.members.isNotEmpty ? room.members.first.name : 'Fans')
-        : (room.members.where((m) => m.isHost).isNotEmpty
-              ? room.members.firstWhere((m) => m.isHost).name
-              : 'Host');
-    final others = (room.members.length - 1).clamp(0, room.members.length);
-    return Container(
-      decoration: cardBox(),
-      padding: const EdgeInsets.all(10),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 18.0 * shown.length + 14,
-            height: 32,
-            child: Stack(
-              children: [
-                for (var i = 0; i < shown.length; i++)
-                  Positioned(
-                    left: i * 18.0,
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: AppColors.card,
-                        shape: BoxShape.circle,
-                      ),
-                      padding: const EdgeInsets.all(1.5),
-                      child: InitialAvatar(name: shown[i].name, size: 29),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              others > 0
-                  ? '$hostName & $others ${others == 1 ? "fan" : "fans"}'
-                  : '$hostName',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: body(weight: FontWeight.w700, size: 13),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.ink,
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Text(
-              official ? '● OFFICIAL' : '★ HOST',
-              style: label(color: AppColors.cream, size: 9),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _statusBanner(String note) {
     final emoji = note.contains('Cooling')
         ? '💧'
@@ -753,64 +677,17 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
-  Widget _segmentBar() {
-    Widget seg(String text, int i) {
-      final on = _seg == i;
-      return Expanded(
-        child: Pressable(
-          haptic: HapticFeedbackType.selection,
-          onTap: () => setState(() => _seg = i),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: on ? AppColors.ink : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              text.toUpperCase(),
-              style: label(
-                color: on ? AppColors.cream : AppColors.mut,
-                size: 11.5,
-                weight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.cardAlt,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Row(children: [seg('Terrace', 0), seg('Standings', 1)]),
-    );
-  }
-
-  Widget _lobbyBanner(RoomView room) {
-    return Container(
-      decoration: cardBox(),
-      padding: const EdgeInsets.all(14),
-      child: Text(
-        'The Official Match Hub starts automatically with TxLINE. Pick your Team Draft side while lineups arrive.',
-        textAlign: TextAlign.center,
-        style: body(color: AppColors.mut, size: 13),
-      ),
-    );
-  }
-
-  Widget _sidePicker(RoomView room) {
+  Widget _sidePicker(RoomView room, {bool embedded = false}) {
     Widget card(String side, Team t) => Expanded(
       child: Pressable(
         haptic: HapticFeedbackType.medium,
         onTap: () => _c.pickSide(side),
         child: Container(
-          decoration: cardBox(),
+          decoration: BoxDecoration(
+            color: AppColors.cardAlt,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.line),
+          ),
           padding: const EdgeInsets.symmetric(vertical: 14),
           child: Column(
             children: [
@@ -827,7 +704,7 @@ class _RoomScreenState extends State<RoomScreen> {
       ),
     );
     return Container(
-      decoration: cardBox(),
+      decoration: embedded ? null : cardBox(),
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1497,7 +1374,6 @@ class _MomentRevealDialogState extends State<_MomentRevealDialog> {
   @override
   void initState() {
     super.initState();
-    _motion.start();
   }
 
   @override
@@ -1537,6 +1413,11 @@ class _MomentRevealDialogState extends State<_MomentRevealDialog> {
                 child: GyroTiltCard(
                   motion: _motion,
                   borderColor: rarityBorder(d.rarity),
+                  intensity: 1.0,
+                  enableTilt: true,
+                  rarity: d.rarity,
+                  seed: cardSeed('${d.id}|${d.artworkKind ?? d.kind}'),
+                  foilAccent: kindAccent(d.kind),
                   child: MomentCardFace(
                     title: d.label,
                     matchLabel: d.matchLabel,
@@ -1545,6 +1426,7 @@ class _MomentRevealDialogState extends State<_MomentRevealDialog> {
                     minute: d.minute,
                     calledIt: false,
                     imageUrl: d.imageUrl,
+                    playerId: d.playerId,
                     playerName: d.playerName,
                     teamCode: d.teamCode,
                     artKey: d.artworkKind,

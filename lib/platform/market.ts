@@ -24,8 +24,29 @@ export interface Listing {
   sold?: { buyerId: string; at: number };
 }
 
-const listings = new Map<string, Listing>();
-let botSeeded = false;
+const listings = (() => {
+  const g = globalThis as unknown as {
+    __fwr_market?: { listings: Map<string, Listing>; botSeeded: boolean };
+  };
+  if (!g.__fwr_market) g.__fwr_market = { listings: new Map(), botSeeded: false };
+  return g.__fwr_market.listings;
+})();
+let botSeeded = (() => {
+  const g = globalThis as unknown as {
+    __fwr_market?: { listings: Map<string, Listing>; botSeeded: boolean };
+  };
+  if (!g.__fwr_market) g.__fwr_market = { listings: new Map(), botSeeded: false };
+  return g.__fwr_market.botSeeded;
+})();
+
+function setBotSeeded(v: boolean) {
+  const g = globalThis as unknown as {
+    __fwr_market?: { listings: Map<string, Listing>; botSeeded: boolean };
+  };
+  if (!g.__fwr_market) g.__fwr_market = { listings: new Map(), botSeeded: false };
+  g.__fwr_market.botSeeded = v;
+  botSeeded = v;
+}
 
 function uid(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
@@ -107,7 +128,7 @@ const BOT_PLAYERS: Array<[string, string, string, string, number]> = [
 
 function seedBotListings() {
   if (botSeeded) return;
-  botSeeded = true;
+  setBotSeeded(true);
   BOT_PLAYERS.forEach(([name, teamCode, teamName, position, base], i) => {
     const seller = BOT_SELLERS[i % BOT_SELLERS.length];
     const botId = `bot:${seller}`;
@@ -149,5 +170,5 @@ function seedBotListings() {
 
 export function __resetMarketForTests() {
   listings.clear();
-  botSeeded = false;
+  setBotSeeded(false);
 }

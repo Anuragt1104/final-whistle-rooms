@@ -8,6 +8,7 @@
  * loop action, so the pass is the connective tissue between watching,
  * predicting, collecting and battling.
  */
+import { economyStoreEnabled, persistPass } from "@/lib/db/durable";
 import { earn, recordRevenue } from "./ledger";
 
 export const XP = {
@@ -88,7 +89,10 @@ export interface PassState {
   deckSlots: number; // base 1
 }
 
-const passes = new Map<string, PassState>();
+const passes = (() => {
+  const g = globalThis as unknown as { __fwr_passes?: Map<string, PassState> };
+  return (g.__fwr_passes ??= new Map());
+})();
 
 function state(fanId: string): PassState {
   let p = passes.get(fanId);
@@ -97,6 +101,15 @@ function state(fanId: string): PassState {
     passes.set(fanId, p);
   }
   return p;
+}
+
+function schedulePass(fanId: string) {
+  if (!economyStoreEnabled()) return;
+  void persistPass(fanId, structuredClone(state(fanId))).catch(() => undefined);
+}
+
+export function applyDurablePass(fanId: string, raw: unknown) {
+  passes.set(fanId, raw as PassState);
 }
 
 export function passOf(fanId: string): PassState {
@@ -109,6 +122,7 @@ export function addXp(fanId: string, amount: number, _source: string): { xp: num
   const before = p.tier;
   p.xp += Math.max(0, amount);
   p.tier = Math.min(TIER_COUNT, Math.floor(p.xp / XP_PER_TIER));
+  schedulePass(fanId);
   return { xp: p.xp, tier: p.tier, tiersCrossed: p.tier - before };
 }
 
@@ -117,6 +131,7 @@ export function unlockPremium(fanId: string): PassState {
   if (!p.premium) {
     p.premium = true;
     recordRevenue("pass", PASS_PRICE_USD, "USD", `World Cup Pass premium — ${fanId.slice(0, 8)}`, fanId);
+    schedulePass(fanId);
   }
   return p;
 }
@@ -149,6 +164,7 @@ export function claimReward(fanId: string, tier: number, lane: "free" | "premium
       // pack-weight bonus; the route layer wires this to grantPackWeight
       break;
   }
+  schedulePass(fanId);
   return { state: p, reward };
 }
 
@@ -156,6 +172,7 @@ export function spendProTicket(fanId: string): boolean {
   const p = state(fanId);
   if (p.proTickets <= 0) return false;
   p.proTickets -= 1;
+  schedulePass(fanId);
   return true;
 }
 

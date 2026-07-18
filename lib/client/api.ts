@@ -39,8 +39,8 @@ export const api = {
   pickSide: (id: string, memberId: string, side: "home" | "away") =>
     post<{ ok: boolean }>(`/api/rooms/${id}/side`, { memberId, side }),
   start: (id: string, memberId: string) => post<{ ok: boolean }>(`/api/rooms/${id}/start`, { memberId }),
-  predict: (id: string, memberId: string, promptId: string, optionKey: string) =>
-    post<{ ok: boolean }>(`/api/rooms/${id}/predict`, { memberId, promptId, optionKey }),
+  predict: (id: string, memberId: string, promptId: string, optionKey: string, actionId?: string) =>
+    post<{ ok: boolean }>(`/api/rooms/${id}/predict`, { memberId, promptId, optionKey, ...(actionId ? { actionId } : {}) }),
   chat: (id: string, memberId: string, text: string, kind: "chat" | "reaction" = "chat") =>
     post<{ ok: boolean }>(`/api/rooms/${id}/chat`, { memberId, text, kind }),
   proof: (id: string) =>

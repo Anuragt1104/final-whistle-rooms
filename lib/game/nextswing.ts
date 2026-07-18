@@ -1,6 +1,7 @@
 /**
  * Next Swing — skill/knowledge Micro-Plays tied to TxLINE score, discipline,
  * corners, and odds. Bias toward reading the match over coin-flip prompts.
+ * Intense spells (goal flurries, reds, corner storms) force drama-weighted picks.
  */
 import type { MatchEvent, OddsSnapshot, ScoreSnapshot, StatPair } from "@/lib/txline/types";
 import type { WinChance } from "@/lib/engine/pulse";
@@ -43,12 +44,54 @@ export interface SwingPrompt {
   basePoints: number;
   /** Match minute the window closes (predictions lock). */
   locksAtMinute: number;
-  status: SwingStatus;
+  status: SwingStatus | "scheduled" | "void" | "corrected";
   winningKey?: string;
   createdAt: number;
+  openedAtMinute?: number;
+  openedAtSeq?: number;
   /** Stat totals captured the moment the prompt locked — lets us resolve from
    *  deltas at a deadline even if no per-tick event fired. */
   lockState?: { goals: StatPair; corners: StatPair; cards: StatPair };
+  /** Question Engine V2 metadata (optional; absent on legacy NextSwing). */
+  lane?: "main" | "quick" | "break" | "hydration";
+  category?: string;
+  ruleId?: string;
+  reason?: string;
+  urgency?: number;
+  openedClockSec?: number;
+  answerClosesAt?: number;
+  resolutionDeadlineClockSec?: number;
+  feedFreshness?: string;
+  sourceAttribution?: string;
+  rewardPreview?: string;
+  fanBuzzUrl?: string;
+  fanBuzzFact?: string;
+}
+
+/** Bias from pulse challenges or major match events. */
+export type PromptBias = "corners" | "next-goal" | "next-card" | "flurry" | "comeback" | "red";
+
+/** Story extras so templates stay vivid even when the LLM rewrite fails. */
+export interface MatchStory {
+  lastScorer?: string;
+  lastGoalMinute?: number;
+  goalsLast10Min?: number;
+  cardsLast5Min?: number;
+  scoreJustChanged?: boolean;
+  isComeback?: boolean;
+  redCardActive?: boolean;
+  flurrySummary?: string;
+}
+
+export interface MatchIntensity {
+  goalsLast10Min: number;
+  cardsLast5Min: number;
+  scoreJustChanged: boolean;
+  isComeback: boolean;
+  redCardActive: boolean;
+  momentumAbs: number;
+  flurrySummary?: string;
+  challenge?: "corners" | "next-goal";
 }
 
 let counter = 0;
@@ -65,6 +108,8 @@ export function generatePrompt(
   odds: OddsSnapshot | null,
   win: WinChance,
   rand: () => number,
+  bias?: PromptBias | null,
+  story?: MatchStory | null,
 ): SwingPrompt | null {
   const minute = score.minute;
   if (minute >= 88) return null;
@@ -74,9 +119,15 @@ export function generatePrompt(
   const totalGoals = score.goals.home + score.goals.away;
   const yellowH = score.yellow.home;
   const yellowA = score.yellow.away;
+  const scoreLine = `${home} ${score.goals.home}–${score.goals.away} ${away}`;
+  const flurry = story?.flurrySummary;
+  const lastHit =
+    story?.lastScorer && story.lastGoalMinute != null
+      ? `${story.lastScorer}'s ${story.lastGoalMinute}'`
+      : null;
 
   // Skill / knowledge menu — weighted, not equal coin-flips
-  type Weighted = { w: number; make: () => SwingPrompt };
+  type Weighted = { w: number; make: () => SwingPrompt; kind: string };
   const menu: Weighted[] = [];
 
   // A plain-language live read. The probability powers scoring internally;
@@ -84,14 +135,20 @@ export function generatePrompt(
   const leader = win.home >= win.away ? home : away;
   const leaderPct = Math.max(win.home, win.away);
   const leaderSide: "home" | "away" = win.home >= win.away ? "home" : "away";
+  const swingQ = lastHit
+    ? `${lastHit} shifted the match (${scoreLine}) — will ${leader}'s grip strengthen in five minutes?`
+    : flurry
+      ? `${flurry} — will ${leader}'s grip strengthen in five minutes?`
+      : `${scoreLine} at ${minute}' — will ${leader}'s grip strengthen in five minutes?`;
   menu.push({
+    kind: "win-swing",
     w: 3.2,
     make: () => ({
       id: pid(),
-      question: `Will ${leader}'s win chance be higher in five minutes?`,
+      question: swingQ,
       options: [
-        { key: "up", label: "Higher", hint: `Now ${leaderPct}%` },
-        { key: "down", label: "Lower", hint: `Now ${leaderPct}%` },
+        { key: "up", label: "Yes — stronger" },
+        { key: "down", label: "No — weakens" },
       ],
       resolver: { kind: "win-swing", side: leaderSide, baseline: leaderPct, minute: Math.min(minute + 5, 90) },
       basePoints: 110 + Math.round(Math.abs(50 - leaderPct)),
@@ -103,13 +160,14 @@ export function generatePrompt(
 
   // A second short-window chance question with a clear deadline.
   menu.push({
+    kind: "odds-move",
     w: 2.4,
     make: () => ({
       id: pid(),
-      question: `Will ${home}'s win chance rise before ${Math.min(minute + 6, 90)}'?`,
+      question: `${scoreLine} — will ${home} take more control by ${Math.min(minute + 6, 90)}'?`,
       options: [
-        { key: "yes", label: "Yes, it rises", hint: `Now ${win.home}%` },
-        { key: "no", label: "No, it does not" },
+        { key: "yes", label: "Yes — more control" },
+        { key: "no", label: "No — not yet" },
       ],
       resolver: { kind: "odds-move", baseline: win.home, minute: Math.min(minute + 6, 90) },
       basePoints: 130,
@@ -120,11 +178,18 @@ export function generatePrompt(
   });
 
   // Pressure / discipline read
+  const cardQ =
+    (story?.cardsLast5Min ?? 0) >= 2
+      ? `Chaos brewing (${story!.cardsLast5Min} cards in 5') — who gets booked next?`
+      : yellowH + yellowA > 0
+        ? `Ref's losing patience (${yellowH}–${yellowA} yellows) — which side is booked next?`
+        : `First booking incoming at ${minute}' — which side cracks?`;
   menu.push({
-    w: 2.6,
+    kind: "next-card-side",
+    w: bias === "next-card" || bias === "red" ? 12 : 2.6,
     make: () => ({
       id: pid(),
-      question: `Which team receives the next card?`,
+      question: cardQ,
       options: [
         { key: "home", label: home, hint: yellowH >= yellowA ? "hot" : "cooler" },
         { key: "away", label: away, hint: yellowA >= yellowH ? "hot" : "cooler" },
@@ -144,11 +209,16 @@ export function generatePrompt(
       : score.corners.home > score.corners.away
         ? `${home} lead corners ${score.corners.home}–${score.corners.away}`
         : `${away} lead corners ${score.corners.away}–${score.corners.home}`;
+  const cornerQ =
+    bias === "corners"
+      ? `Corner storm — who wins the next one? (${score.corners.home}–${score.corners.away})`
+      : `Who wins the next corner? (${cornerHint})`;
   menu.push({
-    w: 2.2,
+    kind: "next-corner-side",
+    w: bias === "corners" ? 14 : 2.2,
     make: () => ({
       id: pid(),
-      question: "Who wins the next corner?",
+      question: cornerQ,
       options: [
         { key: "home", label: home, hint: cornerHint },
         { key: "away", label: away, hint: cornerHint },
@@ -163,11 +233,15 @@ export function generatePrompt(
 
   // Scoreboard literacy — lead by 2+
   const leadTarget = Math.min(Math.max(minute + 20, 70), 90);
+  const leadQ = story?.isComeback
+    ? `Comeback on — will either side hold a 2-goal cushion by ${leadTarget}'? (now ${scoreLine})`
+    : `Will either team lead by two at ${leadTarget}'? (now ${scoreLine})`;
   menu.push({
-    w: 2.0,
+    kind: "lead-by-two",
+    w: bias === "comeback" ? 10 : 2.0,
     make: () => ({
       id: pid(),
-      question: `Will either team lead by two goals at ${leadTarget}'?`,
+      question: leadQ,
       options: [
         { key: "yes", label: "Yes — 2-goal cushion" },
         { key: "no", label: "No — stays tight" },
@@ -183,11 +257,17 @@ export function generatePrompt(
   // Total goals literacy
   const goalTarget = totalGoals + 1 + (rand() < 0.45 ? 1 : 0);
   const goalsDeadline = Math.min(Math.max(minute + 25, 75), 90);
+  const goalsQ = flurry
+    ? `${flurry} — reach ${goalTarget} total by ${goalsDeadline}'?`
+    : totalGoals > 0
+      ? `${totalGoals} already — reach ${goalTarget} by ${goalsDeadline}'? (${scoreLine})`
+      : `Still 0–0 — a goal by ${goalsDeadline}'?`;
   menu.push({
-    w: 2.0,
+    kind: "total-goals",
+    w: bias === "flurry" ? 12 : 2.0,
     make: () => ({
       id: pid(),
-      question: `Will the match reach ${goalTarget} total goals by ${goalsDeadline}'?`,
+      question: goalsQ,
       options: [
         { key: "yes", label: `Yes — reach ${goalTarget}` },
         { key: "no", label: `No — stay under` },
@@ -200,18 +280,31 @@ export function generatePrompt(
     }),
   });
 
-  // Next goal before — still skill (who scores) but lower weight
+  // Next goal before — boosted hard during flurries / reds / pulse next-goal
+  const nextGoalDeadline = Math.min(minute + 15, 90);
+  const nextGoalQ =
+    bias === "red" || story?.redCardActive
+      ? `10 men — who scores next before ${nextGoalDeadline}'? (${scoreLine})`
+      : lastHit
+        ? `${lastHit} just went in (${scoreLine}) — reply before ${nextGoalDeadline}'?`
+        : flurry
+          ? `${flurry} — next goal before ${nextGoalDeadline}'?`
+          : `Next goal before ${nextGoalDeadline}'? (${scoreLine})`;
   menu.push({
-    w: 1.4,
+    kind: "next-goal-before",
+    w:
+      bias === "next-goal" || bias === "flurry" || bias === "red" || bias === "comeback"
+        ? 14
+        : 1.4,
     make: () => ({
       id: pid(),
-      question: `Next goal before ${Math.min(minute + 15, 90)}'?`,
+      question: nextGoalQ,
       options: [
-        { key: "home", label: home, hint: pctHint(win.home) },
+        { key: "home", label: home },
         { key: "none", label: "No goal" },
-        { key: "away", label: away, hint: pctHint(win.away) },
+        { key: "away", label: away },
       ],
-      resolver: { kind: "next-goal-before", minute: Math.min(minute + 15, 90) },
+      resolver: { kind: "next-goal-before", minute: nextGoalDeadline },
       basePoints: 140,
       locksAtMinute: lock,
       status: "open",
@@ -221,10 +314,11 @@ export function generatePrompt(
 
   if (minute < 40) {
     menu.push({
+      kind: "half-level",
       w: 1.2,
       make: () => ({
         id: pid(),
-        question: "Is it level at half-time?",
+        question: `Is it level at half-time? (now ${scoreLine})`,
         options: [
           { key: "yes", label: "Level" },
           { key: "no", label: "Someone leads" },
@@ -240,10 +334,11 @@ export function generatePrompt(
 
   // Rare variety: goal vs card — heavily down-weighted vs skill prompts
   menu.push({
+    kind: "next-event",
     w: 0.55,
     make: () => ({
       id: pid(),
-      question: "What happens first — goal or card?",
+      question: `What happens first — goal or card? (${scoreLine})`,
       options: [
         { key: "goal", label: "A goal" },
         { key: "card", label: "A card" },
@@ -263,6 +358,20 @@ export function generatePrompt(
     if (roll <= 0) return item.make();
   }
   return menu[menu.length - 1].make();
+}
+
+/** Derive a prompt bias from match intensity / pulse challenges. */
+export function biasFromIntensity(intensity: MatchIntensity | null | undefined): PromptBias | null {
+  if (!intensity) return null;
+  if (intensity.challenge === "corners") return "corners";
+  if (intensity.challenge === "next-goal") return "next-goal";
+  if (intensity.redCardActive && intensity.scoreJustChanged) return "red";
+  if (intensity.redCardActive) return "red";
+  if (intensity.isComeback && intensity.scoreJustChanged) return "comeback";
+  if (intensity.goalsLast10Min >= 2) return "flurry";
+  if (intensity.scoreJustChanged) return "next-goal";
+  if (intensity.cardsLast5Min >= 2) return "next-card";
+  return null;
 }
 
 /**
@@ -399,7 +508,4 @@ export function forceResolve(prompt: SwingPrompt, score: ScoreSnapshot, win: Win
 function labelOf(odds: OddsSnapshot | null, key: "home" | "away"): string {
   const m = odds?.markets.find((x) => x.type === "match_result");
   return m?.selections.find((s) => s.key === key)?.label ?? (key === "home" ? "Home" : "Away");
-}
-function pctHint(p: number): string {
-  return `${p}%`;
 }

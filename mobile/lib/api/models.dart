@@ -15,7 +15,7 @@ class Team {
     name: j['name'] ?? '',
     code: j['code'] ?? '',
     flag: j['flag'] ?? '🏳️',
-    rating: (j['rating'] ?? 75) as int,
+    rating: (j['rating'] as num?)?.toInt() ?? 75,
   );
 }
 
@@ -30,10 +30,11 @@ class FixtureScore {
     this.running,
   );
   factory FixtureScore.fromJson(Map<String, dynamic> j) => FixtureScore(
-    (j['home'] ?? 0) as int,
-    (j['away'] ?? 0) as int,
-    (j['minute'] ?? 0) as int,
-    (j['clockSeconds'] ?? ((j['minute'] ?? 0) as int) * 60) as int,
+    (j['home'] as num?)?.toInt() ?? 0,
+    (j['away'] as num?)?.toInt() ?? 0,
+    (j['minute'] as num?)?.toInt() ?? 0,
+    (j['clockSeconds'] as num?)?.toInt() ??
+        ((j['minute'] as num?)?.toInt() ?? 0) * 60,
     (j['running'] ?? false) as bool,
   );
 }
@@ -103,7 +104,10 @@ class StatPair {
   StatPair(this.home, this.away);
   factory StatPair.fromJson(Map<String, dynamic>? j) => j == null
       ? StatPair(0, 0)
-      : StatPair((j['home'] ?? 0) as int, (j['away'] ?? 0) as int);
+      : StatPair(
+          (j['home'] as num?)?.toInt() ?? 0,
+          (j['away'] as num?)?.toInt() ?? 0,
+        );
 }
 
 /// One period's stat lines (a half or extra-time period).
@@ -152,11 +156,11 @@ class ScoreView {
     this.periods,
   });
   factory ScoreView.fromJson(Map<String, dynamic> j) => ScoreView(
-    minute: (j['minute'] ?? 0) as int,
-    clockSeconds:
-        (j['clockSeconds'] ?? ((j['minute'] ?? 0) as int) * 60) as int,
+    minute: (j['minute'] as num?)?.toInt() ?? 0,
+    clockSeconds: (j['clockSeconds'] as num?)?.toInt() ??
+        ((j['minute'] as num?)?.toInt() ?? 0) * 60,
     running: (j['running'] ?? false) as bool,
-    phase: (j['phase'] ?? 0) as int,
+    phase: (j['phase'] as num?)?.toInt() ?? 0,
     statusNote: j['statusNote'],
     goals: StatPair.fromJson(j['goals']),
     yellow: StatPair.fromJson(j['yellow']),
@@ -172,9 +176,9 @@ class WinChance {
   factory WinChance.fromJson(Map<String, dynamic>? j) => j == null
       ? WinChance(33, 34, 33)
       : WinChance(
-          (j['home'] ?? 33) as int,
-          (j['draw'] ?? 34) as int,
-          (j['away'] ?? 33) as int,
+          (j['home'] as num?)?.toInt() ?? 33,
+          (j['draw'] as num?)?.toInt() ?? 34,
+          (j['away'] as num?)?.toInt() ?? 33,
         );
 }
 
@@ -201,10 +205,10 @@ class MemberView {
     avatar: j['avatar'] ?? '👤',
     side: j['side'],
     walletShort: j['walletShort'],
-    points: (j['points'] ?? 0) as int,
-    streak: (j['streak'] ?? 0) as int,
-    bestStreak: (j['bestStreak'] ?? 0) as int,
-    correct: (j['correct'] ?? 0) as int,
+    points: (j['points'] as num?)?.toInt() ?? 0,
+    streak: (j['streak'] as num?)?.toInt() ?? 0,
+    bestStreak: (j['bestStreak'] as num?)?.toInt() ?? 0,
+    correct: (j['correct'] as num?)?.toInt() ?? 0,
     isHost: j['isHost'] ?? false,
   );
 }
@@ -308,6 +312,19 @@ class PromptView {
   final int basePoints, locksAtMinute, createdAt;
   final List<SwingOption> options;
   final Map<String, int> tally;
+  final String? lane;
+  final String? category;
+  final String? ruleId;
+  final String? reason;
+  final double? urgency;
+  final int? openedClockSec;
+  final int? answerClosesAt;
+  final int? resolutionDeadlineClockSec;
+  final String? feedFreshness;
+  final String? sourceAttribution;
+  final String? rewardPreview;
+  final String? fanBuzzUrl;
+  final String? fanBuzzFact;
   PromptView({
     required this.id,
     required this.question,
@@ -318,12 +335,28 @@ class PromptView {
     required this.createdAt,
     required this.options,
     required this.tally,
+    this.lane,
+    this.category,
+    this.ruleId,
+    this.reason,
+    this.urgency,
+    this.openedClockSec,
+    this.answerClosesAt,
+    this.resolutionDeadlineClockSec,
+    this.feedFreshness,
+    this.sourceAttribution,
+    this.rewardPreview,
+    this.fanBuzzUrl,
+    this.fanBuzzFact,
   });
   factory PromptView.fromJson(Map<String, dynamic> j) => PromptView(
     id: j['id'],
     question: j['question'] ?? '',
     status: j['status'] ?? 'open',
-    winningKey: j['winningKey'],
+    // Winner only trusted after settle — ignore premature keys.
+    winningKey: const {'settled', 'void', 'corrected'}.contains(j['status'])
+        ? j['winningKey'] as String?
+        : null,
     basePoints: (j['basePoints'] ?? 0) as int,
     locksAtMinute: (j['locksAtMinute'] ?? 0) as int,
     createdAt: (j['createdAt'] ?? 0) as int,
@@ -333,6 +366,19 @@ class PromptView {
     tally: ((j['tally'] ?? {}) as Map).map(
       (k, v) => MapEntry(k as String, (v ?? 0) as int),
     ),
+    lane: j['lane'] as String?,
+    category: j['category'] as String?,
+    ruleId: j['ruleId'] as String?,
+    reason: j['reason'] as String?,
+    urgency: (j['urgency'] as num?)?.toDouble(),
+    openedClockSec: j['openedClockSec'] as int?,
+    answerClosesAt: j['answerClosesAt'] as int?,
+    resolutionDeadlineClockSec: j['resolutionDeadlineClockSec'] as int?,
+    feedFreshness: j['feedFreshness'] as String?,
+    sourceAttribution: j['sourceAttribution'] as String?,
+    rewardPreview: j['rewardPreview'] as String?,
+    fanBuzzUrl: j['fanBuzzUrl'] as String?,
+    fanBuzzFact: j['fanBuzzFact'] as String?,
   );
 }
 
@@ -521,7 +567,7 @@ class RoomView {
     autoManaged: j['autoManaged'] == true,
     fixture: Fixture.fromJson(j['fixture']),
     modes: RoomModes.fromJson(j['modes']),
-    momentum: (j['momentum'] ?? 0) as int,
+    momentum: (j['momentum'] as num?)?.toInt() ?? 0,
     win: WinChance.fromJson(j['win']),
     winHistory: ((j['winHistory'] ?? []) as List)
         .map((e) => (e as num).toInt())

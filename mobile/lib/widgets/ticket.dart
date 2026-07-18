@@ -57,7 +57,10 @@ class TicketScoreboard extends StatelessWidget {
   final int? watching;
   final VoidCallback? onBack;
   final void Function(Team team)? onTeamTap; // tap a badge -> team/squad sheet
-  final List<String> scorers; // optional under score
+  final List<String> scorers; // legacy centered scorer list
+  final List<String> homeScorers;
+  final List<String> awayScorers;
+  final List<String> recentEvents;
   final bool tall;
   final double topRadius;
   final double topInset;
@@ -77,6 +80,9 @@ class TicketScoreboard extends StatelessWidget {
     this.watching,
     this.onBack,
     this.scorers = const [],
+    this.homeScorers = const [],
+    this.awayScorers = const [],
+    this.recentEvents = const [],
     this.tall = false,
     this.topRadius = 18,
     this.topInset = 0,
@@ -181,7 +187,7 @@ class TicketScoreboard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(child: _side(home)),
+                Expanded(child: _side(home, homeScorers)),
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -259,9 +265,46 @@ class TicketScoreboard extends StatelessWidget {
                     ],
                   ],
                 ),
-                Expanded(child: _side(away)),
+                Expanded(child: _side(away, awayScorers)),
               ],
             ),
+            if (recentEvents.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.inkSoft,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.lineInk),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.notifications_active_rounded,
+                      color: AppColors.orangeBright,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        recentEvents.take(2).join('   •   '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: body(
+                          color: AppColors.cream,
+                          size: 10.5,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (scorers.isNotEmpty) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -288,7 +331,7 @@ class TicketScoreboard extends StatelessWidget {
     );
   }
 
-  Widget _side(Team t) {
+  Widget _side(Team t, List<String> teamScorers) {
     final col = Column(
       children: [
         TeamBadge(team: t, size: 58),
@@ -299,6 +342,20 @@ class TicketScoreboard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: display(15, color: AppColors.cream, spacing: 0.4),
         ),
+        if (teamScorers.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            teamScorers.take(2).join('\n'),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: body(
+              color: AppColors.mutInk,
+              size: 9.5,
+              weight: FontWeight.w600,
+            ),
+          ),
+        ],
         if (onTeamTap != null)
           Text('squad ›', style: label(color: AppColors.mutInk, size: 8)),
       ],

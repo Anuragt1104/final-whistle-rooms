@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authenticatedFan } from "@/lib/auth/session";
 import { getDuel, playTrumpRound } from "@/lib/cards/duel";
+import { DuelCommandService } from "@/lib/duel/service";
 import type { Axis } from "@/lib/cards/types";
 import { EARN, earn } from "@/lib/platform/ledger";
 import { addXp, XP } from "@/lib/platform/pass";
@@ -7,10 +9,23 @@ import { addXp, XP } from "@/lib/platform/pass";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (req.headers.get("authorization")) {
+    try {
+      const fanId = authenticatedFan(req);
+      return NextResponse.json(await new DuelCommandService().get(id, fanId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "request failed";
+      return NextResponse.json(
+        { error: message },
+        { status: message.includes("not found") ? 404 : 401 },
+      );
+    }
+  }
+  // Compatibility adapter for the legacy Flutter endpoint.
   const duel = getDuel(id);
   if (!duel) return NextResponse.json({ error: "Duel not found" }, { status: 404 });
   return NextResponse.json(duel);

@@ -93,7 +93,39 @@ Everything above the data layer is identical; only this env flag changes.
 
 ---
 
-## 5. Play Store
+## 5. Durable Duels + card economy (Railway Postgres)
+
+Live rooms stay **in-memory SSE** — keep **one backend replica**. Duels, card
+ownership, FC/Pass balances, and device tokens are durable when Postgres is
+attached:
+
+```bash
+# Railway: add a Postgres plugin, then set:
+DATABASE_URL=<railway-postgres-url>
+DUEL_STORE=postgres
+# ECONOMY_STORE defaults to postgres when DATABASE_URL is set
+AUTH_SESSION_SECRET=<long-random-secret>
+pnpm db:migrate
+```
+
+Auth flow: Flutter signs a one-time Ed25519 nonce with the on-device Solana key
+(`POST /api/auth/nonce` → `POST /api/auth/verify`) and sends
+`Authorization: Bearer <session>` on every Duel / device route. Never trust a
+client-supplied `fanId` for Duel commands.
+
+Duel surface:
+- `POST /api/duels` — Stadium (House/Friend) or Moment Arena
+- `POST /api/duels/join` — six-character Friend invite
+- `POST /api/duels/:id/actions` — `choose_axis` / `submit_card` / `acknowledge_round` / `rematch`
+- `GET /api/duels/:id` — personalized `DuelView`
+- `GET /api/duels/:id/stream` — personalized SSE (`version` as event id, `Last-Event-ID` resume)
+
+After deploy: restart the service once and confirm an in-progress Friend Duel
+still loads; verify two devices can join the same invite code.
+
+---
+
+## 6. Play Store
 
 See [`mobile/PLAYSTORE.md`](mobile/PLAYSTORE.md) for the signed App Bundle build,
 keystore setup, store-listing copy, and the submission checklist.

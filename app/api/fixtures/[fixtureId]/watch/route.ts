@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { joinOfficialHub } from "@/lib/store/rooms";
+import { buildView, getRoomRuntime, joinOfficialHub } from "@/lib/store/rooms";
 
 export const dynamic = "force-dynamic";
 
@@ -14,5 +14,7 @@ export async function POST(
     walletPubkey: body.walletPubkey ? String(body.walletPubkey) : undefined,
   });
   if ("error" in result) return NextResponse.json(result, { status: 400 });
-  return NextResponse.json({ ...result, kind: "official", autoManaged: true });
+  const runtime = getRoomRuntime(result.roomId);
+  const lifecycle = runtime ? buildView(runtime).lifecycle : "pregame";
+  return NextResponse.json({ ...result, kind: "official", autoManaged: true, lifecycle });
 }

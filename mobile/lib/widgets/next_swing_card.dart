@@ -10,6 +10,7 @@ class NextSwingCard extends StatelessWidget {
   final int streak;
   final int bestStreak;
   final VoidCallback? onShare;
+  final bool embedded;
   const NextSwingCard({
     super.key,
     required this.prompts,
@@ -18,36 +19,44 @@ class NextSwingCard extends StatelessWidget {
     this.streak = 0,
     this.bestStreak = 0,
     this.onShare,
+    this.embedded = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    PromptView? active;
-    for (final p in prompts) {
-      if (p.status == 'open') {
-        active = p;
-        break;
+    final open = prompts.where((p) => p.status == 'open' || p.status == 'locked').toList();
+    PromptView? main;
+    PromptView? quick;
+    for (final p in open) {
+      if (p.lane == 'quick' && quick == null) {
+        quick = p;
+      } else if (main == null) {
+        main = p;
+      } else if (quick == null) {
+        quick = p;
       }
     }
-    if (active == null) {
-      final locked = prompts.where((p) => p.status == 'locked');
-      if (locked.isNotEmpty) active = locked.first;
-    }
-    final recent = prompts.where((p) => p.status == 'settled').take(3).toList();
+    main ??= open.isNotEmpty ? open.first : null;
+    if (quick != null && identical(quick, main)) quick = null;
+
+    final settled = prompts
+        .where((p) => p.status == 'settled' || p.status == 'void' || p.status == 'corrected')
+        .take(3)
+        .toList();
 
     return Container(
-      decoration: cardBox(),
+      decoration: embedded ? null : cardBox(),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            color: AppColors.cardAlt,
+            color: embedded ? Colors.transparent : AppColors.cardAlt,
             child: Row(
               children: [
                 Text(
-                  '⚡ LIVE CALLS',
+                  'LIVE CALLS',
                   style: label(
                     color: AppColors.ink,
                     size: 11.5,
@@ -55,7 +64,6 @@ class NextSwingCard extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                // live streak — build it, share it
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -68,7 +76,7 @@ class NextSwingCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(99),
                   ),
                   child: Text(
-                    '🔥 $streak${bestStreak > 0 ? "  ·  best $bestStreak" : ""}',
+                    '$streak streak${bestStreak > 0 ? " · best $bestStreak" : ""}',
                     style: label(
                       color: streak > 0 ? Colors.white : AppColors.mut,
                       size: 9.5,
@@ -90,72 +98,49 @@ class NextSwingCard extends StatelessWidget {
               ],
             ),
           ),
-          if (active != null)
+          if (main != null)
             _ActivePrompt(
-              prompt: active,
-              myPick: myPicks[active.id],
+              prompt: main,
+              myPick: myPicks[main.id],
               onPick: onPick,
+              compact: false,
             )
           else
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
               child: Text(
-                'Waiting for the next verified match update. A new Live Call will appear as play develops.',
-                textAlign: TextAlign.center,
-                style: body(color: AppColors.mut, size: 13),
+                'The next Live Call opens when the match changes.',
+                style: body(color: AppColors.mut, size: 12),
               ),
             ),
-          if (recent.isNotEmpty)
+          if (quick != null)
+            _ActivePrompt(
+              prompt: quick,
+              myPick: myPicks[quick.id],
+              onPick: onPick,
+              compact: true,
+            ),
+          if (settled.isNotEmpty) ...[
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Divider(color: AppColors.line, height: 18),
-                  Text(
-                    'RECENT CALLS',
-                    style: label(color: AppColors.mut, size: 9),
-                  ),
-                  const SizedBox(height: 4),
-                  ...recent.map((p) {
-                    final win = p.options.where((o) => o.key == p.winningKey);
-                    final winLabel = win.isNotEmpty ? win.first.label : 'void';
-                    final mine = myPicks[p.id];
-                    final correct = mine != null && mine == p.winningKey;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              p.question,
-                              overflow: TextOverflow.ellipsis,
-                              style: body(color: AppColors.mut, size: 12),
-                            ),
-                          ),
-                          Text(
-                            winLabel,
-                            style: body(size: 12, weight: FontWeight.w700),
-                          ),
-                          if (mine != null) ...[
-                            const SizedBox(width: 5),
-                            Text(
-                              correct ? '✓' : '✗',
-                              style: TextStyle(
-                                color: correct
-                                    ? AppColors.orange
-                                    : const Color(0xFFD8392B),
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    );
-                  }),
-                ],
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+              child: Text(
+                'SETTLED',
+                style: label(color: AppColors.mut, size: 10, weight: FontWeight.w700),
               ),
             ),
+            for (final p in settled)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                child: Text(
+                  p.winningKey != null
+                      ? '${p.question} → ${p.options.firstWhere((o) => o.key == p.winningKey, orElse: () => SwingOption(key: '', label: p.winningKey!)).label}'
+                      : p.question,
+                  style: body(color: AppColors.mut, size: 11.5),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -166,24 +151,76 @@ class _ActivePrompt extends StatelessWidget {
   final PromptView prompt;
   final String? myPick;
   final void Function(String, String) onPick;
+  final bool compact;
   const _ActivePrompt({
     required this.prompt,
     required this.myPick,
     required this.onPick,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final locked = prompt.status == 'locked';
     final total = prompt.tally.values.fold<int>(0, (a, b) => a + b);
+    final isBuzz = prompt.category == 'fan-buzz' || prompt.fanBuzzUrl != null;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: EdgeInsets.fromLTRB(14, compact ? 0 : 6, 14, compact ? 10 : 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (compact || prompt.lane != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                (prompt.lane ?? 'main').toUpperCase(),
+                style: label(
+                  color: AppColors.mut,
+                  size: 9.5,
+                  weight: FontWeight.w800,
+                ),
+              ),
+            ),
+          if (isBuzz) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.cardAlt,
+                border: Border(
+                  left: BorderSide(color: AppColors.orange, width: 3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'FAN BUZZ',
+                    style: label(size: 9.5, weight: FontWeight.w800, color: AppColors.orange),
+                  ),
+                  if (prompt.fanBuzzFact != null)
+                    Text(prompt.fanBuzzFact!, style: body(size: 11.5)),
+                  if (prompt.fanBuzzUrl != null)
+                    Text(
+                      prompt.fanBuzzUrl!,
+                      style: body(size: 10.5, color: AppColors.mut),
+                    ),
+                ],
+              ),
+            ),
+          ],
           Row(
             children: [
-              Expanded(child: Text(prompt.question, style: display(18))),
+              Expanded(
+                child: Text(
+                  prompt.question,
+                  style: body(
+                    size: compact ? 13 : 15,
+                    weight: FontWeight.w800,
+                  ),
+                ),
+              ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -200,11 +237,11 @@ class _ActivePrompt extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             locked
-                ? '🔒 Locked — awaiting result'
+                ? 'Locked — awaiting result'
                 : "Locks at ${prompt.locksAtMinute}'",
             style: body(color: AppColors.mut, size: 11.5),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 9),
           Row(
             children: prompt.options.map((o) {
               final picked = myPick == o.key;
@@ -230,7 +267,7 @@ class _ActivePrompt extends StatelessWidget {
             const SizedBox(height: 8),
             Center(
               child: Text(
-                'Locked in. Streaks stack — keep calling them right. 🔥',
+                'Locked in. Streaks stack — keep calling them right.',
                 style: body(
                   color: AppColors.orange,
                   size: 11.5,
@@ -291,7 +328,7 @@ class _OptionButton extends StatelessWidget {
                 ),
               Padding(
                 padding: const EdgeInsets.symmetric(
-                  vertical: 11,
+                  vertical: 9,
                   horizontal: 4,
                 ),
                 child: Column(

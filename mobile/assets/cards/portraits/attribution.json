@@ -1,0 +1,242 @@
+{
+  "mbappe": {
+    "name": "Kylian Mbappé",
+    "assetPath": "assets/cards/portraits/mbappe.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Kylian_Mbappe_France_v_Senegal_16_June_2026-354_(cropped).jpg",
+    "author": "Bryan Berlin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Kylian%20Mbapp%C3%A9%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "messi": {
+    "name": "Lionel Messi",
+    "assetPath": "assets/cards/portraits/messi.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Lionel-Messi-Argentina-2022-FIFA-World-Cup_(cropped).jpg",
+    "author": "Hossein Zohrevand",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Lionel%20Messi%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "bellingham": {
+    "name": "Jude Bellingham",
+    "assetPath": "assets/cards/portraits/bellingham.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Jude_Bellingham_England_v_Ghana_23_June_2026-061_(cropped).jpg",
+    "author": "Bryan Berlin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Jude%20Bellingham%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "vinicius": {
+    "name": "Vinícius Jr",
+    "assetPath": "assets/cards/portraits/vinicius.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Vinicius_Junior_Brazil_V_Morocco_13_June_2026-94_(cropped).jpg",
+    "author": "Bryan Berlin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Vin%C3%ADcius%20Jr%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "yamal": {
+    "name": "Lamine Yamal",
+    "assetPath": "assets/cards/portraits/yamal.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Lamine_Yamal_in_2025_(cropped2).jpg",
+    "author": "Biso",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Lamine%20Yamal%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "saka": {
+    "name": "Bukayo Saka",
+    "assetPath": "assets/cards/portraits/saka.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Bukayo_Saka.jpg",
+    "author": "حسین ظهروند",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Bukayo%20Saka%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "musiala": {
+    "name": "Jamal Musiala",
+    "assetPath": "assets/cards/portraits/musiala.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Jamal_Musiala_2022_(cropped).jpg",
+    "author": "crop by ArsenalGhanaPartey",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Jamal%20Musiala%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "wirtz": {
+    "name": "Florian Wirtz",
+    "assetPath": "assets/cards/portraits/wirtz.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Florian_Wirtz_Ecuador_v_Germany_25_June_2026-006.jpg",
+    "author": "Bryan Berlin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Florian%20Wirtz%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "pedri": {
+    "name": "Pedri",
+    "assetPath": "assets/cards/portraits/pedri.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Pedri_(cropped).jpg",
+    "author": "Biso",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Pedri%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "rodri": {
+    "name": "Rodri",
+    "assetPath": "assets/cards/portraits/rodri.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Yokohama_F._Marinos_-_Manchester_City_(3-5)_-_53075487835_(Rodri)_(cropped).jpg",
+    "author": "pantkiewicz",
+    "license": "CC BY-SA 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Rodri%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "valverde": {
+    "name": "Fede Valverde",
+    "assetPath": "assets/cards/portraits/valverde.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Federico_Valverde_2021_(cropped).jpg",
+    "author": "Real Madrid",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Fede%20Valverde%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "alvarez": {
+    "name": "Julián Álvarez",
+    "assetPath": "assets/cards/portraits/alvarez.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Juli%C3%A1n_%C3%81lvarez_(footballer)_2023_2.jpg",
+    "author": "pantkiewicz",
+    "license": "CC BY-SA 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Juli%C3%A1n%20%C3%81lvarez%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "lautaro": {
+    "name": "Lautaro Martínez",
+    "assetPath": "assets/cards/portraits/lautaro.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Lautaro_Mart%C3%ADnez_(cropped).jpg",
+    "author": "Agencia de Noticias ANDES",
+    "license": "CC BY-SA 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Lautaro%20Mart%C3%ADnez%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "raphinha": {
+    "name": "Raphinha",
+    "assetPath": "assets/cards/portraits/raphinha.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Raphinha.jpg",
+    "author": "Rccousins",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Raphinha%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "hakimi": {
+    "name": "Achraf Hakimi",
+    "assetPath": "assets/cards/portraits/hakimi.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Achraf_Hakimi_2024.jpg",
+    "author": "MFonzatti",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Achraf%20Hakimi%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "saliba": {
+    "name": "William Saliba",
+    "assetPath": "assets/cards/portraits/saliba.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Lens_-_Nice_(23-01-2021)_44_(cropped).jpg",
+    "author": "Supporterhéninois",
+    "license": "CC0",
+    "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=William%20Saliba%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "vandijk": {
+    "name": "Virgil van Dijk",
+    "assetPath": "assets/cards/portraits/vandijk.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:20160604_AUT_NED_8876_(cropped).jpg",
+    "author": "Ailura",
+    "license": "CC BY-SA 3.0 at",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/at/deed.en",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Virgil%20van%20Dijk%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "donnarumma": {
+    "name": "Gianluigi Donnarumma",
+    "assetPath": "assets/cards/portraits/donnarumma.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Norway_Italy_-_June_2025_B_33_-_Gianluigi_Donnarumma_(close-up).jpg",
+    "author": "Original: MichaelEmilio / Derivative work: Danyele",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Gianluigi%20Donnarumma%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "courtois": {
+    "name": "Thibaut Courtois",
+    "assetPath": "assets/cards/portraits/courtois.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Courtois_2018_(cropped).jpg",
+    "author": "Кирилл Венедиктов",
+    "license": "CC BY-SA 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Thibaut%20Courtois%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "kane": {
+    "name": "Harry Kane",
+    "assetPath": "assets/cards/portraits/kane.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Harry_Kane_2023_(cropped).jpg",
+    "author": "UK Prime Minister",
+    "license": "CC BY 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Harry%20Kane%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "son": {
+    "name": "Son Heung-min",
+    "assetPath": "assets/cards/portraits/son.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Son_Heung-min_-_2022_(52552243725)_(cropped).jpg",
+    "author": "Republic of Korea from Seoul, Republic of Korea",
+    "license": "CC BY-SA 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Son%20Heung-min%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "osimen": {
+    "name": "Victor Osimhen",
+    "assetPath": "assets/cards/portraits/osimen.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Victor_Osimhen_(LOSC)_(cropped).jpg",
+    "author": "Liondartois",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Victor%20Osimhen%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "guler": {
+    "name": "Arda Güler",
+    "assetPath": "assets/cards/portraits/guler.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Derbide_Fenerbah%C3%A7e_Yedek_Oyuncu_Arda_G%C3%BCler_(2021-22_S%C3%BCper_Lig_-_Cropped).jpg",
+    "author": "beIN SPORTS Türkiye",
+    "license": "CC BY 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/3.0",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Arda%20G%C3%BCler%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  },
+  "frimpong": {
+    "name": "Jeremie Frimpong",
+    "assetPath": "assets/cards/portraits/frimpong.webp",
+    "sourcePage": "https://commons.wikimedia.org/wiki/File:Jeremie_Frimpong_04012026_(3)_(cropped).jpg",
+    "author": "Timmy96",
+    "license": "CC0",
+    "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+    "discoveryUrl": "https://commons.wikimedia.org/w/index.php?search=Jeremie%20Frimpong%20football&title=Special:MediaSearch&type=image",
+    "modified": "Resized and converted to WebP; displayed with runtime crop and color effects."
+  }
+}

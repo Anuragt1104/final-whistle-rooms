@@ -37,7 +37,9 @@ test("Official Match Hub is concurrency-safe and wallet-idempotent", async () =>
   const view = buildView(room);
   assert.equal(view.kind, "official");
   assert.equal(view.autoManaged, true);
+  assert.equal(view.lifecycle, "pregame");
+  assert.equal(view.status, "lobby");
+  assert.equal(view.prompts.length, 0);
   assert.equal(view.members.length, 2);
   assert.ok(view.members.every((m) => m.isHost === false));
 });
-

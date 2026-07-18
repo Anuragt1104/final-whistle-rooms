@@ -12,12 +12,14 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.mjs",
+    "db:migrate": "tsx lib/db/migrate.ts",
     "txline:activate": "node scripts/txline-activate.mjs"
   },
   "dependencies": {
     "@noble/hashes": "^1.5.0",
     "@solana/web3.js": "^1.95.4",
     "next": "15.1.12",
+    "pg": "^8.22.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "tweetnacl": "^1.0.3"
@@ -27,6 +29,7 @@
     "@solana/spl-token": "^0.4.9",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "postcss": "^8.4.49",

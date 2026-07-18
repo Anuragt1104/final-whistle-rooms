@@ -9,7 +9,7 @@ export const AXES: Axis[] = ["finishing", "chaos", "clutch", "marketShock", "aur
 
 export type AxisStats = Record<Axis, number>;
 
-export type MomentKind = "goal" | "red" | "yellow" | "corner" | "market-swing" | "chaos";
+export type MomentKind = "goal" | "red" | "yellow" | "corner" | "market-swing" | "chaos" | "fan-lore";
 
 export type RarityStars = 1 | 2 | 3 | 4 | 5;
 
@@ -54,8 +54,24 @@ export interface PlayerCard {
   imageUrl?: string;
   axes: AxisStats;
   lineageMomentId?: string;
+  /** Immutable provenance retained even when a craft burns its source Moments. */
+  lineage?: LineageSnapshot;
   leafData: string;
   createdAt: number;
+}
+
+export interface LineageSnapshot {
+  parentMomentId: string;
+  fixtureId: string;
+  kind: MomentKind;
+  teamCode?: string;
+  rarity: RarityStars;
+  calledIt: boolean;
+  /** Source-event fingerprint (TxLINE event id when available). */
+  sourceEventId?: string;
+  oddsSandwich?: OddsSandwich;
+  /** Merkle leaf / proof reference retained after the parent Moment is burned. */
+  proofRef?: string;
 }
 
 export type SkillEffect =

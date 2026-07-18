@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../api/models.dart';
 import '../data/flags.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
+import '../state/push_service.dart';
 import '../local/fixtures.dart';
 import '../local/live_engine.dart';
 import '../local/squads.dart';
@@ -28,6 +30,7 @@ import 'match_screen.dart';
 import 'room_screen.dart';
 import 'team_sheet.dart';
 import 'album_screen.dart';
+import 'duel_screen.dart';
 import 'pass_screen.dart';
 import 'settings_screen.dart';
 import 'leaders_screen.dart';
@@ -65,13 +68,58 @@ class _HomeScreenState extends State<HomeScreen> {
   int _fcCredits = 0;
   int _passTier = 0;
   int _passXp = 0;
+  int _unopenedPacks = 0;
+  int _playerCardCount = 0;
+  List<PlayerCardModel> _inventoryPlayers = [];
+  List<MomentCard> _inventoryMoments = [];
+  List<SkillCardModel> _inventorySkills = [];
   List<PlayerCardModel> _showcasePlayers = [];
   final GlobalKey _profileShareKey = GlobalKey();
+  final CardMotionController _profileMotion = CardMotionController();
 
   @override
   void initState() {
     super.initState();
+    PushService.instance.pendingFixtureId.addListener(_openPendingPushFixture);
+    PushService.instance.pendingDuelId.addListener(_openPendingDuel);
+    _listenDuelDeepLinks();
     _boot();
+  }
+
+  Future<void> _openPendingPushFixture() async {
+    final fixtureId = PushService.instance.pendingFixtureId.value;
+    if (fixtureId == null || fixtureId.isEmpty || !mounted) return;
+    PushService.instance.consumePendingFixture();
+    var fixture = _apiFixtures.where((f) => f.id == fixtureId).firstOrNull;
+    if (fixture == null) {
+      await _refreshFixturesQuiet();
+      fixture = _apiFixtures.where((f) => f.id == fixtureId).firstOrNull;
+    }
+    if (fixture != null && mounted) await _watchLive(fixture);
+  }
+
+  Future<void> _openPendingDuel() async {
+    final duelId = PushService.instance.pendingDuelId.value;
+    if (duelId == null || duelId.isEmpty || !mounted) return;
+    PushService.instance.consumePendingDuel();
+    await _openDuel(resumeDuelId: duelId);
+  }
+
+  Future<void> _listenDuelDeepLinks() async {
+    try {
+      final appLinks = AppLinks();
+      final initial = await appLinks.getInitialLink();
+      _handleDuelUri(initial);
+      appLinks.uriLinkStream.listen(_handleDuelUri);
+    } catch (_) {}
+  }
+
+  void _handleDuelUri(Uri? uri) {
+    if (uri == null) return;
+    if (uri.scheme != 'finalwhistle' || uri.host != 'duels') return;
+    final duelId = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+    if (duelId.isEmpty) return;
+    PushService.instance.pendingDuelId.value = duelId;
   }
 
   Future<void> _boot() async {
@@ -115,22 +163,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// `_fixtures` is the FULL World Cup knowledge layer (progress bar, groups,
-  /// bracket, golden boot, schedule) — it must always be the complete 104-match
-  /// dataset, never a partial backend slice. The live TxLINE feed (real ids,
-  /// real scores) lives separately in `_apiFixtures` and drives the LIVE strip
-  /// and the watch flow in live mode.
+  /// Prefer any non-empty API response for status/upcoming/finished.
+  /// Local 104-match demo data is offline/simulation fallback only.
   List<Fixture> _pickFixtures(List<Fixture> fromApi) {
-    if (_config?.mode == 'live') return fromApi;
-    return fromApi.length >= localFixtures().length ? fromApi : localFixtures();
+    if (fromApi.isNotEmpty) return fromApi;
+    return localFixtures();
   }
 
-  /// Home Live / Soon / Next strips: TxLINE only when live mode has data.
-  /// Local 104-match set stays for Fixtures hub + offline fallback.
+  /// Home Live / Soon / Next / pulse: API feed whenever we have it.
   List<Fixture> get _stripFixtures {
-    if (_config?.mode == 'live' && _apiFixtures.isNotEmpty) return _apiFixtures;
+    if (_apiFixtures.isNotEmpty) return _apiFixtures;
     return _fixtures;
   }
+
+  /// Pulse uses the same source as Matchday strips so progress matches reality.
+  List<Fixture> get _pulseFixtures => _stripFixtures;
 
   /// Matches that are genuinely live right now. In live mode that's the real
   /// feed; in replay mode the on-device schedule.
@@ -177,7 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _callsCorrect = v[3] as int;
       _favTeam = v[4] as String;
     });
-    // Platform FC + World Cup Pass (best-effort)
+    // Platform FC + World Cup Pass + inventory CTAs (best-effort)
     try {
       final id = await IdentityStore.getOrCreate();
       final w = await _api.platformWallet(id.pubkey);
@@ -191,6 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final wallet = w['wallet'];
       final pass = w['pass'];
+      final unopened = inventory.packs.where((p) => !p.opened).length;
       if (!mounted) return;
       setState(() {
         if (wallet is Map && wallet['credits'] is num)
@@ -199,6 +247,11 @@ class _HomeScreenState extends State<HomeScreen> {
           if (pass['tier'] is num) _passTier = (pass['tier'] as num).toInt();
           if (pass['xp'] is num) _passXp = (pass['xp'] as num).toInt();
         }
+        _unopenedPacks = unopened;
+        _playerCardCount = inventory.players.length;
+        _inventoryPlayers = inventory.players;
+        _inventoryMoments = inventory.moments;
+        _inventorySkills = inventory.skills;
         _showcasePlayers = showcase.take(3).toList();
       });
     } catch (_) {}
@@ -216,7 +269,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _fixturesOffline = true;
       if (_config?.mode != 'live') _fixtures = localFixtures();
     }
-    await _loadRooms();
+    await Future.wait([_loadRooms(), _loadFanStats()]);
     if (mounted) setState(() {});
   }
 
@@ -234,18 +287,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _watchLive(Fixture f) async {
     if (f.home.code == 'TBD' || f.away.code == 'TBD') {
       _openMatch(f);
-      return;
-    }
-    final existing = _rooms
-        .where(
-          (r) =>
-              r.fixture.id == f.id &&
-              r.kind == 'official' &&
-              r.status != 'finished',
-        )
-        .toList();
-    if (existing.isNotEmpty) {
-      _openRoom(existing.first.id);
       return;
     }
     var cfg = _config;
@@ -280,8 +321,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final fixtureId = apiMatch?.id ?? f.id;
     final status = apiMatch?.status ?? f.status;
     final backendKnowsFixture = apiMatch != null;
-    // Every fixture — live, scheduled or finished replay — has exactly one
-    // concurrency-safe global Official Hub the whole crowd shares.
+    // Every fixture — live or finished replay — has exactly one concurrency-safe
+    // global Official Hub the whole crowd shares. Scheduled fixtures never
+    // silently become a DEMO REPLAY.
     if (cfg?.mode == 'live' && backendKnowsFixture) {
       try {
         final id = await IdentityStore.getOrCreate();
@@ -293,6 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         final roomId = res.roomId;
         await LocalStore.setMemberId(roomId, res.memberId);
+        await PushService.instance.watchFixture(fixtureId);
         if (!mounted) return;
         final result = await Navigator.push(
           context,
@@ -302,7 +345,9 @@ class _HomeScreenState extends State<HomeScreen> {
         if (isReplay || result == 'finished') {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Correct calls earn Moment Cards — open Album'),
+              content: const Text(
+                'Correct calls earn Moment Cards — open Album',
+              ),
               action: SnackBarAction(
                 label: 'Album',
                 onPressed: () => setState(() => _nav = 'cards'),
@@ -369,7 +414,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// On-device room — clearly a REPLAY, seeded from the fixture's real score
   /// so it starts where reality is instead of contradicting the home card.
+  /// Scheduled fixtures never auto-start (use Match Center / KO soon instead).
   void _openReplayRoom(Fixture f) {
+    if (f.status == 'scheduled') {
+      _openMatch(f);
+      return;
+    }
     final engine = LiveMatchEngine(
       f,
       draftMode: true,
@@ -387,6 +437,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _poll?.cancel();
+    PushService.instance.pendingFixtureId.removeListener(
+      _openPendingPushFixture,
+    );
+    PushService.instance.pendingDuelId.removeListener(_openPendingDuel);
+    _profileMotion.dispose();
     super.dispose();
   }
 
@@ -437,7 +492,14 @@ class _HomeScreenState extends State<HomeScreen> {
   /// FotMob-style match centre: stats, line-ups, tables, H2H for any fixture.
   void _openMatch(Fixture f) => Navigator.push(
     context,
-    fwrRoute(MatchScreen(fixture: f, onWatch: () => _watchLive(f))),
+    fwrRoute(
+      MatchScreen(
+        fixture: f,
+        onWatch: f.home.code == 'TBD' || f.away.code == 'TBD'
+            ? null
+            : () => _watchLive(f),
+      ),
+    ),
   );
 
   @override
@@ -486,7 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ---- ROOMS (Browse) ----
+  // ---- ROOMS (Matchday home hub) ----
   Widget _roomsTab() {
     final liveFixtures = _liveNow;
     final strip = _stripFixtures;
@@ -507,15 +569,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ).compareTo(minutesUntilKickoff(b.kickoff));
       });
     }
-    // Home only surfaces genuinely-soon matches (next 24h) so "kicking off soon"
-    // is honest; the full schedule lives in Fixtures. If nothing's within 24h,
-    // fall back to the next few as "Next up".
-    final soon = upcomingAll
-        .where((f) => minutesUntilKickoff(f.kickoff) <= 24 * 60)
+    // Next 7 days when available; otherwise the next 4 upcoming.
+    final week = upcomingAll
+        .where((f) => minutesUntilKickoff(f.kickoff) <= 7 * 24 * 60)
         .toList();
-    final soonMode = soon.isNotEmpty;
-    final shownUpcoming = soonMode ? soon : upcomingAll.take(3).toList();
-    final finished = _finishedReplay.reversed.take(4).toList();
+    final shownUpcoming = week.isNotEmpty ? week : upcomingAll.take(4).toList();
+    final finished = _finishedReplay.reversed.take(2).toList();
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -523,6 +582,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
+          _homeStatusRow(),
+          const SizedBox(height: 14),
           Row(
             children: [
               const LiveDot(),
@@ -540,7 +601,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          // every live match shown clearly as its own card
           if (_loading)
             _skeleton()
           else if (liveFixtures.isEmpty)
@@ -552,21 +612,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: _liveMatchCard(f),
               ),
             ),
-          // Tournament pulse uses local 104 for WC narrative; live mode strips above are TxLINE-only.
-          if (_config?.mode != 'live' || _apiFixtures.isEmpty)
-            TournamentPulse(fixtures: _fixtures),
-          if (_config?.mode == 'live' && _apiFixtures.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Schedule from TxLINE live feed',
-              style: body(color: AppColors.mut, size: 11),
-            ),
-          ],
-          const SizedBox(height: 12),
-          ..._openRoomsSection(),
+          const SizedBox(height: 16),
+          _homePlayStrip(),
           const SizedBox(height: 22),
           SectionLabel(
-            soonMode ? 'Kicking off soon' : 'Next up',
+            week.isNotEmpty ? 'Upcoming' : 'Next up',
             trailing: upcomingAll.length > shownUpcoming.length
                 ? GestureDetector(
                     onTap: () => setState(() => _nav = 'fixtures'),
@@ -579,7 +629,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   )
-                : null,
+                : Text(
+                    '${shownUpcoming.length} matches',
+                    style: label(color: AppColors.mut, size: 10.5),
+                  ),
           ),
           if (_loading)
             ...[0, 1].map((_) => _skeleton())
@@ -589,23 +642,42 @@ class _HomeScreenState extends State<HomeScreen> {
               style: body(color: AppColors.mut, size: 13),
             )
           else ...[
-            if (!soonMode)
+            if (week.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
-                  'Nothing kicks off in the next 24h — here\'s what\'s next.',
+                  'Nothing kicks off in the next 7 days — here\'s what\'s next.',
                   style: body(color: AppColors.mut, size: 12),
                 ),
               ),
             ...shownUpcoming.map(_fixtureRow),
           ],
+          ..._openRoomsSection(),
+          const SizedBox(height: 18),
+          TournamentPulse(fixtures: _pulseFixtures),
           if (finished.isNotEmpty) ...[
             const SizedBox(height: 22),
-            const SectionLabel('Replay & mint Moments'),
+            SectionLabel(
+              'Recent results',
+              trailing: GestureDetector(
+                onTap: () => setState(() {
+                  _nav = 'fixtures';
+                  _fxSeg = 'results';
+                }),
+                child: Text(
+                  'All results →',
+                  style: label(
+                    color: AppColors.orange,
+                    size: 11,
+                    weight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                'Finished TxLINE matches — open a verified personal replay to mint cards.',
+                'Replay finished matches to mint Moments.',
                 style: body(color: AppColors.mut, size: 12),
               ),
             ),
@@ -622,6 +694,197 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  Widget _homeStatusRow() {
+    return Pressable(
+      haptic: HapticFeedbackType.selection,
+      onTap: () => Navigator.push(
+        context,
+        fwrRoute(const PassScreen()),
+      ).then((_) => _loadFanStats()),
+      child: Container(
+        decoration: cardBox(),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(child: _homeStatChip('$_fcCredits', 'FC')),
+            Container(width: 1, height: 28, color: AppColors.line),
+            Expanded(child: _homeStatChip('T$_passTier', 'PASS')),
+            Container(width: 1, height: 28, color: AppColors.line),
+            Expanded(
+              child: _homeStatChip(
+                _streakBest > 0 ? '$_streakBest' : '—',
+                'STREAK',
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.mut,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _homeStatChip(String value, String label_) => Column(
+    children: [
+      Text(value, style: display(16, color: AppColors.orange)),
+      const SizedBox(height: 2),
+      Text(label_, style: label(color: AppColors.mut, size: 8)),
+    ],
+  );
+
+  Widget _homePlayStrip() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Play'),
+        Row(
+          children: [
+            Expanded(
+              child: _playTile(
+                icon: Icons.inventory_2_outlined,
+                title: 'Packs',
+                subtitle: _unopenedPacks > 0
+                    ? '$_unopenedPacks unopened'
+                    : 'Open album',
+                badge: _unopenedPacks > 0 ? '$_unopenedPacks' : null,
+                onTap: () => setState(() => _nav = 'cards'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _playTile(
+                icon: Icons.sports_kabaddi_rounded,
+                title: 'Duels',
+                subtitle: _playerCardCount >= 3
+                    ? 'Enter stadium'
+                    : 'Need 3 cards',
+                onTap: _openHomeDuel,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _playTile(
+                icon: Icons.style_outlined,
+                title: 'Album',
+                subtitle: '$_playerCardCount cards',
+                onTap: () => setState(() => _nav = 'cards'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _playTile(
+                icon: Icons.confirmation_number_outlined,
+                title: 'Pass',
+                subtitle: '$_passXp XP',
+                onTap: () => Navigator.push(
+                  context,
+                  fwrRoute(const PassScreen()),
+                ).then((_) => _loadFanStats()),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _playTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    String? badge,
+  }) {
+    return Pressable(
+      haptic: HapticFeedbackType.selection,
+      onTap: onTap,
+      child: Container(
+        decoration: cardBox(),
+        padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+        child: Column(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.ink,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(icon, color: AppColors.cream, size: 18),
+                ),
+                if (badge != null)
+                  Positioned(
+                    right: -6,
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.orange,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: Text(
+                        badge,
+                        style: label(
+                          color: Colors.white,
+                          size: 8,
+                          weight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: label(
+                color: AppColors.ink,
+                size: 10,
+                weight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: body(color: AppColors.mut, size: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openHomeDuel() => _openDuel();
+
+  Future<void> _openDuel({String? resumeDuelId}) async {
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      fwrRoute(
+        DuelScreen(
+          players: _inventoryPlayers,
+          moments: _inventoryMoments,
+          skills: _inventorySkills,
+          resumeDuelId: resumeDuelId,
+          initialSetupMode: 2, // Moment Arena
+        ),
+      ),
+    );
+    await _loadFanStats();
   }
 
   /// Official Match Hubs — the one global room per fixture everyone shares.
@@ -945,7 +1208,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                ] else ...[
+                ] else if (f.status == 'live') ...[
                   Pressable(
                     haptic: HapticFeedbackType.medium,
                     onTap: () => _watchLive(f),
@@ -967,6 +1230,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         Icons.play_arrow_rounded,
                         color: Colors.white,
                         size: 22,
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  // Upcoming — Match Center only (never auto-start DEMO REPLAY)
+                  Pressable(
+                    haptic: HapticFeedbackType.selection,
+                    onTap: () => _openMatch(f),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.cardAlt,
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: const Icon(
+                        Icons.schedule_rounded,
+                        color: AppColors.ink,
+                        size: 20,
                       ),
                     ),
                   ),
@@ -1832,20 +2115,22 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _showcaseMini(PlayerCardModel card) => ClipRRect(
-    borderRadius: BorderRadius.circular(11),
-    child: Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: teamColor(card.teamCode)),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: PlayerCardFace(
-        name: card.name,
-        teamCode: card.teamCode,
-        position: card.position,
-        imageUrl: card.imageUrl,
-        axes: const {},
-      ),
+  Widget _showcaseMini(PlayerCardModel card) => GyroTiltCard(
+    motion: _profileMotion,
+    intensity: 0,
+    enableTilt: false,
+    rarity: 3,
+    seed: cardSeed('${card.id}|profile-showcase'),
+    borderColor: teamColor(card.teamCode),
+    frameShape: CardFrameShape.stadiumCrown,
+    child: PlayerCardFace(
+      playerId: card.playerId,
+      name: card.name,
+      teamCode: card.teamCode,
+      position: card.position,
+      imageUrl: card.imageUrl,
+      axes: const {},
+      frameShape: CardFrameShape.stadiumCrown,
     ),
   );
 

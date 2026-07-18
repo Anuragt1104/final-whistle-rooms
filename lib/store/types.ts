@@ -5,6 +5,7 @@ import type { SwingOption } from "@/lib/game/nextswing";
 
 export type RoomStatus = "lobby" | "live" | "finished";
 export type RoomKind = "official" | "party";
+export type RoomLifecycle = "pregame" | "live" | "finished";
 
 export interface RoomModes {
   draft: boolean;
@@ -40,11 +41,25 @@ export interface PromptView {
   options: SwingOption[];
   basePoints: number;
   locksAtMinute: number;
-  status: "open" | "locked" | "settled";
+  status: "scheduled" | "open" | "locked" | "settled" | "void" | "corrected";
+  /** Present only after settle / void / corrected — never while open/locked. */
   winningKey?: string;
   /** how many room members picked each option key */
   tally: Record<string, number>;
   createdAt: number;
+  lane?: "main" | "quick" | "break" | "hydration";
+  category?: string;
+  ruleId?: string;
+  reason?: string;
+  urgency?: number;
+  openedClockSec?: number;
+  answerClosesAt?: number;
+  resolutionDeadlineClockSec?: number;
+  feedFreshness?: string;
+  sourceAttribution?: string;
+  rewardPreview?: string;
+  fanBuzzUrl?: string;
+  fanBuzzFact?: string;
 }
 
 export interface ScoreView {
@@ -100,6 +115,10 @@ export interface RoomView {
   modes: RoomModes;
   hostId: string;
   status: RoomStatus;
+  lifecycle: RoomLifecycle;
+  feedFreshness: "waiting" | "fresh" | "stale";
+  lineupStatus: "unknown" | "announced";
+  sourceUpdatedAt?: number;
   momentum: number;
   win: WinChance;
   /** Home win-chance sampled once per match-minute — the live momentum story. */
