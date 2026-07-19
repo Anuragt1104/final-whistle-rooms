@@ -3,9 +3,9 @@
  *
  * Each room runs its own match. The engine has one processing core (`applyTick`)
  * fed by either:
- *   - the deterministic MatchSimulation (default / demo), or
- *   - the live TxLINE SSE feed (TXLINE_MODE=live), with events synthesized by
- *     diffing successive score snapshots.
+ *   - the deterministic MatchSimulation in explicitly selected demo mode, or
+ *   - the live TxLINE SSE feed in production, with confirmed source events and
+ *     score-delta fallback reconciliation.
  * State changes are pushed to subscribers over SSE. State is intentionally
  * in-memory: perfect for a single-instance demo; production would back this
  * with Redis/Postgres (noted in the README).
@@ -26,6 +26,7 @@ import {
   forceResolve,
   lockSnapshot,
   biasFromIntensity,
+  isDefinitiveTerminalPhase,
   type MatchIntensity,
   type MatchStory,
   type SwingPrompt,
@@ -67,15 +68,25 @@ import type {
   MomentDropView,
   PromptView,
   RecapView,
+  ReplayStateView,
   RoomModes,
   RoomKind,
   RoomStatus,
   RoomView,
   ScoreView,
 } from "@/lib/store/types";
+import type { HistoricalFeedHandle } from "@/lib/txline/historical";
+import {
+  SHOWCASE_REPLAY_BEATS,
+  advanceShowcaseBeat,
+  createShowcasePrompt,
+  initialShowcaseReplayState,
+  reachShowcaseBeat,
+} from "@/lib/showcase/replay";
 
 const TICK_MS = 1000;
 const HALFTIME_PAUSE_MS = 5000;
+const SHOWCASE_TOTAL_MINUTES = SHOWCASE_REPLAY_BEATS.at(-1)?.minute ?? 120;
 const AVATARS = ["🦊", "🐯", "🦁", "🐼", "🐸", "🐵", "🦉", "🐙", "🦄", "🐲", "🐺", "🐨", "🦅", "🐝", "🦈", "🐳"];
 
 function secondsPerMatchMinute(): number {
@@ -121,6 +132,7 @@ interface RoomRuntime {
   hostId: string;
   status: RoomStatus;
   createdAt: number;
+  revision: number;
 
   members: Map<string, Member>;
   chat: ChatMsg[];
@@ -132,6 +144,7 @@ interface RoomRuntime {
   // event itself — a fan earns the Moment by answering a Micro-Play correctly.
   recentMintables: Array<{ event: MintContext["event"]; oddsSandwich: OddsSandwich; priorHomeProb: number }>;
   rewardedCalls: Set<string>;
+  rewardedSourceEvents: Set<string>;
 
   // live match state
   score: ScoreSnapshot | null;
@@ -157,6 +170,13 @@ interface RoomRuntime {
   htRecapDone: boolean;
   interval: ReturnType<typeof setInterval> | null;
   closeLiveFeed: (() => void) | null;
+  replayHandle: HistoricalFeedHandle | null;
+  replayState: ReplayStateView | null;
+  showcase: {
+    checkpoints: readonly number[];
+    beat: number;
+    awaitingAction: boolean;
+  } | null;
   pendingFinish: ReturnType<typeof setTimeout> | null;
   liveScore: ScoreSnapshot | null;
   liveOdds: OddsSnapshot | null;
@@ -210,18 +230,28 @@ function walletShort(pk?: string): string | undefined {
 export async function joinOfficialHubForFixture(
   fixture: Fixture,
   input: { name: string; walletPubkey?: string },
-  options: { autoStart?: boolean } = {},
+  options: {
+    autoStart?: boolean;
+    scopeKey?: string;
+    roomKind?: RoomKind;
+    visibility?: "public" | "invite";
+    name?: string;
+    replayState?: ReplayStateView;
+    reuseFinished?: boolean;
+    showcase?: RoomRuntime["showcase"];
+  } = {},
 ): Promise<{ roomId: string; memberId: string }> {
-  const existingId = store.officialByFixture.get(fixture.id);
+  const scopeKey = options.scopeKey ?? fixture.id;
+  const existingId = store.officialByFixture.get(scopeKey);
   const existing = existingId ? store.rooms.get(existingId) : undefined;
-  if (existing && existing.status !== "finished") {
+  if (existing && (existing.status !== "finished" || options.reuseFinished)) {
     const joined = joinRoom(existing.id, input);
     if ("error" in joined) throw new Error(joined.error);
     if (options.autoStart !== false) void startMatch(existing.id, "");
     return { roomId: existing.id, memberId: joined.memberId };
   }
 
-  const pending = store.pendingOfficial.get(fixture.id);
+  const pending = store.pendingOfficial.get(scopeKey);
   if (pending) {
     await pending;
     return joinOfficialHubForFixture(fixture, input, options);
@@ -231,25 +261,26 @@ export async function joinOfficialHubForFixture(
   const creation = new Promise<void>((resolve) => {
     releaseCreation = resolve;
   });
-  store.pendingOfficial.set(fixture.id, creation);
+  store.pendingOfficial.set(scopeKey, creation);
   try {
     const id = uid("hub");
     const rt: RoomRuntime = {
       id,
       code: shareCode(),
-      name: `${fixture.home.name} vs ${fixture.away.name} · Official Match Hub`,
-      kind: "official",
+      name: options.name ?? `${fixture.home.name} vs ${fixture.away.name} · Official Match Hub`,
+      kind: options.roomKind ?? "official",
       autoManaged: true,
       fixture,
       modes: { draft: true, nextSwing: true },
-      visibility: "public",
+      visibility: options.visibility ?? "public",
       reactionPack: "classic",
       voice: false,
       spoilerSafe: false,
-      replay: false,
+      replay: options.replayState != null,
       hostId: "",
       status: "lobby",
       createdAt: Date.now(),
+      revision: 0,
       members: new Map(),
       chat: [],
       pulse: [],
@@ -258,6 +289,7 @@ export async function joinOfficialHubForFixture(
       picks: new Map(),
       recentMintables: [],
       rewardedCalls: new Set(),
+      rewardedSourceEvents: new Set(),
       score: null,
       odds: null,
       win: { home: 33, draw: 34, away: 33 },
@@ -278,6 +310,9 @@ export async function joinOfficialHubForFixture(
       htRecapDone: false,
       interval: null,
       closeLiveFeed: null,
+      replayHandle: null,
+      replayState: options.replayState ?? null,
+      showcase: options.showcase ?? null,
       pendingFinish: null,
       liveScore: null,
       liveOdds: null,
@@ -297,7 +332,7 @@ export async function joinOfficialHubForFixture(
       subscribers: new Set(),
     };
     store.rooms.set(id, rt);
-    store.officialByFixture.set(fixture.id, id);
+    store.officialByFixture.set(scopeKey, id);
     try {
       const { getFixtureMatchData } = await import("@/lib/txline/intelligence-service");
       const match = await getFixtureMatchData(fixture.id);
@@ -312,8 +347,40 @@ export async function joinOfficialHubForFixture(
     return result;
   } finally {
     releaseCreation();
-    store.pendingOfficial.delete(fixture.id);
+    store.pendingOfficial.delete(scopeKey);
   }
+}
+
+/**
+ * Create the presenter's private, guided replay. Unlike a public Official Hub,
+ * the identity is part of the concurrency key: retries from the same fan reuse
+ * one session, while unrelated judges cannot enter it without the invite code.
+ */
+export async function joinShowcaseReplayForFixture(
+  fixture: Fixture,
+  input: { name: string; walletPubkey?: string },
+  options: { autoStart?: boolean; actionId?: string } = {},
+): Promise<{ roomId: string; memberId: string }> {
+  const fanKey = input.walletPubkey?.trim() || options.actionId?.trim() || input.name.trim().toLowerCase();
+  const replayState = initialShowcaseReplayState();
+  const joined = await joinOfficialHubForFixture(fixture, input, {
+    // Showcase creation must not return a tappable Next Beat control while the
+    // historical tape is still loading. Start it synchronously below.
+    autoStart: false,
+    scopeKey: `${fixture.id}:showcase:${fanKey}`,
+    roomKind: "party",
+    visibility: "invite",
+    name: `${fixture.home.name} vs ${fixture.away.name} · Verified Replay`,
+    replayState,
+    reuseFinished: true,
+    showcase: {
+      checkpoints: SHOWCASE_REPLAY_BEATS.map((beat) => beat.minute),
+      beat: 0,
+      awaitingAction: true,
+    },
+  });
+  if (options.autoStart !== false) await startMatch(joined.roomId, "");
+  return joined;
 }
 
 export async function joinOfficialHub(
@@ -324,6 +391,24 @@ export async function joinOfficialHub(
   if (!fixture) return { error: "Fixture not found" };
   try {
     return await joinOfficialHubForFixture(fixture, input);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function joinShowcaseReplay(
+  fixtureId: string,
+  input: { name: string; walletPubkey?: string; actionId?: string },
+): Promise<{ roomId: string; memberId: string } | { error: string }> {
+  const fixture = await getSource().getFixture(fixtureId);
+  if (!fixture) return { error: "Fixture not found" };
+  if (fixture.status !== "finished") return { error: "Showcase replay requires a finished fixture" };
+  try {
+    return await joinShowcaseReplayForFixture(
+      fixture,
+      { name: input.name, walletPubkey: input.walletPubkey },
+      { actionId: input.actionId },
+    );
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
@@ -586,7 +671,7 @@ async function startLiveDriver(rt: RoomRuntime) {
 /** Historical driver — paces TxLINE historical/updates log through applyTick. */
 async function startHistoricalDriver(rt: RoomRuntime) {
   const { openHistoricalMatchFeed } = await import("@/lib/txline/historical");
-  rt.closeLiveFeed = await openHistoricalMatchFeed(rt.fixture, {
+  const handle = await openHistoricalMatchFeed(rt.fixture, {
     onScore: (s, verifiedEvents = []) => {
       rt.lastFeedAt = Date.now();
       const prev = rt.liveScore;
@@ -597,13 +682,180 @@ async function startHistoricalDriver(rt: RoomRuntime) {
       const odds = rt.liveOdds ?? rt.odds;
       applyTick(rt, s, odds, events);
       if (s.phase === GamePhase.HalfTime && !rt.htRecapDone) void doRecap(rt, "half-time");
-      if (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished) finishMatch(rt);
+      // Only terminal-finish when the tape naturally ends (not mid-seek frames).
+      if (
+        !rt.replayState?.paused &&
+        (s.phase === GamePhase.FullTime || s.phase === GamePhase.Finished)
+      ) {
+        /* finish deferred to onDone so seek to FT doesn't close the hub */
+      }
     },
     onError: (e) => system(rt, `Replay notice: ${String(e).slice(0, 100)}`),
     onDone: () => {
       if (rt.status === "live") finishMatch(rt);
     },
+    onStateChange: (state) => {
+      let nextState: ReplayStateView = {
+        active: state.active || rt.replay,
+        paused: state.paused,
+        currentMinute: state.currentMinute,
+        totalMinutes: state.totalMinutes,
+        speed: state.speed,
+      };
+      if (rt.showcase) {
+        const prior = rt.replayState?.mode === "showcase"
+          ? rt.replayState
+          : initialShowcaseReplayState();
+        nextState = {
+          ...prior,
+          active: state.active || rt.replay,
+          paused: state.paused,
+          currentMinute: state.currentMinute,
+          totalMinutes: SHOWCASE_TOTAL_MINUTES,
+          speed: state.speed,
+          mode: "showcase",
+          awaitingAction: rt.showcase.awaitingAction,
+        };
+        if (state.paused && !rt.showcase.awaitingAction) {
+          const reached = reachShowcaseBeat(nextState, state.currentMinute);
+          if ((reached.beat ?? 0) > rt.showcase.beat) {
+            const reachedMinute = rt.showcase.checkpoints[rt.showcase.beat];
+            rt.showcase.beat = reached.beat ?? rt.showcase.beat;
+            rt.showcase.awaitingAction = reached.awaitingAction ?? false;
+            nextState = reached;
+            const prompt = createShowcasePrompt(rt.fixture, reachedMinute, rt.score?.seq ?? 0);
+            if (prompt && !rt.prompts.has(prompt.id)) rt.prompts.set(prompt.id, prompt);
+            if (reached.nextBeatMinute == null) rt.status = "finished";
+          }
+        }
+      }
+      rt.replayState = nextState;
+      broadcast(rt);
+    },
   });
+  rt.replayHandle = handle;
+  if (rt.showcase) {
+    handle.pause();
+    handle.seek(0);
+    rt.replayState = {
+      ...initialShowcaseReplayState(),
+      totalMinutes: SHOWCASE_TOTAL_MINUTES,
+    };
+  } else {
+    rt.replayState = {
+      active: true,
+      paused: false,
+      currentMinute: handle.getState().currentMinute,
+      totalMinutes: handle.getState().totalMinutes,
+      speed: handle.getState().speed,
+      mode: "standard",
+    };
+  }
+  rt.closeLiveFeed = () => {
+    handle.close();
+    rt.replayHandle = null;
+  };
+}
+
+export function controlReplay(
+  id: string,
+  body: { action: string; minute?: number; speed?: number },
+): { error?: string; ok?: boolean; replayState?: ReplayStateView } {
+  const rt = store.rooms.get(id);
+  if (!rt) return { error: "Room not found" };
+  if (!rt.replay || !rt.replayHandle) return { error: "Replay not active" };
+  const h = rt.replayHandle;
+  switch (body.action) {
+    case "pause":
+      h.pause();
+      break;
+    case "play":
+      if (rt.showcase) return { error: "Use nextBeat for the guided replay" };
+      h.play();
+      break;
+    case "speed":
+      if (rt.showcase) return { error: "Showcase pacing is guided" };
+      if (body.speed == null) return { error: "speed required" };
+      h.setSpeed(Number(body.speed));
+      break;
+    case "seek":
+      if (rt.showcase) return { error: "Seeking is disabled in the verified showcase" };
+      if (body.minute == null) return { error: "minute required" };
+      // Allow re-emitting verified events after seek.
+      rt.processedEventIds.clear();
+      rt.eventHighWater = {
+        goals: { home: 0, away: 0 },
+        yellow: { home: 0, away: 0 },
+        red: { home: 0, away: 0 },
+        corners: { home: 0, away: 0 },
+      };
+      h.seek(Number(body.minute));
+      break;
+    case "nextBeat": {
+      if (!rt.showcase || rt.replayState?.mode !== "showcase") {
+        return { error: "Guided replay not active" };
+      }
+      if (!rt.showcase.awaitingAction) return { error: "Replay is already advancing" };
+      const advance = advanceShowcaseBeat(rt.replayState);
+      rt.replayState = advance.state;
+      rt.showcase.awaitingAction = false;
+      h.advanceTo(advance.targetMinute);
+      break;
+    }
+    case "reset":
+      if (rt.showcase) {
+        rt.processedEventIds.clear();
+        rt.eventHighWater = {
+          goals: { home: 0, away: 0 },
+          yellow: { home: 0, away: 0 },
+          red: { home: 0, away: 0 },
+          corners: { home: 0, away: 0 },
+        };
+        rt.score = null;
+        rt.liveScore = null;
+        rt.keyEvents = [];
+        rt.pulse = [];
+        for (const [promptId, prompt] of rt.prompts) {
+          if (prompt.category === "showcase") rt.prompts.delete(promptId);
+        }
+        rt.showcase.beat = 0;
+        rt.showcase.awaitingAction = true;
+        h.seek(0);
+        rt.replayState = {
+          ...initialShowcaseReplayState(),
+          totalMinutes: SHOWCASE_TOTAL_MINUTES,
+        };
+      } else {
+        h.seek(0);
+      }
+      break;
+    default:
+      return { error: "Unknown action" };
+  }
+  const st = h.getState();
+  rt.replayState = rt.showcase
+    ? {
+        ...(rt.replayState ?? initialShowcaseReplayState()),
+        active: true,
+        paused: st.paused,
+        currentMinute: st.currentMinute,
+        totalMinutes: SHOWCASE_TOTAL_MINUTES,
+        speed: st.speed,
+        mode: "showcase",
+        beat: rt.showcase.beat,
+        nextBeatMinute: rt.showcase.checkpoints[rt.showcase.beat],
+        awaitingAction: rt.showcase.awaitingAction,
+      }
+    : {
+        active: true,
+        paused: st.paused,
+        currentMinute: st.currentMinute,
+        totalMinutes: st.totalMinutes,
+        speed: st.speed,
+        mode: "standard",
+      };
+  broadcast(rt);
+  return { ok: true, replayState: rt.replayState };
 }
 
 /** Synthesize discrete events by diffing two live score snapshots. */
@@ -727,7 +979,12 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
     if (rt.tapeScores.length > 4000) rt.tapeScores = rt.tapeScores.slice(-4000);
 
     const mode = questionEngineMode();
-    if (mode === "on" || mode === "shadow") {
+    if (rt.showcase) {
+      // The presenter controls question placement. The curated prompts are
+      // inserted only after each known-state checkpoint is reached, then use
+      // the ordinary resolver/reward path against subsequent TxLINE frames.
+      resolvePrompts(rt, newEvents, score, win);
+    } else if (mode === "on" || mode === "shadow") {
       const cmds = runQuestionEngine(rt, score, win, newEvents, intensity, major);
       if (mode === "on") {
         applyEngineCommands(rt, cmds, intensity);
@@ -750,7 +1007,7 @@ function applyTick(rt: RoomRuntime, score: ScoreSnapshot, odds: OddsSnapshot | n
 
   // 4) Push goal alerts to every installed app (FCM topic). Skips cleanly when
   // FCM env is unset. Clients suppress the tray while actively viewing this room.
-  for (const e of newEvents) {
+  for (const e of rt.replay ? [] : newEvents) {
     if (e.kind !== "goal" || !e.side) continue;
     const team = e.side === "away" ? rt.fixture.away : rt.fixture.home;
     void notifyGoal({
@@ -817,8 +1074,10 @@ function computeIntensity(
 function recordMomentDrops(
   rt: RoomRuntime,
   recipients: { memberId: string; fanId: string }[],
-  minted: { id: string; ownerId: string; kind: string; label: string; rarity: number; minute: number; matchLabel: string; createdAt: number; sourceEventId?: string; playerId?: string; playerName?: string; teamCode?: string; imageUrl?: string; artKey?: string }[],
+  minted: { id: string; ownerId: string; kind: string; label: string; rarity: number; minute: number; matchLabel: string; createdAt: number; sourceEventId?: string; playerId?: string; playerName?: string; teamCode?: string; imageUrl?: string; artKey?: string; calledIt?: boolean }[],
+  call?: { promptId: string; promptQuestion: string; answerLabel: string },
 ) {
+  const proofRoot = rt.merkleLeaves.length ? buildMerkleTree(rt.merkleLeaves).root : undefined;
   for (const moment of minted) {
     const recipient = recipients.find((r) => r.fanId === moment.ownerId);
     if (!recipient) continue;
@@ -837,6 +1096,15 @@ function recordMomentDrops(
       teamCode: moment.teamCode,
       imageUrl: moment.imageUrl,
       artKey: moment.artKey,
+      calledIt: moment.calledIt,
+      promptId: call?.promptId,
+      promptQuestion: call?.promptQuestion,
+      answerLabel: call?.answerLabel,
+      proof: {
+        root: proofRoot,
+        sourceEventId: moment.sourceEventId,
+        anchored: rt.anchored,
+      },
     });
   }
   if (rt.momentDrops.length > 80) rt.momentDrops = rt.momentDrops.slice(-80);
@@ -1144,7 +1412,10 @@ function resolvePrompts(rt: RoomRuntime, newEvents: MatchEvent[], score: ScoreSn
       const key = tryResolve(prompt, newEvents, score, win);
       if (key) {
         settlePrompt(rt, prompt, key);
-      } else if (score.minute >= prompt.locksAtMinute + 12 || score.phase >= GamePhase.FullTime) {
+      } else if (
+        score.minute >= prompt.locksAtMinute + 12 ||
+        isDefinitiveTerminalPhase(score.phase)
+      ) {
         // deadline reached with no live event — settle deterministically so a
         // correct call still scores instead of dangling forever
         settlePrompt(rt, prompt, forceResolve(prompt, score, win));
@@ -1187,7 +1458,11 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
       const openedMinute = prompt.openedAtMinute ?? Math.max(0, prompt.locksAtMinute - 5);
       const openedSeq = prompt.openedAtSeq ?? 0;
       const src = [...rt.recentMintables].reverse().find(
-        (candidate) => candidate.event.minute >= openedMinute && candidate.event.seq >= openedSeq,
+        (candidate) => {
+          if (candidate.event.minute < openedMinute || candidate.event.seq < openedSeq) return false;
+          const eventKey = candidate.event.sourceEventId ?? `${rt.fixture.id}:${candidate.event.seq}`;
+          return !rt.rewardedSourceEvents.has(`${m.id}:${eventKey}`);
+        },
       ) ?? null;
       const flatWin = { home: rt.win.home / 100, draw: rt.win.draw / 100, away: rt.win.away / 100 };
       const minted = mintFromEvent({
@@ -1212,7 +1487,15 @@ function settlePrompt(rt: RoomRuntime, prompt: SwingPrompt, winningKey: string) 
         sinceMinute: openedMinute,
       });
       if (minted) {
-        recordMomentDrops(rt, [{ memberId: m.id, fanId }], [minted]);
+        if (src) {
+          const eventKey = src.event.sourceEventId ?? `${rt.fixture.id}:${src.event.seq}`;
+          rt.rewardedSourceEvents.add(`${m.id}:${eventKey}`);
+        }
+        recordMomentDrops(rt, [{ memberId: m.id, fanId }], [minted], {
+          promptId: prompt.id,
+          promptQuestion: prompt.question,
+          answerLabel: opt?.label ?? winningKey,
+        });
         earnCredits(fanId, EARN.momentMinted, "correct call moment");
         addPassXp(fanId, PASS_XP.momentMinted, "correct call moment");
         system(rt, `✦ ${m.name} earned a ${minted.rarity}★ Moment + pack — ${minted.label}`);
@@ -1384,6 +1667,15 @@ export function buildView(rt: RoomRuntime): RoomView {
 
   const root = rt.merkleLeaves.length > 0 ? buildMerkleTree(rt.merkleLeaves).root : null;
 
+  const reactionTally: Record<string, number> = {};
+  for (const c of rt.chat) {
+    if (c.kind !== "reaction") continue;
+    const key = c.text.trim() || "👏";
+    reactionTally[key] = (reactionTally[key] ?? 0) + 1;
+  }
+
+  rt.revision = (rt.revision ?? 0) + 1;
+
   return {
     id: rt.id,
     code: rt.code,
@@ -1398,6 +1690,8 @@ export function buildView(rt: RoomRuntime): RoomView {
     feedFreshness: rt.lastFeedAt === 0 ? "waiting" : Date.now() - rt.lastFeedAt <= 20_000 ? "fresh" : "stale",
     lineupStatus: rt.lineupStatus,
     sourceUpdatedAt: rt.score?.updatedAt,
+    revision: rt.revision,
+    reactionTally,
     momentum: rt.momentum,
     win: rt.win,
     winHistory: [...rt.winHistory],
@@ -1420,6 +1714,15 @@ export function buildView(rt: RoomRuntime): RoomView {
     voice: rt.voice,
     reactionPack: rt.reactionPack,
     replay: rt.replay,
+    replayState: rt.replay
+      ? rt.replayState ?? {
+          active: true,
+          paused: false,
+          currentMinute: rt.score?.minute ?? 0,
+          totalMinutes: 90,
+          speed: 1,
+        }
+      : undefined,
     createdAt: rt.createdAt,
   };
 }
@@ -1471,14 +1774,15 @@ export function subscribe(id: string, send: (payload: string) => void): (() => v
   const rt = store.rooms.get(id);
   if (!rt) return null;
   rt.subscribers.add(send);
-  // push an immediate snapshot
-  send(JSON.stringify({ type: "state", room: buildView(rt) }));
+  const room = buildView(rt);
+  send(JSON.stringify({ type: "state", revision: room.revision, room }));
   return () => rt.subscribers.delete(send);
 }
 
 function broadcast(rt: RoomRuntime) {
   if (rt.subscribers.size === 0) return;
-  const payload = JSON.stringify({ type: "state", room: buildView(rt) });
+  const room = buildView(rt);
+  const payload = JSON.stringify({ type: "state", revision: room.revision, room });
   for (const send of rt.subscribers) {
     try {
       send(payload);

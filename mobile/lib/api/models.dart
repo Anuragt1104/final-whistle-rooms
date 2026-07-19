@@ -157,7 +157,8 @@ class ScoreView {
   });
   factory ScoreView.fromJson(Map<String, dynamic> j) => ScoreView(
     minute: (j['minute'] as num?)?.toInt() ?? 0,
-    clockSeconds: (j['clockSeconds'] as num?)?.toInt() ??
+    clockSeconds:
+        (j['clockSeconds'] as num?)?.toInt() ??
         ((j['minute'] as num?)?.toInt() ?? 0) * 60,
     running: (j['running'] ?? false) as bool,
     phase: (j['phase'] as num?)?.toInt() ?? 0,
@@ -276,6 +277,8 @@ class PulseCard {
   final String id, kind, emoji, headline, detail, accent;
   final int minute;
   final String? scorer; // player name for goal cards (local engine)
+  final String? sourceEventId;
+  final String? side;
   PulseCard({
     required this.id,
     required this.kind,
@@ -285,6 +288,8 @@ class PulseCard {
     required this.accent,
     required this.minute,
     this.scorer,
+    this.sourceEventId,
+    this.side,
   });
   factory PulseCard.fromJson(Map<String, dynamic> j) => PulseCard(
     id: j['id'],
@@ -295,6 +300,40 @@ class PulseCard {
     accent: j['accent'] ?? 'neutral',
     minute: (j['minute'] ?? 0) as int,
     scorer: j['scorer'],
+    sourceEventId: j['sourceEventId']?.toString(),
+    side: j['side']?.toString(),
+  );
+}
+
+class ReplayStateView {
+  final bool active, paused;
+  final int currentMinute, totalMinutes;
+  final double speed;
+  final String mode;
+  final int beat;
+  final int? nextBeatMinute;
+  final bool awaitingAction;
+  const ReplayStateView({
+    required this.active,
+    required this.paused,
+    required this.currentMinute,
+    required this.totalMinutes,
+    required this.speed,
+    this.mode = 'standard',
+    this.beat = 0,
+    this.nextBeatMinute,
+    this.awaitingAction = false,
+  });
+  factory ReplayStateView.fromJson(Map<String, dynamic> j) => ReplayStateView(
+    active: j['active'] == true,
+    paused: j['paused'] == true,
+    currentMinute: (j['currentMinute'] as num?)?.toInt() ?? 0,
+    totalMinutes: (j['totalMinutes'] as num?)?.toInt() ?? 90,
+    speed: (j['speed'] as num?)?.toDouble() ?? 1,
+    mode: j['mode']?.toString() ?? 'standard',
+    beat: (j['beat'] as num?)?.toInt() ?? 0,
+    nextBeatMinute: (j['nextBeatMinute'] as num?)?.toInt(),
+    awaitingAction: j['awaitingAction'] == true,
   );
 }
 
@@ -471,6 +510,9 @@ class MomentDropView {
       teamCode,
       imageUrl,
       artworkKind;
+  final bool calledIt;
+  final String? promptId, promptQuestion, answerLabel;
+  final Map<String, dynamic>? proof;
   MomentDropView({
     required this.id,
     required this.memberId,
@@ -486,6 +528,11 @@ class MomentDropView {
     this.teamCode,
     this.imageUrl,
     this.artworkKind,
+    this.calledIt = false,
+    this.promptId,
+    this.promptQuestion,
+    this.answerLabel,
+    this.proof,
   });
   factory MomentDropView.fromJson(Map<String, dynamic> j) => MomentDropView(
     id: j['id'] ?? '',
@@ -502,6 +549,13 @@ class MomentDropView {
     teamCode: j['teamCode']?.toString(),
     imageUrl: j['imageUrl']?.toString(),
     artworkKind: (j['artKey'] ?? j['artworkKind'])?.toString(),
+    calledIt: j['calledIt'] == true,
+    promptId: j['promptId']?.toString(),
+    promptQuestion: j['promptQuestion']?.toString(),
+    answerLabel: j['answerLabel']?.toString(),
+    proof: j['proof'] is Map
+        ? Map<String, dynamic>.from(j['proof'] as Map)
+        : null,
   );
 }
 
@@ -527,6 +581,14 @@ class RoomView {
   final bool voice;
   final String reactionPack;
   final MotmPoll? motm;
+  final String lifecycle;
+  final String feedFreshness;
+  final String lineupStatus;
+  final int? sourceUpdatedAt;
+  final int revision;
+  final Map<String, int> reactionTally;
+  final ReplayStateView? replayState;
+  final List<Map<String, dynamic>> markets;
 
   RoomView({
     required this.id,
@@ -555,6 +617,14 @@ class RoomView {
     this.voice = false,
     this.reactionPack = 'classic',
     this.motm,
+    this.lifecycle = 'pregame',
+    this.feedFreshness = 'waiting',
+    this.lineupStatus = 'unknown',
+    this.sourceUpdatedAt,
+    this.revision = 0,
+    this.reactionTally = const {},
+    this.replayState,
+    this.markets = const [],
   });
 
   factory RoomView.fromJson(Map<String, dynamic> j) => RoomView(
@@ -598,6 +668,26 @@ class RoomView {
     voice: j['voice'] ?? false,
     reactionPack: j['reactionPack'] ?? 'classic',
     motm: j['motm'] == null ? null : MotmPoll.fromJson(j['motm']),
+    lifecycle:
+        '${j['lifecycle'] ?? (j['status'] == 'finished'
+                ? 'finished'
+                : j['status'] == 'live'
+                ? 'live'
+                : 'pregame')}',
+    feedFreshness: '${j['feedFreshness'] ?? 'waiting'}',
+    lineupStatus: '${j['lineupStatus'] ?? 'unknown'}',
+    sourceUpdatedAt: (j['sourceUpdatedAt'] as num?)?.toInt(),
+    revision: (j['revision'] as num?)?.toInt() ?? 0,
+    reactionTally: ((j['reactionTally'] ?? {}) as Map).map(
+      (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+    ),
+    replayState: j['replayState'] is Map
+        ? ReplayStateView.fromJson(Map<String, dynamic>.from(j['replayState']))
+        : null,
+    markets: ((j['markets'] ?? []) as List)
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList(),
   );
 }
 

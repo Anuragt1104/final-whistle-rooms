@@ -31,15 +31,7 @@ void showPlayerSheet(BuildContext context, Team team, Object source) {
           ),
         )
       : throw ArgumentError('Unsupported player source');
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: AppColors.paper,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-    ),
-    builder: (_) => _PlayerSheet(team: team, player: player),
-  );
+  Navigator.push(context, fwrRoute(_PlayerSheet(team: team, player: player)));
 }
 
 String positionLabel(String pos) => switch (pos) {
@@ -57,119 +49,132 @@ class _PlayerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.line,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.ink, Color(0xFF251A48)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              padding: const EdgeInsets.all(18),
-              child: Row(
+    return Scaffold(
+      backgroundColor: StadiumColors.canvas,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  _portrait(),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          player.name.toUpperCase(),
-                          style: display(24, color: AppColors.cream),
-                        ),
-                        const SizedBox(height: 5),
-                        Row(
-                          children: [
-                            InlineFlag(team: team, size: 20),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                '${team.name} · ${positionLabel(player.position)}',
-                                style: body(color: AppColors.mutInk, size: 12),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.arrow_back_rounded,
+                      color: StadiumColors.text,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'PLAYER',
+                    style: label(color: StadiumColors.muted, size: 10),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                decoration: stadiumGradientPanel(accent: teamColor(team.code)),
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    _portrait(),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            player.name.toUpperCase(),
+                            style: display(24, color: AppColors.cream),
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            children: [
+                              InlineFlag(team: team, size: 20),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  '${team.name} · ${positionLabel(player.position)}',
+                                  style: body(
+                                    color: AppColors.mutInk,
+                                    size: 12,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            if (player.shirtNumber != null)
-                              _pill('#${player.shirtNumber}'),
-                            if (player.starter) _pill('STARTER'),
-                            if (player.onPitch) _pill('ON PITCH', lime: true),
-                          ],
-                        ),
-                      ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (player.shirtNumber != null)
+                                _pill('#${player.shirtNumber}'),
+                              if (player.starter) _pill('STARTER'),
+                              if (player.onPitch) _pill('ON PITCH', lime: true),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            const SectionLabel('Verified tournament totals'),
-            Row(
-              children: [
-                _stat('${player.stats.squadSelections}', 'SQUADS'),
-                const SizedBox(width: 8),
-                _stat('${player.stats.starts}', 'STARTS'),
-                const SizedBox(width: 8),
-                _stat('${player.stats.goals}', 'GOALS'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _stat('${player.stats.yellowCards}', 'YELLOW'),
-                const SizedBox(width: 8),
-                _stat('${player.stats.redCards}', 'RED'),
-                const SizedBox(width: 8),
-                _stat(player.country ?? '—', 'COUNTRY'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: cardBox(),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 18),
+              Text(
+                'VERIFIED TOURNAMENT TOTALS',
+                style: label(
+                  color: StadiumColors.text,
+                  size: 11,
+                  weight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
                 children: [
-                  const Icon(
-                    Icons.verified_rounded,
-                    color: AppColors.orange,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Only TxLINE-confirmed selections, starts, goals and cards are shown. Ratings, assists and xG are intentionally omitted when the source does not provide them.',
-                      style: body(color: AppColors.mut, size: 12),
-                    ),
-                  ),
+                  _stat('${player.stats.squadSelections}', 'SQUADS'),
+                  const SizedBox(width: 8),
+                  _stat('${player.stats.starts}', 'STARTS'),
+                  const SizedBox(width: 8),
+                  _stat('${player.stats.goals}', 'GOALS'),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _stat('${player.stats.yellowCards}', 'YELLOW'),
+                  const SizedBox(width: 8),
+                  _stat('${player.stats.redCards}', 'RED'),
+                  const SizedBox(width: 8),
+                  _stat(player.country ?? '—', 'COUNTRY'),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: cardBox(),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.verified_rounded,
+                      color: AppColors.orange,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Only TxLINE-confirmed selections, starts, goals and cards are shown. Ratings, assists and xG are intentionally omitted when the source does not provide them.',
+                        style: body(color: AppColors.mut, size: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

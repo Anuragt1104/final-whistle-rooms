@@ -19,7 +19,7 @@ class _LeadersScreenState extends State<LeadersScreen> {
       .tournamentLeaders();
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: AppColors.paper,
+    backgroundColor: StadiumColors.canvas,
     body: Column(
       children: [
         const FwrHeader(showBack: true, title: 'Tournament Leaders'),
@@ -47,7 +47,7 @@ class _LeadersScreenState extends State<LeadersScreen> {
                 children: [
                   _source(data.asOf),
                   const SizedBox(height: 16),
-                  const SectionLabel('Golden Boot'),
+                  _section('Golden Boot'),
                   if (data.goals.isEmpty)
                     _empty('No confirmed goals yet.')
                   else
@@ -58,7 +58,7 @@ class _LeadersScreenState extends State<LeadersScreen> {
                         .entries
                         .map((e) => _leader(e.key + 1, e.value, 'GOALS')),
                   const SizedBox(height: 16),
-                  const SectionLabel('Discipline leaders'),
+                  _section('Discipline leaders'),
                   if (data.yellowCards.isEmpty)
                     _empty('No confirmed cards yet.')
                   else
@@ -69,7 +69,7 @@ class _LeadersScreenState extends State<LeadersScreen> {
                         .entries
                         .map((e) => _leader(e.key + 1, e.value, 'YELLOW')),
                   const SizedBox(height: 16),
-                  const SectionLabel('Team records'),
+                  _section('Team records'),
                   ...data.teamRecords
                       .take(16)
                       .toList()
@@ -82,6 +82,18 @@ class _LeadersScreenState extends State<LeadersScreen> {
           ),
         ),
       ],
+    ),
+  );
+
+  Widget _section(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 10, top: 4),
+    child: Text(
+      text.toUpperCase(),
+      style: label(
+        color: StadiumColors.text,
+        size: 12,
+        weight: FontWeight.w900,
+      ),
     ),
   );
 

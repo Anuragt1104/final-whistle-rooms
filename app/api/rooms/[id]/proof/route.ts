@@ -44,6 +44,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     sample,
     txline,
     fixtureId: rt.fixture.id,
+    sourceMode: rt.replay
+      ? rt.replayState?.mode === "showcase"
+        ? "TxLINE historical showcase"
+        : "TxLINE historical"
+      : "TxLINE live",
+    lastSourceTimestamp: rt.score?.updatedAt,
+    stableEventId: rt.keyEvents.at(-1)?.sourceEventId,
+    roomRoot: tree.root,
+    inclusionResult: sample?.verified ?? null,
     anchored: rt.anchored,
     anchorSignature: rt.anchorSignature,
     explorerUrl: rt.anchorSignature ? explorerTxUrl(rt.anchorSignature) : null,

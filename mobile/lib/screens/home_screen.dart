@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../api/api_client.dart';
 import '../api/cards.dart';
 import '../api/models.dart';
+import '../app_experience/app_experience.dart';
 import '../data/flags.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
@@ -20,12 +21,11 @@ import '../local/tournament.dart';
 import '../solana/wallet_connect.dart';
 import '../theme.dart';
 import '../widgets/app_header.dart';
-import '../widgets/bottom_nav.dart';
 import '../widgets/common.dart';
 import '../widgets/season_pass_sheet.dart';
 import '../widgets/ticket.dart';
-import '../widgets/tournament_pulse.dart';
 import '../widgets/gyro_card.dart';
+import '../widgets/showcase_replay_recommendation.dart';
 import 'match_screen.dart';
 import 'room_screen.dart';
 import 'team_sheet.dart';
@@ -34,6 +34,7 @@ import 'duel_screen.dart';
 import 'pass_screen.dart';
 import 'settings_screen.dart';
 import 'leaders_screen.dart';
+import 'arena_landing_screen.dart';
 import '../widgets/player_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -50,8 +51,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Identity? _identity;
   String _name = '';
   String _walletAddr = '';
-  String _nav = 'rooms';
+  final AppExperienceController _shell = AppExperienceController();
   String _fxSeg = 'matches'; // fixtures hub: matches | groups | bracket | stats
+  DateTime? _fixtureDate;
+  String _fixtureStage = '';
+  bool _favoriteFixturesOnly = false;
   bool _loading = true;
   bool _pro = false;
   String? _connectingFixture; // fixture id being resolved live-vs-replay
@@ -135,7 +139,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _apiFixtures = cached;
     }
     _loading = false;
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      _syncShellBadges();
+    }
 
     final prefs = await Future.wait([
       IdentityStore.getOrCreate(),
@@ -167,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Local 104-match demo data is offline/simulation fallback only.
   List<Fixture> _pickFixtures(List<Fixture> fromApi) {
     if (fromApi.isNotEmpty) return fromApi;
-    return localFixtures();
+    return _config?.mode == 'simulation' ? localFixtures() : const [];
   }
 
   /// Home Live / Soon / Next / pulse: API feed whenever we have it.
@@ -175,9 +182,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_apiFixtures.isNotEmpty) return _apiFixtures;
     return _fixtures;
   }
-
-  /// Pulse uses the same source as Matchday strips so progress matches reality.
-  List<Fixture> get _pulseFixtures => _stripFixtures;
 
   /// Matches that are genuinely live right now. In live mode that's the real
   /// feed; in replay mode the on-device schedule.
@@ -202,9 +206,13 @@ class _HomeScreenState extends State<HomeScreen> {
           _apiFixtures = f;
           _fixtures = _pickFixtures(f);
         });
+        _syncShellBadges();
       }
     } catch (_) {
-      if (mounted) setState(() => _fixturesOffline = true);
+      if (mounted) {
+        setState(() => _fixturesOffline = true);
+        _syncShellBadges();
+      }
     }
   }
 
@@ -254,6 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _inventorySkills = inventory.skills;
         _showcasePlayers = showcase.take(3).toList();
       });
+      _syncShellBadges();
     } catch (_) {}
   }
 
@@ -270,7 +279,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_config?.mode != 'live') _fixtures = localFixtures();
     }
     await Future.wait([_loadRooms(), _loadFanStats()]);
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      _syncShellBadges();
+    }
   }
 
   Future<void> _loadRooms() async {
@@ -350,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               action: SnackBarAction(
                 label: 'Album',
-                onPressed: () => setState(() => _nav = 'cards'),
+                onPressed: () => _select(AppDestination.cards),
               ),
             ),
           );
@@ -362,6 +374,50 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     _openReplayRoom(f);
+  }
+
+  Fixture? get _showcaseFixture {
+    for (final fixture in _apiFixtures) {
+      if (fixture.id == '18222446') return fixture;
+    }
+    return null;
+  }
+
+  Future<void> _startShowcaseReplay() async {
+    final fixture = _showcaseFixture;
+    if (fixture == null) {
+      await _refresh();
+      if (!mounted || _showcaseFixture != null) {
+        if (_showcaseFixture != null) await _startShowcaseReplay();
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Verified replay feed unavailable — please retry.'),
+        ),
+      );
+      return;
+    }
+    setState(() => _connectingFixture = fixture.id);
+    try {
+      final identity = await IdentityStore.getOrCreate();
+      final result = await _api.startShowcase(
+        fixture.id,
+        _name.isEmpty ? 'Fan' : _name,
+        walletPubkey: identity.pubkey,
+        actionId: 'showcase:${fixture.id}:${identity.pubkey}',
+      );
+      await LocalStore.setMemberId(result.roomId, result.memberId);
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        fwrRoute(RoomScreen(roomId: result.roomId)),
+      );
+    } catch (_) {
+      if (mounted) _showLiveUnavailableSheet(fixture);
+    } finally {
+      if (mounted) setState(() => _connectingFixture = null);
+    }
   }
 
   /// Live builds never silently substitute simulated coverage.
@@ -442,7 +498,34 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     PushService.instance.pendingDuelId.removeListener(_openPendingDuel);
     _profileMotion.dispose();
+    _shell.dispose();
     super.dispose();
+  }
+
+  void _select(AppDestination destination) {
+    _shell.select(destination);
+    if (destination == AppDestination.profile) _loadFanStats();
+  }
+
+  void _syncShellBadges() {
+    _shell.updateBadges(
+      liveMatches: _liveNow.length,
+      unopenedPacks: _unopenedPacks,
+      connected: !_fixturesOffline,
+    );
+  }
+
+  void _acceptInventory(FanInventory inventory) {
+    if (!mounted) return;
+    final unopened = inventory.packs.where((pack) => !pack.opened).length;
+    setState(() {
+      _inventoryPlayers = inventory.players;
+      _inventoryMoments = inventory.moments;
+      _inventorySkills = inventory.skills;
+      _playerCardCount = inventory.players.length;
+      _unopenedPacks = unopened;
+    });
+    _syncShellBadges();
   }
 
   Future<void> _connect() async {
@@ -505,47 +588,203 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark.copyWith(
+      value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: Colors.transparent,
       ),
-      child: Scaffold(
-        body: Column(
-          children: [
-            FwrHeader(
-              trailing: GestureDetector(
-                onTap: () => setState(() => _nav = 'you'),
-                child: InitialAvatar(
-                  name: _name.isEmpty ? 'You' : _name,
-                  size: 38,
+      child: AppExperienceShell(
+        controller: _shell,
+        destinations: {
+          AppDestination.home: _destination(
+            header: _homeTopBar(),
+            child: _roomsTab(),
+          ),
+          AppDestination.fixtures: _destination(
+            header: _sectionTopBar(
+              'FIXTURES',
+              '104 verified World Cup matches',
+              trailing: IconButton(
+                tooltip: 'Tournament leaders',
+                onPressed: () =>
+                    Navigator.push(context, fwrRoute(const LeadersScreen())),
+                icon: const Icon(
+                  Icons.emoji_events_outlined,
+                  color: StadiumColors.text,
                 ),
               ),
             ),
-            Expanded(child: _body()),
-          ],
-        ),
-        bottomNavigationBar: BottomNav(
-          active: _nav,
-          onSelect: (k) {
-            setState(() => _nav = k);
-            if (k == 'you') _loadFanStats(); // counters move while watching
-          },
-        ),
+            child: _fixturesTab(),
+          ),
+          AppDestination.cards: SafeArea(
+            bottom: false,
+            child: AlbumScreen(
+              onInventoryChanged: _acceptInventory,
+              onOpenArena: () => _select(AppDestination.arena),
+              onFcChanged: (credits) {
+                if (!mounted || credits == _fcCredits) return;
+                setState(() => _fcCredits = credits);
+              },
+            ),
+          ),
+          AppDestination.arena: SafeArea(
+            bottom: false,
+            child: ArenaLandingScreen(
+              players: _inventoryPlayers,
+              moments: _inventoryMoments,
+              skills: _inventorySkills,
+              onOpenCards: () => _select(AppDestination.cards),
+              onStartMode: (mode) => _openDuel(initialSetupMode: mode),
+            ),
+          ),
+          AppDestination.profile: _destination(
+            header: _sectionTopBar(
+              'PROFILE',
+              'Your fan identity and showcase',
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    onPressed: _shareProfile,
+                    tooltip: 'Share showcase',
+                    icon: const Icon(
+                      Icons.ios_share_rounded,
+                      color: StadiumColors.text,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _openSettings,
+                    tooltip: 'Settings',
+                    icon: const Icon(
+                      Icons.settings_outlined,
+                      color: StadiumColors.text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            child: _youTab(),
+          ),
+        },
       ),
     );
   }
 
-  Widget _body() {
-    switch (_nav) {
-      case 'fixtures':
-        return _fixturesTab();
-      case 'inbox':
-      case 'cards':
-        return const AlbumScreen();
-      case 'you':
-        return _youTab();
-      default:
-        return _roomsTab();
-    }
+  Widget _destination({required Widget header, required Widget child}) =>
+      SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            header,
+            Expanded(child: child),
+          ],
+        ),
+      );
+
+  Widget _homeTopBar() => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 10, 12, 8),
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _name.isEmpty ? 'MATCH NIGHT' : 'HEY, ${_name.toUpperCase()}',
+                style: display(23, color: StadiumColors.text),
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  if (_liveNow.isNotEmpty) ...[
+                    const LiveDot(color: StadiumColors.live),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    _liveNow.isNotEmpty
+                        ? '${_liveNow.length} LIVE · YOUR NIGHT IS ON'
+                        : 'WORLD CUP · VERIFIED LIVE DATA',
+                    style: label(
+                      color: _liveNow.isNotEmpty
+                          ? StadiumColors.live
+                          : StadiumColors.muted,
+                      size: 8.5,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        _fcPill(),
+        const SizedBox(width: 5),
+        IconButton(
+          tooltip: 'Notifications',
+          onPressed: _openNotifications,
+          icon: const Icon(
+            Icons.notifications_none_rounded,
+            color: StadiumColors.text,
+          ),
+        ),
+        GestureDetector(
+          onTap: () => _select(AppDestination.profile),
+          child: InitialAvatar(name: _name.isEmpty ? 'You' : _name, size: 38),
+        ),
+      ],
+    ),
+  );
+
+  Widget _sectionTopBar(String title, String subtitle, {Widget? trailing}) =>
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 10, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: display(24, color: StadiumColors.text)),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: body(color: StadiumColors.muted, size: 11),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
+        ),
+      );
+
+  Widget _fcPill() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+    decoration: BoxDecoration(
+      color: StadiumColors.lime.withValues(alpha: .1),
+      borderRadius: BorderRadius.circular(99),
+      border: Border.all(color: StadiumColors.lime.withValues(alpha: .35)),
+    ),
+    child: Text(
+      '$_fcCredits FC',
+      style: label(color: StadiumColors.lime, size: 9, weight: FontWeight.w900),
+    ),
+  );
+
+  void _openNotifications() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: StadiumColors.canvasRaised,
+      builder: (_) => _NotificationCenter(
+        live: _liveNow,
+        upcoming: _stripFixtures
+            .where((fixture) => fixture.status == 'scheduled')
+            .take(4)
+            .toList(),
+        onFixture: (fixture) {
+          Navigator.pop(context);
+          fixture.status == 'live' ? _watchLive(fixture) : _openMatch(fixture);
+        },
+      ),
+    );
   }
 
   // ---- ROOMS (Matchday home hub) ----
@@ -575,55 +814,55 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
     final shownUpcoming = week.isNotEmpty ? week : upcomingAll.take(4).toList();
     final finished = _finishedReplay.reversed.take(2).toList();
+    final hero =
+        liveFixtures.firstOrNull ??
+        upcomingAll.firstOrNull ??
+        finished.firstOrNull;
 
     return RefreshIndicator(
       onRefresh: _refresh,
-      color: AppColors.orange,
+      color: StadiumColors.orange,
       child: ListView(
+        key: const PageStorageKey('home-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          _homeStatusRow(),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              const LiveDot(),
-              const SizedBox(width: 6),
-              Text(
-                liveFixtures.isEmpty
-                    ? 'LIVE NOW'
-                    : 'LIVE NOW · ${liveFixtures.length} ${liveFixtures.length == 1 ? "match" : "matches"}',
-                style: label(
-                  color: AppColors.ink,
-                  size: 12.5,
-                  weight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
           if (_loading)
-            _skeleton()
-          else if (liveFixtures.isEmpty)
-            _noLiveCard(upcomingAll.isNotEmpty ? upcomingAll.first : null)
+            _stadiumSkeleton(height: 236)
+          else if (hero == null)
+            _emptyMatchNight()
           else
-            ...liveFixtures.map(
-              (f) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _liveMatchCard(f),
+            _matchNightHero(hero),
+          const SizedBox(height: 12),
+          _nextMoveCard(),
+          const SizedBox(height: 12),
+          ShowcaseReplayRecommendation(
+            available: _showcaseFixture != null,
+            loading: _connectingFixture == '18222446',
+            onStart: _startShowcaseReplay,
+          ),
+          const SizedBox(height: 12),
+          _favoriteTeamRail(),
+          if (liveFixtures.length > 1) ...[
+            const SizedBox(height: 22),
+            _stadiumSectionLabel(
+              'More live now',
+              trailing: Text(
+                '${liveFixtures.length - 1} more',
+                style: label(color: StadiumColors.live, size: 9),
               ),
             ),
-          const SizedBox(height: 16),
-          _homePlayStrip(),
+            ...liveFixtures.skip(1).map(_fixtureRow),
+          ],
           const SizedBox(height: 22),
-          SectionLabel(
+          _stadiumSectionLabel(
             week.isNotEmpty ? 'Upcoming' : 'Next up',
             trailing: upcomingAll.length > shownUpcoming.length
                 ? GestureDetector(
-                    onTap: () => setState(() => _nav = 'fixtures'),
+                    onTap: () => _select(AppDestination.fixtures),
                     child: Text(
                       'See all ${upcomingAll.length} →',
                       style: label(
-                        color: AppColors.orange,
+                        color: StadiumColors.orange,
                         size: 11,
                         weight: FontWeight.w800,
                       ),
@@ -631,15 +870,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 : Text(
                     '${shownUpcoming.length} matches',
-                    style: label(color: AppColors.mut, size: 10.5),
+                    style: label(color: StadiumColors.muted, size: 10.5),
                   ),
           ),
           if (_loading)
-            ...[0, 1].map((_) => _skeleton())
+            ...[0, 1].map((_) => _stadiumSkeleton(height: 72))
           else if (upcomingAll.isEmpty)
             Text(
               'No upcoming matches in range.',
-              style: body(color: AppColors.mut, size: 13),
+              style: body(color: StadiumColors.muted, size: 13),
             )
           else ...[
             if (week.isEmpty)
@@ -647,27 +886,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
                   'Nothing kicks off in the next 7 days — here\'s what\'s next.',
-                  style: body(color: AppColors.mut, size: 12),
+                  style: body(color: StadiumColors.muted, size: 12),
                 ),
               ),
             ...shownUpcoming.map(_fixtureRow),
           ],
           ..._openRoomsSection(),
-          const SizedBox(height: 18),
-          TournamentPulse(fixtures: _pulseFixtures),
+          const SizedBox(height: 22),
+          _journeyProgress(),
           if (finished.isNotEmpty) ...[
             const SizedBox(height: 22),
-            SectionLabel(
+            _stadiumSectionLabel(
               'Recent results',
               trailing: GestureDetector(
-                onTap: () => setState(() {
-                  _nav = 'fixtures';
-                  _fxSeg = 'results';
-                }),
+                onTap: () {
+                  setState(() => _fxSeg = 'results');
+                  _select(AppDestination.fixtures);
+                },
                 child: Text(
                   'All results →',
                   style: label(
-                    color: AppColors.orange,
+                    color: StadiumColors.orange,
                     size: 11,
                     weight: FontWeight.w800,
                   ),
@@ -678,49 +917,448 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 'Replay finished matches to mint Moments.',
-                style: body(color: AppColors.mut, size: 12),
+                style: body(color: StadiumColors.muted, size: 12),
               ),
             ),
             ...finished.map(_fixtureRow),
           ],
-          const SizedBox(height: 16),
-          Center(
-            child: Text(
-              'Powered by TxLINE · sign-in with Solana · points only, no cash staking',
-              textAlign: TextAlign.center,
-              style: body(color: AppColors.mut, size: 11),
-            ),
-          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
   }
 
-  Widget _homeStatusRow() {
+  Widget _stadiumSectionLabel(String text, {Widget? trailing}) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      children: [
+        Text(
+          text.toUpperCase(),
+          style: label(
+            color: StadiumColors.text,
+            size: 11.5,
+            weight: FontWeight.w900,
+          ),
+        ),
+        const Spacer(),
+        if (trailing != null) trailing,
+      ],
+    ),
+  );
+
+  Widget _stadiumSkeleton({required double height}) => Container(
+    height: height,
+    margin: const EdgeInsets.only(bottom: 10),
+    decoration: stadiumPanel(color: StadiumColors.panel),
+    child: const Center(
+      child: SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: StadiumColors.orange,
+        ),
+      ),
+    ),
+  );
+
+  Widget _emptyMatchNight() => Container(
+    padding: const EdgeInsets.all(22),
+    decoration: stadiumGradientPanel(accent: StadiumColors.orange),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'THE STADIUM IS QUIET',
+          style: display(25, color: StadiumColors.text),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          _fixturesOffline
+              ? 'The verified fixture feed is unavailable. Pull to retry — no simulated matches will replace it.'
+              : 'The next verified World Cup fixture will take over this screen.',
+          style: body(color: StadiumColors.textSoft, size: 12.5),
+        ),
+      ],
+    ),
+  );
+
+  Widget _matchNightHero(Fixture fixture) {
+    final live = fixture.status == 'live';
+    final finished = fixture.status == 'finished';
+    final left = teamColor(fixture.home.code);
+    final right = teamColor(fixture.away.code);
+    final score = fixture.score;
+    final status = live
+        ? (score == null ? 'LIVE' : "${score.minute}' · LIVE")
+        : finished
+        ? 'FULL TIME · VERIFIED'
+        : relativeKickoff(fixture.kickoff).toUpperCase();
+    final action = live
+        ? 'JOIN LIVE'
+        : finished
+        ? 'REPLAY'
+        : 'MATCH PREVIEW';
+    return Hero(
+      tag: 'fixture:${fixture.id}',
+      child: Material(
+        color: Colors.transparent,
+        child: Pressable(
+          haptic: HapticFeedbackType.medium,
+          onTap: () =>
+              live || finished ? _watchLive(fixture) : _openMatch(fixture),
+          child: Container(
+            height: 236,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: (live ? StadiumColors.live : left).withValues(
+                  alpha: .48,
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (live ? StadiumColors.live : left).withValues(
+                    alpha: .12,
+                  ),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          Color.alphaBlend(
+                            left.withValues(alpha: .45),
+                            StadiumColors.canvasRaised,
+                          ),
+                          StadiumColors.panel,
+                          Color.alphaBlend(
+                            right.withValues(alpha: .45),
+                            StadiumColors.canvasRaised,
+                          ),
+                        ],
+                        stops: const [0, .5, 1],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 2,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [left, right]),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          if (live) ...[
+                            const LiveDot(color: StadiumColors.live),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              status,
+                              style: label(
+                                color: live
+                                    ? StadiumColors.live
+                                    : StadiumColors.textSoft,
+                                size: 9,
+                                weight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            fixture.stage.toUpperCase(),
+                            style: label(color: StadiumColors.muted, size: 8),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Expanded(child: _heroTeam(fixture.home)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Column(
+                              children: [
+                                Text(
+                                  score == null
+                                      ? 'VS'
+                                      : '${score.home}  –  ${score.away}',
+                                  style: display(
+                                    score == null ? 29 : 39,
+                                    color: StadiumColors.text,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  live
+                                      ? '${_rooms.where((room) => room.fixture.id == fixture.id).firstOrNull?.memberCount ?? 0} FANS IN'
+                                      : finished
+                                      ? 'PLAY THE VERIFIED REPLAY'
+                                      : kickoffWhen(
+                                          fixture.kickoff,
+                                        ).toUpperCase(),
+                                  style: label(
+                                    color: StadiumColors.muted,
+                                    size: 7.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(child: _heroTeam(fixture.away)),
+                        ],
+                      ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              live
+                                  ? 'Calls · Moments · Crowd'
+                                  : finished
+                                  ? 'Timeline · Calls · Moments'
+                                  : 'Lineups · Team Draft · Reminder',
+                              style: body(
+                                color: StadiumColors.textSoft,
+                                size: 10.5,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              color: live
+                                  ? StadiumColors.live
+                                  : StadiumColors.orange,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  action,
+                                  style: label(
+                                    color: Colors.white,
+                                    size: 9,
+                                    weight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: Colors.white,
+                                  size: 15,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _heroTeam(Team team) => Column(
+    children: [
+      CircleFlag(team: team, size: 54),
+      const SizedBox(height: 8),
+      Text(team.code, style: display(17, color: StadiumColors.text)),
+    ],
+  );
+
+  Widget _nextMoveCard() {
+    late final String eyebrow;
+    late final String title;
+    late final String detail;
+    late final String action;
+    late final Color accent;
+    late final VoidCallback onTap;
+    if (_liveNow.isNotEmpty) {
+      eyebrow = 'LIVE NOW';
+      title = 'MAKE THE NEXT CALL';
+      detail = 'The match is moving. Join before the current question closes.';
+      action = 'Join Hub';
+      accent = StadiumColors.live;
+      onTap = () => _watchLive(_liveNow.first);
+    } else if (_unopenedPacks > 0) {
+      eyebrow = 'REWARD WAITING';
+      title = 'OPEN $_unopenedPacks ${_unopenedPacks == 1 ? "PACK" : "PACKS"}';
+      detail = 'Your next Player Card is sealed inside.';
+      action = 'Open Packs';
+      accent = StadiumColors.lime;
+      onTap = () => _select(AppDestination.cards);
+    } else if (_inventoryMoments.length >= 2) {
+      eyebrow = 'CRAFT READY';
+      title = 'TURN MOMENTS INTO A PLAYER';
+      detail =
+          '${_inventoryMoments.length} Moments are ready in your collection.';
+      action = 'Craft';
+      accent = StadiumColors.violet;
+      onTap = () => _select(AppDestination.cards);
+    } else if (_playerCardCount >= 3) {
+      eyebrow = 'HAND READY';
+      title = 'ENTER THE ARENA';
+      detail = 'Three Player Cards are waiting under the floodlights.';
+      action = 'Play Duel';
+      accent = StadiumColors.orange;
+      onTap = () => _select(AppDestination.arena);
+    } else if (_favTeam.isEmpty) {
+      eyebrow = 'MAKE IT YOURS';
+      title = 'PICK YOUR TEAM';
+      detail = 'Favorite fixtures and team updates will rise to the top.';
+      action = 'Choose';
+      accent = StadiumColors.gold;
+      onTap = _pickFavoriteTeam;
+    } else {
+      eyebrow = 'MATCHDAY READY';
+      title = 'YOUR NEXT FIXTURE IS SET';
+      detail = 'Open Fixtures to see every verified kickoff and result.';
+      action = 'Fixtures';
+      accent = StadiumColors.mint;
+      onTap = () => _select(AppDestination.fixtures);
+    }
     return Pressable(
-      haptic: HapticFeedbackType.selection,
-      onTap: () => Navigator.push(
-        context,
-        fwrRoute(const PassScreen()),
-      ).then((_) => _loadFanStats()),
+      onTap: onTap,
       child: Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.all(15),
+        decoration: stadiumGradientPanel(accent: accent, radius: 18),
         child: Row(
           children: [
-            Expanded(child: _homeStatChip('$_fcCredits', 'FC')),
-            Container(width: 1, height: 28, color: AppColors.line),
-            Expanded(child: _homeStatChip('T$_passTier', 'PASS')),
-            Container(width: 1, height: 28, color: AppColors.line),
+            Container(
+              width: 5,
+              height: 58,
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: _homeStatChip(
-                _streakBest > 0 ? '$_streakBest' : '—',
-                'STREAK',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(eyebrow, style: label(color: accent, size: 8)),
+                  const SizedBox(height: 4),
+                  Text(title, style: display(18, color: StadiumColors.text)),
+                  const SizedBox(height: 4),
+                  Text(
+                    detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: body(color: StadiumColors.muted, size: 10.5),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              children: [
+                Text(
+                  action.toUpperCase(),
+                  style: label(color: accent, size: 8.5),
+                ),
+                const SizedBox(height: 3),
+                Icon(Icons.arrow_forward_rounded, color: accent, size: 19),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _favoriteTeamRail() {
+    final team = _favTeam.isEmpty ? null : _teamByCode(_favTeam);
+    Fixture? next;
+    if (team != null) {
+      next = _stripFixtures
+          .where(
+            (fixture) =>
+                fixture.status == 'scheduled' &&
+                (fixture.home.code == team.code ||
+                    fixture.away.code == team.code),
+          )
+          .firstOrNull;
+    }
+    return Pressable(
+      onTap: _pickFavoriteTeam,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: stadiumPanel(color: StadiumColors.canvasRaised),
+        child: Row(
+          children: [
+            if (team != null)
+              CircleFlag(team: team, size: 38)
+            else
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: StadiumColors.panel,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.favorite_border_rounded,
+                  color: StadiumColors.orange,
+                  size: 19,
+                ),
+              ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    team?.name.toUpperCase() ?? 'PICK YOUR FAVORITE TEAM',
+                    style: label(
+                      color: StadiumColors.text,
+                      size: 9.5,
+                      weight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    next == null
+                        ? 'Personalize your match-night briefing.'
+                        : 'Next · ${next.home.code} v ${next.away.code} · ${relativeKickoff(next.kickoff)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: body(color: StadiumColors.muted, size: 10.5),
+                  ),
+                ],
               ),
             ),
             const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.mut,
+              Icons.tune_rounded,
+              color: StadiumColors.muted,
               size: 18,
             ),
           ],
@@ -729,148 +1367,92 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _homeStatChip(String value, String label_) => Column(
-    children: [
-      Text(value, style: display(16, color: AppColors.orange)),
-      const SizedBox(height: 2),
-      Text(label_, style: label(color: AppColors.mut, size: 8)),
-    ],
-  );
-
-  Widget _homePlayStrip() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SectionLabel('Play'),
-        Row(
-          children: [
-            Expanded(
-              child: _playTile(
-                icon: Icons.inventory_2_outlined,
-                title: 'Packs',
-                subtitle: _unopenedPacks > 0
-                    ? '$_unopenedPacks unopened'
-                    : 'Open album',
-                badge: _unopenedPacks > 0 ? '$_unopenedPacks' : null,
-                onTap: () => setState(() => _nav = 'cards'),
-              ),
+  Widget _journeyProgress() {
+    final stages = [
+      ('WATCH', _matchesWatched > 0, '$_matchesWatched'),
+      ('CALL', _callsMade > 0, '$_callsMade'),
+      ('MOMENT', _inventoryMoments.isNotEmpty, '${_inventoryMoments.length}'),
+      ('PACK', _unopenedPacks > 0, '$_unopenedPacks'),
+      ('DUEL', _playerCardCount >= 3, '$_playerCardCount'),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: stadiumPanel(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'YOUR MATCHDAY JOURNEY',
+            style: label(
+              color: StadiumColors.text,
+              size: 10.5,
+              weight: FontWeight.w900,
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _playTile(
-                icon: Icons.sports_kabaddi_rounded,
-                title: 'Duels',
-                subtitle: _playerCardCount >= 3
-                    ? 'Enter stadium'
-                    : 'Need 3 cards',
-                onTap: _openHomeDuel,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _playTile(
-                icon: Icons.style_outlined,
-                title: 'Album',
-                subtitle: '$_playerCardCount cards',
-                onTap: () => setState(() => _nav = 'cards'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _playTile(
-                icon: Icons.confirmation_number_outlined,
-                title: 'Pass',
-                subtitle: '$_passXp XP',
-                onTap: () => Navigator.push(
-                  context,
-                  fwrRoute(const PassScreen()),
-                ).then((_) => _loadFanStats()),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _playTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    String? badge,
-  }) {
-    return Pressable(
-      haptic: HapticFeedbackType.selection,
-      onTap: onTap,
-      child: Container(
-        decoration: cardBox(),
-        padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
-        child: Column(
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: Icon(icon, color: AppColors.cream, size: 18),
-                ),
-                if (badge != null)
-                  Positioned(
-                    right: -6,
-                    top: -6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.orange,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                      child: Text(
-                        badge,
-                        style: label(
-                          color: Colors.white,
-                          size: 8,
-                          weight: FontWeight.w900,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Watch → Call → Collect → Craft → Duel',
+            style: body(color: StadiumColors.muted, size: 11),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              for (var index = 0; index < stages.length; index++) ...[
+                Expanded(
+                  child: Column(
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 260),
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: stages[index].$2
+                              ? StadiumColors.lime.withValues(alpha: .13)
+                              : StadiumColors.canvasRaised,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: stages[index].$2
+                                ? StadiumColors.lime
+                                : StadiumColors.hairline,
+                          ),
+                        ),
+                        child: Text(
+                          stages[index].$3,
+                          style: display(
+                            12,
+                            color: stages[index].$2
+                                ? StadiumColors.lime
+                                : StadiumColors.muted,
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 6),
+                      Text(
+                        stages[index].$1,
+                        style: label(color: StadiumColors.muted, size: 6.8),
+                      ),
+                    ],
+                  ),
+                ),
+                if (index < stages.length - 1)
+                  Container(
+                    width: 10,
+                    height: 1,
+                    color: StadiumColors.hairline,
                   ),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: label(
-                color: AppColors.ink,
-                size: 10,
-                weight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: body(color: AppColors.mut, size: 10),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  void _openHomeDuel() => _openDuel();
-
-  Future<void> _openDuel({String? resumeDuelId}) async {
+  Future<void> _openDuel({
+    String? resumeDuelId,
+    int initialSetupMode = 2,
+  }) async {
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -880,7 +1462,7 @@ class _HomeScreenState extends State<HomeScreen> {
           moments: _inventoryMoments,
           skills: _inventorySkills,
           resumeDuelId: resumeDuelId,
-          initialSetupMode: 2, // Moment Arena
+          initialSetupMode: initialSetupMode,
         ),
       ),
     );
@@ -894,11 +1476,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (open.isEmpty) return const [];
     return [
       const SizedBox(height: 22),
-      SectionLabel(
+      _stadiumSectionLabel(
         'Official Match Hubs',
         trailing: Text(
           '${open.length} available',
-          style: label(color: AppColors.mut, size: 10.5),
+          style: label(color: StadiumColors.muted, size: 10.5),
         ),
       ),
       ...open.take(6).map(_roomRow),
@@ -916,7 +1498,11 @@ class _HomeScreenState extends State<HomeScreen> {
         haptic: HapticFeedbackType.medium,
         onTap: () => _openRoom(r.id),
         child: Container(
-          decoration: cardBox(),
+          decoration: stadiumPanel(
+            border: live
+                ? StadiumColors.live.withValues(alpha: .36)
+                : StadiumColors.hairline,
+          ),
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
@@ -924,13 +1510,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: AppColors.ink,
+                  color: live
+                      ? StadiumColors.live.withValues(alpha: .13)
+                      : StadiumColors.canvasRaised,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  live ? '⚡' : '🕐',
-                  style: const TextStyle(fontSize: 19),
+                child: Icon(
+                  r.kind == 'official'
+                      ? Icons.stadium_rounded
+                      : Icons.group_rounded,
+                  color: live ? StadiumColors.live : StadiumColors.textSoft,
+                  size: 21,
                 ),
               ),
               const SizedBox(width: 12),
@@ -944,7 +1535,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           : r.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: body(weight: FontWeight.w800, size: 14),
+                      style: body(
+                        color: StadiumColors.text,
+                        weight: FontWeight.w800,
+                        size: 14,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -953,7 +1548,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ' · ${r.memberCount} ${r.memberCount == 1 ? "fan" : "fans"} in',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: body(color: AppColors.mut, size: 11.5),
+                      style: body(color: StadiumColors.muted, size: 11.5),
                     ),
                   ],
                 ),
@@ -962,14 +1557,16 @@ class _HomeScreenState extends State<HomeScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
-                  color: live ? AppColors.orange : AppColors.cardAlt,
+                  color: live ? StadiumColors.live : StadiumColors.canvasRaised,
                   borderRadius: BorderRadius.circular(99),
-                  border: live ? null : Border.all(color: AppColors.line),
+                  border: live
+                      ? null
+                      : Border.all(color: StadiumColors.hairline),
                 ),
                 child: Text(
                   live ? 'LIVE' : 'KO SOON',
                   style: label(
-                    color: live ? Colors.white : AppColors.mut,
+                    color: live ? Colors.white : StadiumColors.muted,
                     size: 9.5,
                   ),
                 ),
@@ -983,6 +1580,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Honest empty state when nothing is in play — never a future match dressed
   /// up as "LIVE".
+  // Kept as a legacy demo renderer until the explicitly labelled demo build is
+  // split from the production Matchday module.
+  // ignore: unused_element
   Widget _noLiveCard(Fixture? next) {
     return Container(
       decoration: cardBox(),
@@ -1006,6 +1606,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// A live match as a rich card — real score, minute, watcher count, Watch CTA.
+  // ignore: unused_element
   Widget _liveMatchCard(Fixture f) {
     RoomSummary? room;
     for (final r in _rooms) {
@@ -1267,28 +1868,40 @@ class _HomeScreenState extends State<HomeScreen> {
     final liveMode = _config?.mode == 'live';
     return RefreshIndicator(
       onRefresh: _refresh,
-      color: AppColors.orange,
+      color: StadiumColors.orange,
       child: ListView(
+        key: const PageStorageKey('fixtures-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           Row(
             children: [
-              Expanded(child: Text('WORLD CUP 2026', style: display(26))),
-              if (liveMode)
-                TextButton.icon(
-                  onPressed: () =>
-                      Navigator.push(context, fwrRoute(const LeadersScreen())),
-                  icon: const Icon(Icons.emoji_events_outlined, size: 18),
-                  label: const Text('Leaders'),
+              const Icon(
+                Icons.verified_rounded,
+                color: StadiumColors.mint,
+                size: 16,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  liveMode
+                      ? '${_fixtures.length} TXLINE FIXTURES · LIVE CATALOG'
+                      : 'EXPLICIT DEMO TOURNAMENT',
+                  style: label(
+                    color: liveMode ? StadiumColors.mint : StadiumColors.amber,
+                    size: 8.5,
+                  ),
                 ),
+              ),
+              TextButton.icon(
+                onPressed: _openFixtureFilters,
+                icon: const Icon(Icons.tune_rounded, size: 17),
+                label: Text(
+                  _favoriteFixturesOnly || _fixtureStage.isNotEmpty
+                      ? 'Filtered'
+                      : 'Filter',
+                ),
+              ),
             ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            liveMode
-                ? '${_fixtures.length} real TxLINE fixtures · completed, live & upcoming.'
-                : 'Demo tournament · replay data.',
-            style: body(color: AppColors.mut, size: 13),
           ),
           if (_fixturesOffline) ...[
             const SizedBox(height: 10),
@@ -1323,6 +1936,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 9),
+          _fixtureDateRail(),
           const SizedBox(height: 12),
           _hubSegments(),
           const SizedBox(height: 14),
@@ -1335,6 +1950,203 @@ class _HomeScreenState extends State<HomeScreen> {
                   _ => _matchesView(),
                 }),
         ],
+      ),
+    );
+  }
+
+  List<Fixture> get _visibleFixtures {
+    return _fixtures.where((fixture) {
+      final kickoff = DateTime.tryParse(fixture.kickoff)?.toLocal();
+      final dateOk =
+          _fixtureDate == null ||
+          (kickoff != null &&
+              kickoff.year == _fixtureDate!.year &&
+              kickoff.month == _fixtureDate!.month &&
+              kickoff.day == _fixtureDate!.day);
+      final stageOk = _fixtureStage.isEmpty || fixture.stage == _fixtureStage;
+      final favoriteOk =
+          !_favoriteFixturesOnly ||
+          (_favTeam.isNotEmpty &&
+              (fixture.home.code == _favTeam || fixture.away.code == _favTeam));
+      return dateOk && stageOk && favoriteOk;
+    }).toList();
+  }
+
+  Widget _fixtureDateRail() {
+    final dates =
+        _fixtures
+            .map((fixture) => DateTime.tryParse(fixture.kickoff)?.toLocal())
+            .whereType<DateTime>()
+            .map((date) => DateTime(date.year, date.month, date.day))
+            .toSet()
+            .toList()
+          ..sort();
+    const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    return SizedBox(
+      height: 58,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: dates.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 7),
+        itemBuilder: (_, index) {
+          final date = index == 0 ? null : dates[index - 1];
+          final selected = date == null
+              ? _fixtureDate == null
+              : _fixtureDate != null &&
+                    date.year == _fixtureDate!.year &&
+                    date.month == _fixtureDate!.month &&
+                    date.day == _fixtureDate!.day;
+          return Pressable(
+            onTap: () => setState(() => _fixtureDate = date),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: date == null ? 78 : 58,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+              decoration: BoxDecoration(
+                color: selected
+                    ? StadiumColors.orange
+                    : StadiumColors.canvasRaised,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: selected
+                      ? StadiumColors.orange
+                      : StadiumColors.hairline,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    date == null ? 'ALL' : weekdays[date.weekday - 1],
+                    style: label(
+                      color: selected ? Colors.white : StadiumColors.muted,
+                      size: 7.5,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    date == null ? 'DATES' : '${date.day}',
+                    style: display(
+                      14,
+                      color: selected ? Colors.white : StadiumColors.text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _openFixtureFilters() {
+    final stages =
+        _fixtures
+            .map((fixture) => fixture.stage)
+            .where((stage) => stage.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: StadiumColors.canvasRaised,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'FILTER FIXTURES',
+                        style: display(22, color: StadiumColors.text),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _fixtureStage = '';
+                          _favoriteFixturesOnly = false;
+                        });
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Clear'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Favorite team only',
+                    style: body(
+                      color: StadiumColors.text,
+                      weight: FontWeight.w800,
+                    ),
+                  ),
+                  subtitle: Text(
+                    _favTeam.isEmpty
+                        ? 'Pick a favorite team from Home first.'
+                        : 'Show fixtures involving $_favTeam.',
+                    style: body(color: StadiumColors.muted, size: 11),
+                  ),
+                  value: _favoriteFixturesOnly,
+                  activeTrackColor: StadiumColors.orange,
+                  onChanged: _favTeam.isEmpty
+                      ? null
+                      : (value) {
+                          setState(() => _favoriteFixturesOnly = value);
+                          setSheetState(() {});
+                        },
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'STAGE',
+                  style: label(color: StadiumColors.muted, size: 9),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    for (final stage in ['', ...stages])
+                      ChoiceChip(
+                        selected: _fixtureStage == stage,
+                        showCheckmark: false,
+                        label: Text(stage.isEmpty ? 'All stages' : stage),
+                        onSelected: (_) {
+                          setState(() => _fixtureStage = stage);
+                          setSheetState(() {});
+                        },
+                        selectedColor: StadiumColors.orange,
+                        backgroundColor: StadiumColors.panel,
+                        side: const BorderSide(color: StadiumColors.hairline),
+                        labelStyle: body(
+                          color: _fixtureStage == stage
+                              ? Colors.white
+                              : StadiumColors.textSoft,
+                          size: 11,
+                          weight: FontWeight.w700,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                PrimaryButton(
+                  'Show ${_visibleFixtures.length} fixtures',
+                  expand: true,
+                  onTap: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1356,9 +2168,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.cardAlt,
+        color: StadiumColors.canvasRaised,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: StadiumColors.hairline),
       ),
       child: Row(
         children: segs.map(((String, String) s) {
@@ -1372,13 +2184,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 9),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: on ? AppColors.ink : Colors.transparent,
+                  color: on ? StadiumColors.orange : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   s.$2.toUpperCase(),
                   style: label(
-                    color: on ? AppColors.cream : AppColors.mut,
+                    color: on ? Colors.white : StadiumColors.muted,
                     size: 9.5,
                     weight: FontWeight.w800,
                   ),
@@ -1392,14 +2204,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Widget> _matchesView({String filter = 'matches'}) {
-    final live = _fixtures.where((f) => f.status == 'live').toList();
-    final up = _fixtures.where((f) => f.status == 'scheduled').toList()
+    final visible = _visibleFixtures;
+    final live = visible.where((f) => f.status == 'live').toList();
+    final up = visible.where((f) => f.status == 'scheduled').toList()
       ..sort(
         (a, b) => minutesUntilKickoff(
           a.kickoff,
         ).compareTo(minutesUntilKickoff(b.kickoff)),
       );
-    final fin = _fixtures
+    final fin = visible
         .where((f) => f.status == 'finished')
         .toList()
         .reversed
@@ -1409,7 +2222,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? [
               Text(
                 'No matches are live right now.',
-                style: body(color: AppColors.mut),
+                style: body(color: StadiumColors.muted),
               ),
             ]
           : [...live.map(_fixtureRow)];
@@ -1419,39 +2232,44 @@ class _HomeScreenState extends State<HomeScreen> {
           ? [
               Text(
                 'No completed matches yet.',
-                style: body(color: AppColors.mut),
+                style: body(color: StadiumColors.muted),
               ),
             ]
           : [...fin.map(_fixtureRow)];
     }
     if (filter == 'upcoming') {
       return up.isEmpty
-          ? [Text('No upcoming fixtures.', style: body(color: AppColors.mut))]
+          ? [
+              Text(
+                'No upcoming fixtures.',
+                style: body(color: StadiumColors.muted),
+              ),
+            ]
           : [...up.map(_fixtureRow)];
     }
     return [
       if (live.isNotEmpty) ...[
-        const SectionLabel('Live'),
+        _stadiumSectionLabel('Live'),
         ...live.map(_fixtureRow),
         const SizedBox(height: 12),
       ],
       if (up.isNotEmpty) ...[
-        SectionLabel(
+        _stadiumSectionLabel(
           'Upcoming',
           trailing: Text(
             '${up.length} matches',
-            style: label(color: AppColors.mut, size: 10),
+            style: label(color: StadiumColors.muted, size: 10),
           ),
         ),
         ...up.map(_fixtureRow),
         const SizedBox(height: 12),
       ],
       if (fin.isNotEmpty) ...[
-        SectionLabel(
+        _stadiumSectionLabel(
           'Results',
           trailing: Text(
             '${fin.length} played',
-            style: label(color: AppColors.mut, size: 10),
+            style: label(color: StadiumColors.muted, size: 10),
           ),
         ),
         ...fin.map(_fixtureRow),
@@ -1853,32 +2671,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ? null
         : (_callsCorrect / _callsMade * 100).round();
     return ListView(
+      key: const PageStorageKey('profile-scroll'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        Row(
-          children: [
-            Text('FAN SHOWCASE', style: display(26)),
-            const Spacer(),
-            IconButton(
-              onPressed: _shareProfile,
-              tooltip: 'Share showcase',
-              icon: const Icon(Icons.ios_share_rounded),
-            ),
-            IconButton(
-              onPressed: _openSettings,
-              tooltip: 'Settings',
-              icon: const Icon(Icons.settings_outlined),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
         // fan hero — who you are + your matchday record
         RepaintBoundary(
           key: _profileShareKey,
           child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.ink,
-              borderRadius: BorderRadius.circular(18),
+            decoration: stadiumGradientPanel(
+              accent: favTeam == null
+                  ? StadiumColors.violet
+                  : teamColor(favTeam.code),
             ),
             padding: const EdgeInsets.all(18),
             child: Column(
@@ -2011,7 +2814,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 9),
                 if (_showcasePlayers.isEmpty)
                   Pressable(
-                    onTap: () => setState(() => _nav = 'cards'),
+                    onTap: () => _select(AppDestination.cards),
                     child: Container(
                       height: 72,
                       alignment: Alignment.center,
@@ -2431,11 +3234,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       );
 
-  Widget _skeleton() => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: Container(height: 70, decoration: cardBox()),
-  );
-
   // Fixtures board (live/final scores from TxLINE)
   String _fxTop(Fixture f) => f.score != null
       ? '${f.score!.home}-${f.score!.away}'
@@ -2454,4 +3252,173 @@ class _HomeScreenState extends State<HomeScreen> {
     if (f.status == 'live') return '${stage}LIVE now · tap for match centre';
     return '${stage}Kicks off ${kickoffWhen(f.kickoff)}';
   }
+}
+
+class _NotificationCenter extends StatelessWidget {
+  final List<Fixture> live;
+  final List<Fixture> upcoming;
+  final ValueChanged<Fixture> onFixture;
+
+  const _NotificationCenter({
+    required this.live,
+    required this.upcoming,
+    required this.onFixture,
+  });
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * .72,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'MATCH ALERTS',
+                        style: display(23, color: StadiumColors.text),
+                      ),
+                      Text(
+                        'Live events, rewards and invites land here.',
+                        style: body(color: StadiumColors.muted, size: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: StadiumColors.text,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                if (live.isNotEmpty) ...[
+                  _heading('LIVE NOW'),
+                  ...live.map(
+                    (fixture) => _item(
+                      fixture,
+                      '${fixture.home.code} v ${fixture.away.code} is live',
+                      fixture.score == null
+                          ? 'Join the Official Match Hub'
+                          : '${fixture.score!.home}–${fixture.score!.away} · ${fixture.score!.minute}\'',
+                      StadiumColors.live,
+                    ),
+                  ),
+                ],
+                if (upcoming.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _heading('KICKING OFF NEXT'),
+                  ...upcoming.map(
+                    (fixture) => _item(
+                      fixture,
+                      '${fixture.home.code} v ${fixture.away.code}',
+                      '${kickoffWhen(fixture.kickoff)} · ${relativeKickoff(fixture.kickoff)}',
+                      StadiumColors.orange,
+                    ),
+                  ),
+                ],
+                if (live.isEmpty && upcoming.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: stadiumPanel(),
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.notifications_none_rounded,
+                          color: StadiumColors.muted,
+                          size: 32,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'YOU\'RE CAUGHT UP',
+                          style: display(18, color: StadiumColors.text),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          'Verified match alerts and earned rewards will appear here.',
+                          textAlign: TextAlign.center,
+                          style: body(color: StadiumColors.muted, size: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _heading(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      text,
+      style: label(
+        color: StadiumColors.textSoft,
+        size: 10,
+        weight: FontWeight.w900,
+      ),
+    ),
+  );
+
+  Widget _item(Fixture fixture, String title, String detail, Color accent) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Pressable(
+          onTap: () => onFixture(fixture),
+          child: Container(
+            padding: const EdgeInsets.all(13),
+            decoration: stadiumPanel(border: accent.withValues(alpha: .28)),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: body(
+                          color: StadiumColors.text,
+                          weight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        detail,
+                        style: body(color: StadiumColors.muted, size: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: StadiumColors.muted,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }

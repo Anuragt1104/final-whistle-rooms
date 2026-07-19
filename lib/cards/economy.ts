@@ -43,6 +43,7 @@ type EconomyStore = {
   cardIndex: Map<string, Card>;
   /** Fixture/room-scoped Moment leaf strings for Merkle. */
   momentLeaves: Map<string, string[]>;
+  craftActions: Map<string, PlayerCard>;
 };
 
 // Next compiles route handlers into separate module graphs. Keep the hackathon
@@ -55,8 +56,10 @@ const economy =
     momentIndex: new Map(),
     cardIndex: new Map(),
     momentLeaves: new Map(),
+    craftActions: new Map(),
   });
-const { inventories, momentIndex, cardIndex, momentLeaves } = economy;
+economy.craftActions ??= new Map();
+const { inventories, momentIndex, cardIndex, momentLeaves, craftActions } = economy;
 
 function emptyInv(fanId: string): FanInventory {
   return { fanId, moments: [], players: [], skills: [], packs: [], packWeightBonus: 0 };
@@ -382,11 +385,64 @@ export function openPack(fanId: string, packId: string, rand: () => number = Mat
 }
 
 /** Craft a Player Card by burning Moments (need 3 of same rarity, or 2×5★). */
+export interface CraftOptions {
+  primaryMomentId?: string;
+  actionId?: string;
+  rand?: () => number;
+}
+
+function normalizedPlayerName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function stableIndex(value: string, length: number): number {
+  let hash = 2166136261;
+  for (const char of value) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return length ? (hash >>> 0) % length : 0;
+}
+
+function rosterForPrimaryMoment(primary: Moment, rand: () => number) {
+  const exactId = primary.playerId
+    ? ROSTER.find((player) => player.id === primary.playerId)
+    : undefined;
+  if (exactId) return exactId;
+  const wantedName = normalizedPlayerName(primary.playerName ?? "");
+  const exactName = wantedName
+    ? ROSTER.find((player) => normalizedPlayerName(player.name) === wantedName)
+    : undefined;
+  if (exactName) return exactName;
+  const sameTeam = primary.teamCode
+    ? ROSTER.filter((player) => player.teamCode === primary.teamCode)
+    : [];
+  if (sameTeam.length) {
+    const seed = primary.sourceEventId ?? primary.id;
+    return sameTeam[stableIndex(seed, sameTeam.length)];
+  }
+  return pickRosterWeighted(rand);
+}
+
 export function craft(
   fanId: string,
   momentIds: string[],
-  rand: () => number = Math.random,
+  randOrOptions: (() => number) | CraftOptions = Math.random,
 ): PlayerCard | { error: string } {
+  const options: CraftOptions = typeof randOrOptions === "function"
+    ? { rand: randOrOptions }
+    : randOrOptions;
+  const rand = options.rand ?? Math.random;
+  const actionKey = options.actionId ? `${fanId}:${options.actionId}` : undefined;
+  if (actionKey) {
+    const prior = craftActions.get(actionKey);
+    if (prior) return prior;
+  }
   const inv = inventoryOf(fanId);
   if (momentIds.length < 2) return { error: "Need at least 2 Moments" };
 
@@ -406,8 +462,12 @@ export function craft(
     /* ok — burn mixed; use min rarity for imprint seed */
   }
 
-  // Capture immutable provenance before the source records are burned.
-  const parent = [...moments].sort((a, b) => b.rarity - a.rarity)[0];
+  // The fan explicitly chooses the lineage source. Legacy clients retain the
+  // previous highest-rarity behavior until they send primaryMomentId.
+  const parent = options.primaryMomentId
+    ? moments.find((moment) => moment.id === options.primaryMomentId)
+    : [...moments].sort((a, b) => b.rarity - a.rarity)[0];
+  if (!parent) return { error: "primaryMomentId must be included in momentIds" };
   const lineage = lineageSnapshot(parent);
 
   // burn
@@ -418,9 +478,11 @@ export function craft(
   }
 
   const seedKind = parent.kind;
-  const roster = pickRosterWeighted(rand);
+  const roster = options.primaryMomentId
+    ? rosterForPrimaryMoment(parent, rand)
+    : pickRosterWeighted(rand);
   const axes = applyLineageImprint({ ...roster.axes }, seedKind);
-  const leafData = `craft:${roster.id}:${momentIds.join("+")}:${fanId}`;
+  const leafData = `craft:${roster.id}:${parent.id}:${momentIds.join("+")}:${fanId}`;
 
   const player: PlayerCard = {
     id: uid("plr"),
@@ -441,6 +503,7 @@ export function craft(
 
   inv.players.push(player);
   cardIndex.set(player.id, player);
+  if (actionKey) craftActions.set(actionKey, player);
   return player;
 }
 
@@ -669,4 +732,5 @@ export function __resetCardEconomyForTests() {
   momentIndex.clear();
   cardIndex.clear();
   momentLeaves.clear();
+  craftActions.clear();
 }

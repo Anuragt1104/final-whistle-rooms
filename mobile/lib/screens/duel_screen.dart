@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../api/api_client.dart';
 import '../api/cards.dart';
 import '../duel/duel_controller.dart';
 import '../duel/duel_models.dart';
@@ -17,6 +18,7 @@ class DuelScreen extends StatefulWidget {
   final List<MomentCard> moments;
   final List<SkillCardModel> skills;
   final String? resumeDuelId;
+
   /// 0 House · 1 Friend · 2 Moment Arena
   final int initialSetupMode;
 
@@ -43,6 +45,9 @@ class _DuelScreenState extends State<DuelScreen> {
   final TextEditingController _code = TextEditingController();
   late int _setupMode; // House, Friend, Moment Arena
   bool _showJoin = false;
+
+  bool get _showDemoControls =>
+      ApiClient.instance.cachedConfig?.mode == 'simulation';
 
   @override
   void initState() {
@@ -100,18 +105,22 @@ class _DuelScreenState extends State<DuelScreen> {
             children: [
               if (_controller.players.length < 3) ...[
                 _messageCard(
-                  'Need 3 Player Cards to duel. Load a demo set to test Arena now.',
+                  _showDemoControls
+                      ? 'Need 3 Player Cards to duel. Load the explicit demo set.'
+                      : 'Need 3 Player Cards to duel. Earn Moments, open Packs, then return with a complete Hand.',
                 ),
-                const SizedBox(height: 10),
-                PrimaryButton(
-                  'Load demo cards',
-                  icon: Icons.auto_awesome_rounded,
-                  expand: true,
-                  busy: _controller.seeding,
-                  onTap: _controller.loadDemoCards,
-                ),
+                if (_showDemoControls) ...[
+                  const SizedBox(height: 10),
+                  PrimaryButton(
+                    'Load explicit demo cards',
+                    icon: Icons.auto_awesome_rounded,
+                    expand: true,
+                    busy: _controller.seeding,
+                    onTap: _controller.loadDemoCards,
+                  ),
+                ],
                 const SizedBox(height: 18),
-              ] else ...[
+              ] else if (_showDemoControls) ...[
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -119,7 +128,9 @@ class _DuelScreenState extends State<DuelScreen> {
                         ? null
                         : _controller.loadDemoCards,
                     child: Text(
-                      _controller.seeding ? 'Loading…' : 'Reload demo cards',
+                      _controller.seeding
+                          ? 'Loading…'
+                          : 'Reload explicit demo cards',
                       style: label(color: AppColors.orangeBright, size: 10),
                     ),
                   ),
@@ -131,7 +142,11 @@ class _DuelScreenState extends State<DuelScreen> {
               ),
               const SizedBox(height: 9),
               if (_controller.players.isEmpty)
-                _messageCard('No Player Cards yet — tap Load demo cards.')
+                _messageCard(
+                  _showDemoControls
+                      ? 'No Player Cards yet — load the explicit demo set.'
+                      : 'No Player Cards yet — open a Pack from Cards.',
+                )
               else
                 GridView.builder(
                   shrinkWrap: true,
@@ -162,19 +177,13 @@ class _DuelScreenState extends State<DuelScreen> {
                           selected: _controller.selectedSkills.contains(
                             skill.id,
                           ),
-                          onSelected: (_) =>
-                              _controller.toggleSkill(skill.id),
+                          onSelected: (_) => _controller.toggleSkill(skill.id),
                           label: Text(skill.name),
                           selectedColor: AppColors.orange,
                           backgroundColor: const Color(0xFF10251C),
                           checkmarkColor: Colors.white,
-                          labelStyle: label(
-                            color: Colors.white,
-                            size: 9,
-                          ),
-                          side: const BorderSide(
-                            color: Color(0xFF315C48),
-                          ),
+                          labelStyle: label(color: Colors.white, size: 9),
+                          side: const BorderSide(color: Color(0xFF315C48)),
                         ),
                       )
                       .toList(),
@@ -189,7 +198,9 @@ class _DuelScreenState extends State<DuelScreen> {
                 const SizedBox(height: 8),
                 if (_controller.moments.isEmpty)
                   _messageCard(
-                    'Load demo cards (or earn a Moment live) to charge Arena.',
+                    _showDemoControls
+                        ? 'Load explicit demo cards or earn a live Moment to charge Arena.'
+                        : 'Earn a verified Moment in a Match Hub to charge Arena.',
                   )
                 else
                   ..._controller.moments.map(_momentChoice),
@@ -217,17 +228,12 @@ class _DuelScreenState extends State<DuelScreen> {
                     decoration: InputDecoration(
                       counterText: '',
                       hintText: '6-CHARACTER CODE',
-                      hintStyle: label(
-                        color: AppColors.mutInk,
-                        size: 10,
-                      ),
+                      hintStyle: label(color: AppColors.mutInk, size: 10),
                       filled: true,
                       fillColor: const Color(0xFF10251C),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: Color(0xFF315C48),
-                        ),
+                        borderSide: const BorderSide(color: Color(0xFF315C48)),
                       ),
                     ),
                   ),
@@ -289,18 +295,11 @@ class _DuelScreenState extends State<DuelScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected
-                ? AppColors.orangeBright
-                : Colors.transparent,
+            color: selected ? AppColors.orangeBright : Colors.transparent,
             width: 3,
           ),
           boxShadow: selected
-              ? const [
-                  BoxShadow(
-                    color: Color(0x55F05223),
-                    blurRadius: 14,
-                  ),
-                ]
+              ? const [BoxShadow(color: Color(0x55F05223), blurRadius: 14)]
               : null,
         ),
         clipBehavior: Clip.antiAlias,
@@ -385,12 +384,8 @@ class _DuelScreenState extends State<DuelScreen> {
                 ),
               ),
               Icon(
-                selected
-                    ? Icons.check_circle_rounded
-                    : Icons.circle_outlined,
-                color: selected
-                    ? AppColors.orangeBright
-                    : AppColors.mutInk,
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                color: selected ? AppColors.orangeBright : AppColors.mutInk,
               ),
             ],
           ),
@@ -410,7 +405,11 @@ class _DuelScreenState extends State<DuelScreen> {
         Expanded(
           child: Text(
             title,
-            style: label(color: AppColors.cream, size: 12, weight: FontWeight.w900),
+            style: label(
+              color: AppColors.cream,
+              size: 12,
+              weight: FontWeight.w900,
+            ),
           ),
         ),
       ],
@@ -433,7 +432,9 @@ class _DuelScreenState extends State<DuelScreen> {
             color: selected ? AppColors.orange : const Color(0xFF10251C),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? AppColors.orangeBright : const Color(0xFF315C48),
+              color: selected
+                  ? AppColors.orangeBright
+                  : const Color(0xFF315C48),
             ),
           ),
           child: Column(
@@ -442,7 +443,11 @@ class _DuelScreenState extends State<DuelScreen> {
               const SizedBox(height: 4),
               Text(
                 labelText,
-                style: label(color: Colors.white, size: 9, weight: FontWeight.w900),
+                style: label(
+                  color: Colors.white,
+                  size: 9,
+                  weight: FontWeight.w900,
+                ),
               ),
             ],
           ),
@@ -456,7 +461,11 @@ class _DuelScreenState extends State<DuelScreen> {
       Expanded(
         child: Text(
           title,
-          style: label(color: AppColors.cream, size: 11, weight: FontWeight.w900),
+          style: label(
+            color: AppColors.cream,
+            size: 11,
+            weight: FontWeight.w900,
+          ),
         ),
       ),
       Text(detail, style: body(color: AppColors.mutInk, size: 11)),
@@ -513,20 +522,29 @@ class _DuelScreenState extends State<DuelScreen> {
         const SizedBox(width: 8),
         Text('VS', style: label(color: AppColors.mutInk, size: 10)),
         const SizedBox(width: 8),
-        _crown(duel.opponentScore, duel.opponent == DuelOpponent.house ? 'HOUSE' : 'FOE'),
+        _crown(
+          duel.opponentScore,
+          duel.opponent == DuelOpponent.house ? 'HOUSE' : 'FOE',
+        ),
         const Spacer(),
         if (duel.attackerId == duel.fanId)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Text(
               'ATTACKER',
-              style: label(color: AppColors.orangeBright, size: 9, weight: FontWeight.w900),
+              style: label(
+                color: AppColors.orangeBright,
+                size: 9,
+                weight: FontWeight.w900,
+              ),
             ),
           ),
         Icon(
           _controller.connected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
           size: 16,
-          color: _controller.connected ? const Color(0xFF4ED58A) : AppColors.mutInk,
+          color: _controller.connected
+              ? const Color(0xFF4ED58A)
+              : AppColors.mutInk,
         ),
         const SizedBox(width: 8),
         DuelTurnClock(deadline: duel.deadlineAt),
@@ -543,7 +561,11 @@ class _DuelScreenState extends State<DuelScreen> {
     ),
     child: Row(
       children: [
-        const Icon(Icons.workspace_premium_rounded, size: 13, color: AppColors.orangeBright),
+        const Icon(
+          Icons.workspace_premium_rounded,
+          size: 13,
+          color: AppColors.orangeBright,
+        ),
         const SizedBox(width: 4),
         Text(
           '$who $score',
@@ -577,7 +599,8 @@ class _DuelScreenState extends State<DuelScreen> {
     }
 
     final presentation = _controller.presentation;
-    final visible = presentation.visibleRound ??
+    final visible =
+        presentation.visibleRound ??
         (presentation.busy ? null : duel.latestRound);
     final showOpp = presentation.busy
         ? presentation.showOpponentCard
@@ -597,11 +620,18 @@ class _DuelScreenState extends State<DuelScreen> {
             child: Align(
               alignment: Alignment.topCenter,
               child: _combatCard(
-                title: duel.opponent == DuelOpponent.house ? 'HOUSE' : 'OPPONENT',
+                title: duel.opponent == DuelOpponent.house
+                    ? 'HOUSE'
+                    : 'OPPONENT',
                 card: showOpp ? visible?.opponentCard : null,
                 score: showScores ? visible?.opponentScore : null,
-                modifiers: showMods ? visible?.opponentModifiers ?? const [] : const [],
-                locked: !showOpp && (duel.opponentSubmitted || duel.opponent == DuelOpponent.house),
+                modifiers: showMods
+                    ? visible?.opponentModifiers ?? const []
+                    : const [],
+                locked:
+                    !showOpp &&
+                    (duel.opponentSubmitted ||
+                        duel.opponent == DuelOpponent.house),
                 faceDown: !showOpp,
               ),
             ),
@@ -609,7 +639,11 @@ class _DuelScreenState extends State<DuelScreen> {
           if (visible != null && showScores) ...[
             Text(
               visible.axis.toUpperCase(),
-              style: label(color: AppColors.cream, size: 11, weight: FontWeight.w900),
+              style: label(
+                color: AppColors.cream,
+                size: 11,
+                weight: FontWeight.w900,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
@@ -641,12 +675,15 @@ class _DuelScreenState extends State<DuelScreen> {
               alignment: Alignment.bottomCenter,
               child: _combatCard(
                 title: 'YOU',
-                card: visible?.yourCard ??
+                card:
+                    visible?.yourCard ??
                     (duel.yourHand
-                            .where((c) => c.id == _controller.selectedCardId)
-                            .firstOrNull),
+                        .where((c) => c.id == _controller.selectedCardId)
+                        .firstOrNull),
                 score: showScores ? visible?.yourScore : null,
-                modifiers: showMods ? visible?.yourModifiers ?? const [] : const [],
+                modifiers: showMods
+                    ? visible?.yourModifiers ?? const []
+                    : const [],
                 locked: false,
                 faceDown: false,
                 prominent: true,
@@ -968,7 +1005,11 @@ class _DuelScreenState extends State<DuelScreen> {
                   'Share',
                   expand: true,
                   onTap: () => Share.share(
-                    'Final Whistle ${duel.mode.name} duel ${draw ? 'drew' : won ? 'won' : 'lost'} ${duel.yourScore}-${duel.opponentScore}',
+                    'Final Whistle ${duel.mode.name} duel ${draw
+                        ? 'drew'
+                        : won
+                        ? 'won'
+                        : 'lost'} ${duel.yourScore}-${duel.opponentScore}',
                   ),
                 ),
               ),
@@ -985,7 +1026,7 @@ class _DuelScreenState extends State<DuelScreen> {
           ),
           const SizedBox(height: 8),
           GhostButton(
-            'Back to Album',
+            'Back to Arena',
             expand: true,
             onTap: () => Navigator.of(context).pop(),
           ),

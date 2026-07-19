@@ -157,6 +157,51 @@ test("craft burns Moments into a Player Card", () => {
   assert.equal(inventoryOf("fan1").moments.length, ids.length - 3);
 });
 
+test("craft is retry-safe and follows the selected verified primary Moment", () => {
+  __resetCardEconomyForTests();
+  const moments = [
+    { minute: 9, playerId: "tx-mac", playerName: "Alexis Mac Allister", kind: "goal" },
+    { minute: 71, playerId: "tx-embolo", playerName: "Breel Embolo", kind: "red" },
+    { minute: 111, playerId: "tx-alvarez", playerName: "Julián Álvarez", kind: "goal" },
+  ].map((event, index) => mintFromEvent({
+    fanId: "showcase-fan",
+    fixtureId: "18222446",
+    matchLabel: "ARG vs SUI",
+    event: {
+      ...event,
+      side: event.minute === 71 ? "away" : "home",
+      teamCode: event.minute === 71 ? "SUI" : "ARG",
+      seq: 100 + index,
+      label: event.playerName,
+      sourceEventId: `tx:18222446:${100 + index}`,
+    },
+    oddsSandwich: sandwich,
+    priorHomeProb: 0.55,
+  }));
+  assert.ok(moments.every(Boolean));
+  const ids = moments.map((moment) => moment.id);
+  const primary = moments[2];
+
+  const crafted = craft("showcase-fan", ids, {
+    primaryMomentId: primary.id,
+    actionId: "craft-alvarez-1",
+  });
+  assert.ok(!("error" in crafted));
+  assert.equal(crafted.playerId, "alvarez");
+  assert.equal(crafted.name, "Julián Álvarez");
+  assert.equal(crafted.lineage?.parentMomentId, primary.id);
+  assert.equal(crafted.lineage?.sourceEventId, "tx:18222446:102");
+
+  const retry = craft("showcase-fan", ids, {
+    primaryMomentId: primary.id,
+    actionId: "craft-alvarez-1",
+  });
+  assert.ok(!("error" in retry));
+  assert.equal(retry.id, crafted.id);
+  assert.equal(inventoryOf("showcase-fan").players.length, 1);
+  assert.equal(inventoryOf("showcase-fan").moments.length, 0);
+});
+
 test("Trump Duel vs bot completes best of 3", () => {
   __resetCardEconomyForTests();
   __resetDuelsForTests();

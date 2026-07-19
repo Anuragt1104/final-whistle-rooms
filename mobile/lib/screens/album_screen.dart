@@ -12,7 +12,16 @@ import 'card_detail_screen.dart';
 
 /// Album — Moments / Packs / Players. Duels open from Home → Play.
 class AlbumScreen extends StatefulWidget {
-  const AlbumScreen({super.key});
+  final ValueChanged<FanInventory>? onInventoryChanged;
+  final ValueChanged<int>? onFcChanged;
+  final VoidCallback? onOpenArena;
+
+  const AlbumScreen({
+    super.key,
+    this.onInventoryChanged,
+    this.onFcChanged,
+    this.onOpenArena,
+  });
   @override
   State<AlbumScreen> createState() => _AlbumScreenState();
 }
@@ -95,6 +104,8 @@ class _AlbumScreenState extends State<AlbumScreen>
         _err = null;
         _loading = false;
       });
+      widget.onInventoryChanged?.call(_inv!);
+      widget.onFcChanged?.call(_fc);
     } catch (e) {
       if (!mounted) return;
       // Soft-fail: keep tabs usable with empty inventory + retry, not a raw stack.
@@ -166,13 +177,28 @@ class _AlbumScreenState extends State<AlbumScreen>
     if (_craftSel.length < 2) return;
     try {
       final fanId = await _fanId();
-      await _api.craft(fanId, _craftSel.toList());
+      final ids = _craftSel.toList();
+      final primaryMomentId = ids.first;
+      final raw = await _api.craft(
+        fanId,
+        ids,
+        primaryMomentId: primaryMomentId,
+        actionId: 'craft:$primaryMomentId:${ids.join('-')}',
+      );
+      final crafted = PlayerCardModel.fromJson(raw);
       _craftSel.clear();
       await _load();
       if (mounted) {
-        ScaffoldMessenger.of(
+        await Navigator.push(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Crafted a Player Card')));
+          fwrRoute(
+            CardDetailScreen.player(
+              crafted,
+              primaryLabel: 'Equip in Arena',
+              onPrimary: widget.onOpenArena,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted)
@@ -461,19 +487,38 @@ class _AlbumScreenState extends State<AlbumScreen>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 8),
           child: Row(
             children: [
-              Text('ALBUM', style: display(22)),
-              const Spacer(),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CARDS',
+                      style: display(24, color: StadiumColors.text),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Moments become Players. Players enter the Arena.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: body(color: StadiumColors.muted, size: 10.5),
+                    ),
+                  ],
+                ),
+              ),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.ink,
+                  color: StadiumColors.lime.withValues(alpha: .1),
                   borderRadius: BorderRadius.circular(99),
+                  border: Border.all(
+                    color: StadiumColors.lime.withValues(alpha: .34),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -485,7 +530,7 @@ class _AlbumScreenState extends State<AlbumScreen>
                     const SizedBox(width: 4),
                     Text(
                       '$_fc FC',
-                      style: label(color: AppColors.cream, size: 10.5),
+                      style: label(color: StadiumColors.lime, size: 10.5),
                     ),
                   ],
                 ),
@@ -496,18 +541,15 @@ class _AlbumScreenState extends State<AlbumScreen>
                 icon: const Icon(Icons.storefront_rounded, size: 18),
                 label: const Text('Store'),
               ),
-              IconButton(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh_rounded),
-              ),
             ],
           ),
         ),
         TabBar(
           controller: _tabs,
-          labelColor: AppColors.orange,
-          unselectedLabelColor: AppColors.mut,
-          indicatorColor: AppColors.orange,
+          labelColor: StadiumColors.orange,
+          unselectedLabelColor: StadiumColors.muted,
+          indicatorColor: StadiumColors.orange,
+          dividerColor: StadiumColors.hairline,
           tabs: const [
             Tab(text: 'Moments'),
             Tab(text: 'Packs'),
@@ -516,14 +558,12 @@ class _AlbumScreenState extends State<AlbumScreen>
         ),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(
+                  child: CircularProgressIndicator(color: StadiumColors.orange),
+                )
               : TabBarView(
                   controller: _tabs,
-                  children: [
-                    _momentsTab(),
-                    _packsTab(),
-                    _playersTab(),
-                  ],
+                  children: [_momentsTab(), _packsTab(), _playersTab()],
                 ),
         ),
       ],
@@ -541,7 +581,7 @@ class _AlbumScreenState extends State<AlbumScreen>
               Text(
                 'Can\'t reach the server — check Settings → Server, then retry.',
                 textAlign: TextAlign.center,
-                style: body(color: AppColors.mut),
+                style: body(color: StadiumColors.muted),
               ),
               const SizedBox(height: 12),
               PrimaryButton('Retry', expand: true, onTap: _load),
@@ -550,7 +590,7 @@ class _AlbumScreenState extends State<AlbumScreen>
             Text(
               hint,
               textAlign: TextAlign.center,
-              style: body(color: AppColors.mut),
+              style: body(color: StadiumColors.muted),
             ),
             const SizedBox(height: 16),
             if (_showSeedButton)
@@ -591,9 +631,11 @@ class _AlbumScreenState extends State<AlbumScreen>
                     color: on ? AppColors.cream : AppColors.mut,
                     size: 8.5,
                   ),
-                  selectedColor: AppColors.ink,
-                  backgroundColor: AppColors.cardAlt,
-                  side: BorderSide(color: on ? AppColors.ink : AppColors.line),
+                  selectedColor: StadiumColors.orange,
+                  backgroundColor: StadiumColors.canvasRaised,
+                  side: BorderSide(
+                    color: on ? StadiumColors.orange : StadiumColors.hairline,
+                  ),
                   showCheckmark: false,
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                 );
@@ -603,7 +645,10 @@ class _AlbumScreenState extends State<AlbumScreen>
           const SizedBox(height: 6),
           Row(
             children: [
-              Text('RARITY', style: label(color: AppColors.mut, size: 8.5)),
+              Text(
+                'RARITY',
+                style: label(color: StadiumColors.muted, size: 8.5),
+              ),
               const SizedBox(width: 7),
               for (var rarity = 0; rarity <= 5; rarity++)
                 Padding(
@@ -617,12 +662,12 @@ class _AlbumScreenState extends State<AlbumScreen>
                       decoration: BoxDecoration(
                         color: _rarityFilter == rarity
                             ? rarityBorder(rarity == 0 ? 1 : rarity)
-                            : AppColors.cardAlt,
+                            : StadiumColors.canvasRaised,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: _rarityFilter == rarity
                               ? Colors.transparent
-                              : AppColors.line,
+                              : StadiumColors.hairline,
                         ),
                       ),
                       child: Text(
@@ -630,7 +675,7 @@ class _AlbumScreenState extends State<AlbumScreen>
                         style: label(
                           color: _rarityFilter == rarity
                               ? Colors.white
-                              : AppColors.mut,
+                              : StadiumColors.muted,
                           size: 7.5,
                         ),
                       ),
@@ -933,7 +978,7 @@ class _AlbumScreenState extends State<AlbumScreen>
           : Center(
               child: Text(
                 'No unopened packs — earn Moments or buy in Shop',
-                style: body(color: AppColors.mut),
+                style: body(color: StadiumColors.muted),
               ),
             );
     }
@@ -955,7 +1000,7 @@ class _AlbumScreenState extends State<AlbumScreen>
           : Center(
               child: Text(
                 'Open a pack to get Player Cards',
-                style: body(color: AppColors.mut),
+                style: body(color: StadiumColors.muted),
               ),
             );
     }

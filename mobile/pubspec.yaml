@@ -78,6 +78,7 @@ flutter:
     - assets/audio/
     - assets/cards/
     - assets/cards/portraits/
+    - assets/nav/
 
   fonts:
     - family: Anton

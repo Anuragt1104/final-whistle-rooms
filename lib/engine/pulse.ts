@@ -38,6 +38,9 @@ export interface PulseCard {
   scorer?: string;
   /** Optional: opens a matching Next Swing challenge. */
   challenge?: "corners" | "next-goal";
+  /** Stable TxLINE / match-data event id when available. */
+  sourceEventId?: string;
+  side?: "home" | "away";
 }
 
 export interface WinChance {
@@ -131,6 +134,7 @@ export class PulseInterpreter {
             detail: `${this.fixture.home.name} vs ${this.fixture.away.name} is under way. The room is watching together.`,
             accent: "neutral",
             createdAt: now,
+            sourceEventId: e.sourceEventId,
           });
           break;
         }
@@ -152,6 +156,8 @@ export class PulseInterpreter {
             scorer: e.playerName,
             accent: side,
             createdAt: now,
+            sourceEventId: e.sourceEventId,
+            side,
           });
           break;
         }
@@ -167,6 +173,8 @@ export class PulseInterpreter {
             detail: `${e.playerName ? `${e.playerName} sent off. ` : ""}Down to 10 men. Momentum is turning ${side === "home" ? this.fixture.away.name : this.fixture.home.name}'s way.`,
             accent: side === "home" ? "away" : "home",
             createdAt: now,
+            sourceEventId: e.sourceEventId,
+            side,
           });
           break;
         }
@@ -186,6 +194,8 @@ export class PulseInterpreter {
               accent: "hot",
               challenge: "next-goal",
               createdAt: now,
+              sourceEventId: e.sourceEventId,
+              side,
             });
             this.recentCards = [];
           }
@@ -208,6 +218,8 @@ export class PulseInterpreter {
               accent: side,
               challenge: "corners",
               createdAt: now,
+              sourceEventId: e.sourceEventId,
+              side,
             });
             this.recentCorners = [];
           }
@@ -223,6 +235,7 @@ export class PulseInterpreter {
             detail: `${this.fixture.home.code} ${score.goals.home}–${score.goals.away} ${this.fixture.away.code}. Recap dropping in the room.`,
             accent: "neutral",
             createdAt: now,
+            sourceEventId: e.sourceEventId,
           });
           break;
         }
@@ -236,6 +249,7 @@ export class PulseInterpreter {
             detail: `${this.fixture.home.code} ${score.goals.home}–${score.goals.away} ${this.fixture.away.code}. Final whistle — see who topped the room.`,
             accent: "neutral",
             createdAt: now,
+            sourceEventId: e.sourceEventId,
           });
           break;
         }

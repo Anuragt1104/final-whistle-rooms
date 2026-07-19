@@ -23,7 +23,7 @@ class FwrHeader extends StatelessWidget {
         16,
         10,
       ),
-      color: AppColors.paper,
+      color: StadiumColors.canvas,
       child: Row(
         children: [
           if (showBack) ...[
@@ -34,12 +34,12 @@ class FwrHeader extends StatelessWidget {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: AppColors.ink,
+                  color: StadiumColors.panelRaised,
                   borderRadius: BorderRadius.circular(11),
                 ),
                 child: const Icon(
                   Icons.chevron_left,
-                  color: AppColors.cream,
+                  color: StadiumColors.text,
                   size: 22,
                 ),
               ),
@@ -47,7 +47,10 @@ class FwrHeader extends StatelessWidget {
             const SizedBox(width: 12),
           ],
           if (title != null)
-            Text(title!.toUpperCase(), style: display(20, spacing: 0.5))
+            Text(
+              title!.toUpperCase(),
+              style: display(20, color: StadiumColors.text, spacing: 0.5),
+            )
           else
             const Brand(),
           const Spacer(),

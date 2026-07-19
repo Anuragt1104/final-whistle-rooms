@@ -3,7 +3,7 @@
  * corners, and odds. Bias toward reading the match over coin-flip prompts.
  * Intense spells (goal flurries, reds, corner storms) force drama-weighted picks.
  */
-import type { MatchEvent, OddsSnapshot, ScoreSnapshot, StatPair } from "@/lib/txline/types";
+import { GamePhase, type MatchEvent, type OddsSnapshot, type ScoreSnapshot, type StatPair } from "@/lib/txline/types";
 import type { WinChance } from "@/lib/engine/pulse";
 
 export interface SwingOption {
@@ -92,6 +92,14 @@ export interface MatchIntensity {
   momentumAbs: number;
   flurrySummary?: string;
   challenge?: "corners" | "next-goal";
+}
+
+export function isDefinitiveTerminalPhase(phase: GamePhase | number): boolean {
+  return (
+    phase === GamePhase.Finished ||
+    phase === GamePhase.Abandoned ||
+    phase === GamePhase.Cancelled
+  );
 }
 
 let counter = 0;
@@ -428,7 +436,7 @@ export function tryResolve(
       return null;
     }
     case "lead-by-two": {
-      if (score.minute >= r.minute || score.phase >= 4) {
+      if (score.minute >= r.minute || isDefinitiveTerminalPhase(score.phase)) {
         return Math.abs(score.goals.home - score.goals.away) >= 2 ? "yes" : "no";
       }
       return null;
@@ -436,7 +444,7 @@ export function tryResolve(
     case "total-goals": {
       const tot = score.goals.home + score.goals.away;
       if (tot >= r.target) return "yes";
-      if (score.minute >= r.minute || score.phase >= 4) return "no";
+      if (score.minute >= r.minute || isDefinitiveTerminalPhase(score.phase)) return "no";
       return null;
     }
   }

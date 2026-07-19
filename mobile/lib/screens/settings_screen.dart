@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_client.dart';
@@ -102,22 +103,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : 'Explicit Demo mode',
                   null,
                 ),
-                _row(
-                  Icons.dns_outlined,
-                  'Server',
-                  ApiClient.instance.baseUrl,
-                  () async {
-                    await showServerSettings(
-                      context,
-                      ApiClient.instance.baseUrl,
-                      (url) async {
-                        await ApiClient.instance.setBaseUrl(url);
-                        await widget.onServerChanged();
-                        if (mounted) setState(() {});
-                      },
-                    );
-                  },
-                ),
+                if (!kReleaseMode)
+                  _row(
+                    Icons.dns_outlined,
+                    'Developer server',
+                    ApiClient.instance.baseUrl,
+                    () async {
+                      await showServerSettings(
+                        context,
+                        ApiClient.instance.baseUrl,
+                        (url) async {
+                          await ApiClient.instance.setBaseUrl(url);
+                          await widget.onServerChanged();
+                          if (mounted) setState(() {});
+                        },
+                      );
+                    },
+                  ),
                 _row(
                   Icons.photo_library_outlined,
                   'Player photo credits',

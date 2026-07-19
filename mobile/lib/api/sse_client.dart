@@ -12,6 +12,7 @@ class RoomSseClient {
 
   http.Client? _client;
   bool _closed = false;
+  int _lastRevision = -1;
   final _controller = StreamController<RoomView>.broadcast();
   final _connected = StreamController<bool>.broadcast();
 
@@ -65,6 +66,13 @@ class RoomSseClient {
       try {
         final msg = jsonDecode(payload);
         if (msg is Map && msg['type'] == 'state' && msg['room'] != null) {
+          final rev = (msg['revision'] as num?)?.toInt() ??
+              (msg['room'] is Map
+                  ? (msg['room']['revision'] as num?)?.toInt()
+                  : null) ??
+              0;
+          if (rev > 0 && rev < _lastRevision) return;
+          _lastRevision = rev;
           _controller.add(
             RoomView.fromJson(Map<String, dynamic>.from(msg['room'])),
           );

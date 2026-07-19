@@ -184,10 +184,9 @@ class ApiClient {
 
   Future<dynamic> _authorizedGet(String path) async {
     final token = await ensureDuelSession();
-    final res = await _http.get(
-      _uri(path),
-      headers: {'Authorization': 'Bearer $token'},
-    ).timeout(const Duration(seconds: 8));
+    final res = await _http
+        .get(_uri(path), headers: {'Authorization': 'Bearer $token'})
+        .timeout(const Duration(seconds: 8));
     final data = res.body.isNotEmpty ? jsonDecode(res.body) : {};
     if (res.statusCode >= 400) {
       throw ApiException(
@@ -345,6 +344,23 @@ class ApiClient {
     );
   }
 
+  Future<({String roomId, String memberId, String inviteCode})> startShowcase(
+    String fixtureId,
+    String name, {
+    String? walletPubkey,
+    String? actionId,
+  }) async {
+    final data = await _post(
+      '/api/fixtures/${Uri.encodeComponent(fixtureId)}/showcase',
+      {'name': name, 'walletPubkey': ?walletPubkey, 'actionId': ?actionId},
+    );
+    return (
+      roomId: data['roomId'] as String,
+      memberId: data['memberId'] as String,
+      inviteCode: data['inviteCode']?.toString() ?? '',
+    );
+  }
+
   Future<MatchData> matchData(String fixtureId) async {
     final data = await _get(
       '/api/fixtures/${Uri.encodeComponent(fixtureId)}/match-data',
@@ -390,6 +406,19 @@ class ApiClient {
     if (actionId != null) 'actionId': actionId,
   });
 
+  Future<Map<String, dynamic>> controlReplay(
+    String id, {
+    required String action,
+    int? minute,
+    double? speed,
+  }) async => Map<String, dynamic>.from(
+    await _post('/api/rooms/$id/replay', {
+      'action': action,
+      if (minute != null) 'minute': minute,
+      if (speed != null) 'speed': speed,
+    }),
+  );
+
   Future<void> chat(
     String id,
     String memberId,
@@ -429,9 +458,16 @@ class ApiClient {
 
   Future<Map<String, dynamic>> craft(
     String fanId,
-    List<String> momentIds,
-  ) async =>
-      (await _post('/api/craft', {'fanId': fanId, 'momentIds': momentIds}))
+    List<String> momentIds, {
+    String? primaryMomentId,
+    String? actionId,
+  }) async =>
+      (await _post('/api/craft', {
+            'fanId': fanId,
+            'momentIds': momentIds,
+            'primaryMomentId': ?primaryMomentId,
+            'actionId': ?actionId,
+          }))
           as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> momentDetail(String id) async =>

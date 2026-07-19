@@ -1,6 +1,6 @@
-# ⚽ Final Whistle Rooms
+# Final Whistle
 
-**A verified, private live watch-room for World Cup fans — powered by TxLINE on Solana.**
+**The fan-retention engine that turns every verified match update into the next meaningful action.**
 
 > **Live backend:** https://final-whistle-production.up.railway.app · health: [`/api/config`](https://final-whistle-production.up.railway.app/api/config)
 > The Android APK ships pointing at this URL (works on any network). Serves real mainnet TxLINE World Cup data in live mode.
@@ -10,19 +10,20 @@
 > compresses all of that into **one room your group watches together** — that
 > reacts, in real time, to verified TxLINE match data.
 
-A host spins up a room for a match, shares a 6-character code, and the group
-joins on their phones. During the match the room runs three tightly-integrated
-layers:
+The complete loop is **Watch → Call → Earn → Open → Craft → Duel → Return**.
+Every fixture has one auto-managed Official Match Hub; invite-only Private
+Parties add friend chat and reactions. During a match the product runs three
+tightly integrated layers:
 
 1. **Live match pulse** — goals, cards, corners and **odds swings** translated
    into plain-English "pulse cards", a momentum meter, and a friendly win-chance
    read of the market.
-2. **A room game loop** — *Tournament Draft* (draft a side, earn points as they
-   perform) and *Next Swing* (bite-sized, skill-based live predictions on the
+2. **A room game loop** — *Team Draft* (draft a side, earn points as they
+   perform) and *Live Calls* (bite-sized, skill-based predictions on the
    next goal, corner, or odds move). Points and streaks only — **no cash staking.**
-3. **AI room recap** — at half-time and full-time, a short narrative of what
-   happened in the *room*, not just the match ("Ana tops the room on 128 after
-   calling the red-card swing").
+3. **Playable lineage** — a correct Call earns one immediate Moment and one
+   retry-safe Pack. Selected Moments craft deterministically into Player Cards
+   used in best-of-three Stadium Duels.
 
 Every event the room reacts to is hashed into a **Merkle tree**; the root is the
 room's tamper-evident fingerprint of the verified TxLINE data it responded to,
@@ -48,9 +49,9 @@ UI.
 
 ## How TxLINE powers it
 
-Everything above the data layer is identical whether it runs on **simulated** or
-**live** TxLINE data — the only difference is which `TxLineSource` the factory
-returns (`lib/txline/source.ts`), chosen by `TXLINE_MODE`.
+Production uses TxLINE as its sole football source. Explicit demo mode remains
+for isolated development and tests, but it is never substituted when a live or
+historical feed is unavailable.
 
 ### Endpoints used (mapped to product surfaces)
 
@@ -76,19 +77,14 @@ minutes triggers "chaos watch"; three quick corners opens a corner challenge).
 > SSE framing) live in [`docs/TXLINE_API.md`](docs/TXLINE_API.md), verified
 > against the OpenAPI spec `docs.yaml` v1.5.2.
 
-### Simulation / replay mode (default)
+### Verified historical replay
 
-The brief calls replay *"not optional"*, and the judging note warns matches end
-before review. So the default `SimulationSource` is a **deterministic, seeded**
-match engine (`lib/txline/simulation.ts`) that emits feeds in the exact TxLINE
-shape — same fixture id always plays out the same dramatic sequence. This means:
-
-- **Judges need no wallet, no credentials, no live match** — open the link, join
-  a room, watch the full experience immediately.
-- The demo is reliable and reproducible.
-
-Flip `TXLINE_MODE=live` and the same room engine consumes the real TxLINE SSE
-streams (`lib/txline/live.ts`), synthesizing events by diffing score snapshots.
+Judges tap **Experience a verified classic** to run Argentina–Switzerland
+fixture `18222446` from TxLINE historical records. The replay stays visibly
+labelled, uses the same match-intelligence and Question Engine path as live
+data, streams every event frame in order, and pauses at guided recording beats.
+Clock resets, provisional full time, extra time, corrections and stable source
+event identities are normalized before any UI or reward observes them.
 
 ---
 
@@ -113,10 +109,10 @@ pnpm install
 pnpm dev            # http://localhost:3000
 ```
 
-Open the app → **Create a room** → **Start match** → watch the pulse feed,
-play Next Swing, climb the leaderboard, read the recap, tap **Verified** to
-inspect the proof. Open the same room in a second tab (or share the code) to see
-the multiplayer leaderboard update live.
+Open the app → **Experience a verified classic** → answer Live Calls → inspect
+the immediate Called It Moment → open Packs → craft a primary Moment into a
+Player Card → equip it in Arena. A second identity joins the private showcase
+through its invite code.
 
 For a faster demo loop, set the match pacing:
 
@@ -124,16 +120,16 @@ For a faster demo loop, set the match pacing:
 SIM_SECONDS_PER_MATCH_MINUTE=2 pnpm dev   # a 90' match in ~3 min
 ```
 
-Everything runs with **zero configuration**. See [`.env.example`](.env.example)
-for the optional live-TxLINE, on-chain-anchor, and Claude-recap settings.
+See [`.env.example`](.env.example) for TxLINE and optional Solana-anchor
+configuration. Production fails closed rather than displaying simulated facts.
 
 ---
 
 ## Mobile app (Flutter)
 
-A native **iOS + Android** client lives in [`mobile/`](mobile/). It's a thin
+A native **Android** client lives in [`mobile/`](mobile/). It's a Flutter
 Flutter front-end over this same backend — REST + the room **SSE** stream — so
-the live pulse, Next Swing predictions, leaderboard, recaps, and Solana proof
+the live pulse, Live Calls, leaderboard, collectibles, Duels and Solana proof
 all work natively on a phone. Verified running on an Android emulator against the
 live backend.
 
@@ -156,7 +152,8 @@ components/              Mobile-first UI (TopBar, ScoreRail, PulseFeed, NextSwin
 lib/
   txline/   types · simulation engine · live adapter · source factory · auth
   engine/   pulse.ts — interpretation layer (deltas → pulse cards, momentum)
-  game/     nextswing.ts (live predictions) · scoring.ts (draft + streaks)
+  game/     question-engine.ts · nextswing.ts · scoring.ts
+  showcase/ guided verified replay pacing + deterministic recording Calls
   store/    rooms.ts — in-memory room store + match engine + SSE broadcast
   recap/    generate.ts — local narrative generator (+ optional Claude)
   solana/   wallet.ts (embedded identity) · anchor.ts (devnet memo)
@@ -178,8 +175,8 @@ per-process `setInterval`, deploy to a **single long-lived Node instance**
 container. **Avoid serverless/edge** (Vercel functions, Cloudflare Workers) for
 this demo build: ephemeral invocations won't keep room state or hold the SSE
 connection. Multi-instance scaling needs the Redis/Postgres + worker split noted
-above. The deterministic simulation source keeps the deployed demo fully
-functional with **no environment variables at all**.
+above. Keep the Railway deployment on one long-lived instance during a match or
+recording; restarts intentionally clear the in-memory Hub and inventory state.
 
 ---
 
@@ -201,7 +198,7 @@ and our TxLINE API feedback.
 
 ---
 
-## Moment Cards + card game (in progress)
+## Moment Cards + Stadium Duels
 
 Product evolution toward Merkle-backed **Moments**, playable **Player/Skill** cards,
 and between-match **Duels**. Domain language, decisions, and MVP plan:

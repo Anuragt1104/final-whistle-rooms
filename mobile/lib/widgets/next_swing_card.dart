@@ -24,7 +24,9 @@ class NextSwingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final open = prompts.where((p) => p.status == 'open' || p.status == 'locked').toList();
+    final open = prompts
+        .where((p) => p.status == 'open' || p.status == 'locked')
+        .toList();
     PromptView? main;
     PromptView? quick;
     for (final p in open) {
@@ -32,15 +34,20 @@ class NextSwingCard extends StatelessWidget {
         quick = p;
       } else if (main == null) {
         main = p;
-      } else if (quick == null) {
-        quick = p;
+      } else {
+        quick ??= p;
       }
     }
     main ??= open.isNotEmpty ? open.first : null;
-    if (quick != null && identical(quick, main)) quick = null;
+    quick = identical(quick, main) ? null : quick;
 
     final settled = prompts
-        .where((p) => p.status == 'settled' || p.status == 'void' || p.status == 'corrected')
+        .where(
+          (p) =>
+              p.status == 'settled' ||
+              p.status == 'void' ||
+              p.status == 'corrected',
+        )
         .take(3)
         .toList();
 
@@ -125,7 +132,11 @@ class NextSwingCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
               child: Text(
                 'SETTLED',
-                style: label(color: AppColors.mut, size: 10, weight: FontWeight.w700),
+                style: label(
+                  color: AppColors.mut,
+                  size: 10,
+                  weight: FontWeight.w700,
+                ),
               ),
             ),
             for (final p in settled)
@@ -133,7 +144,10 @@ class NextSwingCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
                 child: Text(
                   p.winningKey != null
-                      ? '${p.question} → ${p.options.firstWhere((o) => o.key == p.winningKey, orElse: () => SwingOption(key: '', label: p.winningKey!)).label}'
+                      ? '${p.question} → ${p.options.firstWhere(
+                          (o) => o.key == p.winningKey,
+                          orElse: () => SwingOption(key: '', label: p.winningKey!),
+                        ).label}'
                       : p.question,
                   style: body(color: AppColors.mut, size: 11.5),
                   maxLines: 2,
@@ -197,7 +211,11 @@ class _ActivePrompt extends StatelessWidget {
                 children: [
                   Text(
                     'FAN BUZZ',
-                    style: label(size: 9.5, weight: FontWeight.w800, color: AppColors.orange),
+                    style: label(
+                      size: 9.5,
+                      weight: FontWeight.w800,
+                      color: AppColors.orange,
+                    ),
                   ),
                   if (prompt.fanBuzzFact != null)
                     Text(prompt.fanBuzzFact!, style: body(size: 11.5)),
@@ -215,10 +233,7 @@ class _ActivePrompt extends StatelessWidget {
               Expanded(
                 child: Text(
                   prompt.question,
-                  style: body(
-                    size: compact ? 13 : 15,
-                    weight: FontWeight.w800,
-                  ),
+                  style: body(size: compact ? 13 : 15, weight: FontWeight.w800),
                 ),
               ),
               Container(
@@ -327,10 +342,7 @@ class _OptionButton extends StatelessWidget {
                   ),
                 ),
               Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 9,
-                  horizontal: 4,
-                ),
+                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
                 child: Column(
                   children: [
                     Text(

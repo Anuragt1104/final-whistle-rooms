@@ -1,4 +1,4 @@
-# Final Whistle Rooms — Submission Pack
+# Final Whistle — Submission Pack
 
 **Track:** Consumer & Fan Experiences · **Data:** TxLINE on Solana
 
@@ -6,65 +6,40 @@
 
 ## 1. Core idea (one paragraph)
 
-Final Whistle Rooms is a mobile-first, **verified private live watch-room** for
-World Cup fan groups. A host creates a room for a match, shares a code, and the
-group joins on their phones. The room reacts in real time to verified TxLINE
-data through three layers — a **plain-English match pulse** (goals, cards,
-corners, and odds swings translated for mainstream fans), a **room game loop**
-(*Tournament Draft* + live *Next Swing* predictions, points and streaks only),
-and an **AI room recap**. Moments craft into Player Cards with immutable TxLINE
-lineage; fans then play authoritative **Stadium Duels** (House commitment or
-Friend invite) and **Moment Arena** rounds scored from verified provenance.
-Every event the room reacts to is hashed into a Merkle root that can be
-anchored on Solana — trust as a fan feature. Instead of asking fans to juggle a
-scores app, a group chat, a predictor and a pundit feed, it folds them into one
-room that watches together.
+Final Whistle is **the fan-retention engine that turns every verified match
+update into the next meaningful action**. TxLINE drives one causal loop:
+**Watch → Call → Earn → Open → Craft → Duel → Return**. Fans enter an
+auto-managed Official Match Hub in one tap, answer short points-only football
+Calls, receive an event-linked Moment and Pack immediately when correct, craft
+verified lineage into a Player Card, and use it in a server-authoritative
+best-of-three Duel. Embedded Solana identity removes wallet friction; Merkle
+lineage and optional Solana anchoring make event-to-reward causality
+inspectable. Private Parties retain invite-code social play, while branded
+Match Hubs are the primary commercial product for creators, clubs, media and
+sports bars.
 
 ---
 
-## 2. Demo video script (≤ 5 minutes)
+## 2. Demo video script (4:55 maximum)
 
-> Recorded against **simulation/replay mode** so the full flow is reliable and
-> reproducible — no live match required (per the judging note). Architecture is
-> identical on live TxLINE data.
-
-1. **The problem (0:00–0:35).** "Everyone watches the World Cup on their phone,
-   but split across five apps and a group chat." Show the home screen — World
-   Cup fixtures, "Verified by TxLINE on Solana."
-2. **Create a room (0:35–1:15).** Pick a live match → name the room → both game
-   modes on → "Continue with Solana" (note: an on-device identity is created
-   instantly, no wallet/funds). Land in the room; show the invite code.
-3. **The room fills up (1:15–1:45).** Open a second device/tab, join by code,
-   draft the opposite side. Two fans, one room.
-4. **Kick off — the live pulse (1:45–2:45).** Host starts the match. Narrate the
-   **pulse cards** as they fire ("Goal — win chance swung 48 points", "chaos
-   watch"), the **momentum meter**, and the **win-chance bar** moving with the
-   market. This is the "market translator" in action.
-5. **Play Next Swing (2:45–3:30).** Answer a live prompt ("What happens first — a
-   goal or a card?"), show it **lock and settle automatically**, points + streak
-   land, leaderboard reorders live.
-6. **Half-time recap (3:30–4:00).** Show the AI recap summarizing the *room*, not
-   just the match.
-7. **Verify it (4:00–4:35).** Tap **Verified** → Merkle root, a live inclusion
-   proof (✓ verified), and the optional on-chain anchor. Explain it maps to
-   TxLINE's `stat-validation` / `odds-validation` endpoints.
-8. **Stadium Duel / Moment Arena (optional cut-in).** Open Album → Duels → Face
-   the House (or charge Arena with an explicit Moment). Show the cinematic
-   reveal, House commitment hash, and FC/XP settlement — powered by signed
-   Solana sessions + Postgres-backed Duel state, not simulated bot cards.
-9. **Full-time + the pitch.** Final recap, room winner. Close on the business
-   model.
+The master timecoded script is [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+It records fixture `18222446` as a visibly labelled **TxLINE historical
+replay** on a physical Android phone plus a second Android identity. Guided
+checkpoints are 7′, 9′, 68′, 71′, 108′, 111′ and full time; intermediate TxLINE
+frames stream in order rather than being skipped. The device checklist,
+correct-answer cue sheet and fallback shots are in
+[`docs/PRESENTER_RUNBOOK.md`](docs/PRESENTER_RUNBOOK.md).
 
 ---
 
 ## 3. Application access (for judges)
 
-- **No wallet, no credentials, no live match needed.** Open the deployed link,
-  create or join a room, press **Start match**, and the full experience plays
-  out on deterministic replay data.
+- **No wallet extension, credentials, or live match needed.** Install the APK,
+  tap **Experience a verified classic**, and follow the guided TxLINE replay.
 - Local: `pnpm install && pnpm dev`.
 - A functional API is also testable directly, e.g.
-  `GET /api/fixtures`, `POST /api/rooms`, `POST /api/rooms/{id}/start`,
+  `GET /api/fixtures`, `POST /api/fixtures/18222446/showcase`,
+  `POST /api/rooms/{id}/replay`,
   `GET /api/rooms/{id}/stream` (SSE), `GET /api/rooms/{id}/proof`.
 
 ---

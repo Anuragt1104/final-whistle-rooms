@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../local/fixtures.dart';
 import '../solana/wallet_connect.dart';
 import '../state/identity.dart';
 import '../state/local_store.dart';
@@ -23,14 +22,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<_Slide> _slides = const [
     _Slide(
-      tag: 'THE TERRACE',
+      tag: 'OFFICIAL MATCH HUB',
       title: 'WATCH THE\nWORLD CUP\nTOGETHER',
       body:
           'Join the shared Official Match Hub for every live fixture, or open an invite-only Private Party for your friends.',
       visual: _Visual.ticket,
     ),
     _Slide(
-      tag: 'NEXT SWING',
+      tag: 'LIVE CALLS',
       title: 'CALL IT\nLIVE',
       body:
           'Choose a side in Team Draft and answer clear Live Calls as the match unfolds. Build streaks with points only — never cash.',
@@ -66,11 +65,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark.copyWith(
+      value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: Colors.transparent,
       ),
       child: Scaffold(
-        backgroundColor: AppColors.paper,
+        backgroundColor: StadiumColors.canvas,
         body: SafeArea(
           child: _showLogin
               ? _LoginCard(onDone: _finish)
@@ -116,7 +115,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 width: on ? 26 : 8,
                                 height: 8,
                                 decoration: BoxDecoration(
-                                  color: on ? AppColors.orange : AppColors.line,
+                                  color: on
+                                      ? StadiumColors.orange
+                                      : StadiumColors.hairline,
                                   borderRadius: BorderRadius.circular(99),
                                 ),
                               );
@@ -141,10 +142,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Future<void> _finish(String name, String? wallet) async {
+  Future<void> _finish(String name, String? wallet, String favorite) async {
     final id = await IdentityStore.getOrCreate();
     await IdentityStore.sign('final-whistle-rooms:auth:$name:${id.pubkey}');
     await LocalStore.setDisplayName(name);
+    if (favorite.isNotEmpty) await LocalStore.setFavoriteTeam(favorite);
     if (wallet != null && wallet.isNotEmpty)
       await LocalStore.setWalletAddress(wallet);
     await LocalStore.setOnboarded();
@@ -166,9 +168,17 @@ class _Slide {
   });
 }
 
-class _SlideView extends StatelessWidget {
+class _SlideView extends StatefulWidget {
   final _Slide slide;
   const _SlideView({required this.slide});
+
+  @override
+  State<_SlideView> createState() => _SlideViewState();
+}
+
+class _SlideViewState extends State<_SlideView> {
+  String? _samplePick;
+  _Slide get slide => widget.slide;
 
   @override
   Widget build(BuildContext context) {
@@ -192,9 +202,12 @@ class _SlideView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Text(slide.title, style: display(40, spacing: 0.5)),
+          Text(
+            slide.title,
+            style: display(40, color: StadiumColors.text, spacing: 0.5),
+          ),
           const SizedBox(height: 14),
-          Text(slide.body, style: body(color: AppColors.mut, size: 15)),
+          Text(slide.body, style: body(color: StadiumColors.muted, size: 15)),
           const Spacer(flex: 1),
         ],
       ),
@@ -202,11 +215,8 @@ class _SlideView extends StatelessWidget {
   }
 
   Widget _visual() {
-    final teams = localFixtures();
-    final f = teams.isNotEmpty ? teams.first : null;
     switch (slide.visual) {
       case _Visual.ticket:
-        if (f == null) return const SizedBox(height: 160);
         return TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.92, end: 1),
           duration: const Duration(milliseconds: 500),
@@ -215,46 +225,46 @@ class _SlideView extends StatelessWidget {
           child: ClipPath(
             clipper: TicketClipper(radius: 18),
             child: Container(
-              color: AppColors.ink,
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
-              child: Row(
+              decoration: stadiumGradientPanel(accent: StadiumColors.orange),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              child: Column(
                 children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        TeamBadge(team: f.home, size: 50),
-                        const SizedBox(height: 8),
-                        Text(
-                          f.home.code,
-                          style: display(16, color: AppColors.cream),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
+                  Row(
                     children: [
+                      const LiveDot(color: StadiumColors.live),
+                      const SizedBox(width: 6),
                       Text(
-                        '2 - 1',
-                        style: display(40, color: AppColors.orangeBright),
+                        'ONE SHARED OFFICIAL HUB',
+                        style: label(color: StadiumColors.live, size: 8.5),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "67'",
-                        style: label(color: AppColors.mutInk, size: 10),
+                      const Spacer(),
+                      const Icon(
+                        Icons.groups_rounded,
+                        color: StadiumColors.muted,
+                        size: 18,
                       ),
                     ],
                   ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        TeamBadge(team: f.away, size: 50),
-                        const SizedBox(height: 8),
-                        Text(
-                          f.away.code,
-                          style: display(16, color: AppColors.cream),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _crest('HOME', StadiumColors.violet),
+                      Column(
+                        children: [
+                          Text(
+                            'LIVE',
+                            style: display(36, color: StadiumColors.text),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'SCORE · EVENTS · FRIENDS',
+                            style: label(color: StadiumColors.muted, size: 7.5),
+                          ),
+                        ],
+                      ),
+                      _crest('AWAY', StadiumColors.orange),
+                    ],
                   ),
                 ],
               ),
@@ -271,7 +281,7 @@ class _SlideView extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    '⚡ NEXT SWING',
+                    'LIVE CALL · POINTS ONLY',
                     style: label(color: AppColors.ink, size: 11),
                   ),
                   const Spacer(),
@@ -285,65 +295,31 @@ class _SlideView extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      '+140',
+                      'MOMENT',
                       style: label(color: AppColors.orangeBright, size: 10),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
-              Text("Next goal before 27'?", style: display(20)),
+              Text('Who wins the next corner?', style: display(20)),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppColors.orange,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'ARG',
-                        style: body(
-                          color: Colors.white,
-                          weight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: _sampleOption('Home')),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppColors.cardAlt,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.line),
-                      ),
-                      child: Text(
-                        'No goal',
-                        style: body(weight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: _sampleOption('Neither')),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppColors.cardAlt,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.line),
-                      ),
-                      child: Text('MEX', style: body(weight: FontWeight.w800)),
-                    ),
-                  ),
+                  Expanded(child: _sampleOption('Away')),
                 ],
               ),
+              if (_samplePick != null) ...[
+                const SizedBox(height: 9),
+                Text(
+                  'Locked: $_samplePick · a correct live Call earns a Moment.',
+                  style: body(color: AppColors.mut, size: 10.5),
+                ),
+              ],
             ],
           ),
         );
@@ -365,10 +341,63 @@ class _SlideView extends StatelessWidget {
         );
     }
   }
+
+  Widget _crest(String text, Color accent) => Column(
+    children: [
+      Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [accent, accent.withValues(alpha: .25)],
+          ),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: const Icon(
+          Icons.sports_soccer_rounded,
+          color: Colors.white,
+          size: 23,
+        ),
+      ),
+      const SizedBox(height: 7),
+      Text(text, style: label(color: StadiumColors.textSoft, size: 8)),
+    ],
+  );
+
+  Widget _sampleOption(String option) {
+    final selected = _samplePick == option;
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        setState(() => _samplePick = option);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.orange : AppColors.cardAlt,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.orange : AppColors.line,
+          ),
+        ),
+        child: Text(
+          option,
+          style: body(
+            color: selected ? Colors.white : AppColors.ink,
+            weight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _LoginCard extends StatefulWidget {
-  final Future<void> Function(String name, String? wallet) onDone;
+  final Future<void> Function(String name, String? wallet, String favorite)
+  onDone;
   const _LoginCard({required this.onDone});
   @override
   State<_LoginCard> createState() => _LoginCardState();
@@ -382,6 +411,20 @@ class _LoginCardState extends State<_LoginCard> {
   bool _walletAvail = false;
   bool _connecting = false;
   String? _connected; // base58 pubkey from a real wallet
+  String _favorite = '';
+
+  static const _favoriteTeams = [
+    'ARG',
+    'BRA',
+    'ENG',
+    'ESP',
+    'FRA',
+    'GER',
+    'POR',
+    'USA',
+    'MEX',
+    'JPN',
+  ];
 
   @override
   void initState() {
@@ -426,7 +469,7 @@ class _LoginCardState extends State<_LoginCard> {
     setState(() => _busy = true);
     final name = _nameCtrl.text.trim().isEmpty ? 'Fan' : _nameCtrl.text.trim();
     final w = _connected ?? (_wallet ? _walletCtrl.text.trim() : null);
-    await widget.onDone(name, w);
+    await widget.onDone(name, w, _favorite);
   }
 
   @override
@@ -447,19 +490,67 @@ class _LoginCardState extends State<_LoginCard> {
             ),
           ),
           const SizedBox(height: 18),
-          Text('JOIN THE\nTERRACE', style: display(36, spacing: 0.5)),
+          Text(
+            'BUILD YOUR\nMATCHDAY',
+            style: display(36, color: StadiumColors.text, spacing: 0.5),
+          ),
           const SizedBox(height: 8),
           Text(
             'Pick a name and you\'re in. A secure on-device Solana identity is created for you — no wallet, no funds.',
-            style: body(color: AppColors.mut, size: 14),
+            style: body(color: StadiumColors.muted, size: 14),
           ),
           const SizedBox(height: 24),
-          Text('YOUR NAME', style: label(color: AppColors.ink, size: 11)),
+          Text(
+            'YOUR NAME',
+            style: label(color: StadiumColors.textSoft, size: 11),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _nameCtrl,
             autofocus: true,
+            style: body(color: StadiumColors.text, size: 14),
             decoration: fwrInput('e.g. Ana'),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'FAVORITE TEAM',
+            style: label(color: StadiumColors.textSoft, size: 11),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _favoriteTeams.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 7),
+              itemBuilder: (_, index) {
+                final code = _favoriteTeams[index];
+                final selected = code == _favorite;
+                return ChoiceChip(
+                  selected: selected,
+                  showCheckmark: false,
+                  label: Text(code),
+                  onSelected: (_) => setState(() => _favorite = code),
+                  selectedColor: StadiumColors.orange,
+                  backgroundColor: StadiumColors.panel,
+                  side: BorderSide(
+                    color: selected
+                        ? StadiumColors.orange
+                        : StadiumColors.hairline,
+                  ),
+                  labelStyle: body(
+                    color: selected ? Colors.white : StadiumColors.textSoft,
+                    size: 11,
+                    weight: FontWeight.w800,
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            'You can change this later. It only personalizes fixtures and colors.',
+            style: body(color: StadiumColors.muted, size: 10.5),
           ),
           const SizedBox(height: 16),
           // Real wallet connect (Mobile Wallet Adapter) when a wallet app is detected
@@ -481,14 +572,18 @@ class _LoginCardState extends State<_LoginCard> {
                   const SizedBox(width: 10),
                   Text(
                     'Wallet connected ◎ ${_short(_connected!)}',
-                    style: body(weight: FontWeight.w700, size: 13.5),
+                    style: body(
+                      color: StadiumColors.text,
+                      weight: FontWeight.w700,
+                      size: 13.5,
+                    ),
                   ),
                   const Spacer(),
                   GestureDetector(
                     onTap: () => setState(() => _connected = null),
                     child: Text(
                       'Change',
-                      style: body(color: AppColors.mut, size: 12),
+                      style: body(color: StadiumColors.muted, size: 12),
                     ),
                   ),
                 ],
@@ -509,13 +604,17 @@ class _LoginCardState extends State<_LoginCard> {
                     _wallet
                         ? Icons.check_box_rounded
                         : Icons.check_box_outline_blank_rounded,
-                    color: _wallet ? AppColors.orange : AppColors.mut,
+                    color: _wallet ? StadiumColors.orange : StadiumColors.muted,
                     size: 22,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     'Have a Solana wallet? Paste your address',
-                    style: body(size: 13.5, weight: FontWeight.w600),
+                    style: body(
+                      color: StadiumColors.textSoft,
+                      size: 13.5,
+                      weight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -524,6 +623,7 @@ class _LoginCardState extends State<_LoginCard> {
             const SizedBox(height: 10),
             TextField(
               controller: _walletCtrl,
+              style: body(color: StadiumColors.text, size: 14),
               decoration: fwrInput('Paste your Solana address'),
             ),
           ],
@@ -532,7 +632,7 @@ class _LoginCardState extends State<_LoginCard> {
             Center(
               child: Text(
                 'Detected a wallet app on your device',
-                style: body(color: AppColors.mut, size: 11),
+                style: body(color: StadiumColors.muted, size: 11),
               ),
             ),
           ],
@@ -547,8 +647,8 @@ class _LoginCardState extends State<_LoginCard> {
           const SizedBox(height: 12),
           Center(
             child: Text(
-              'Skill-based · points & streaks only · no cash staking',
-              style: body(color: AppColors.mut, size: 11),
+              'Notifications follow watched fixtures only · points, never cash',
+              style: body(color: StadiumColors.muted, size: 11),
             ),
           ),
         ],

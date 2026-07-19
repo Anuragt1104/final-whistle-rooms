@@ -52,12 +52,43 @@ void main() {
       'playerName': 'Julián Álvarez',
       'teamCode': 'ARG',
       'artKey': 'goal:arg',
+      'calledIt': true,
+      'promptId': 'showcase:18222446:108',
+      'promptQuestion': "Who scores next before 115'?",
+      'answerLabel': 'Argentina',
+      'proof': {
+        'root': 'abc123',
+        'sourceEventId': 'tx:18222446:goal-3',
+        'anchored': true,
+      },
     });
     expect(d.memberId, 'm_1');
     expect(d.rarity, 5);
     expect(d.matchLabel, 'ARG vs SWI');
     expect(d.sourceEventId, 'tx:18222446:goal-3');
     expect(d.playerName, 'Julián Álvarez');
+    expect(d.calledIt, isTrue);
+    expect(d.promptQuestion, "Who scores next before 115'?");
+    expect(d.answerLabel, 'Argentina');
+    expect(d.proof?['anchored'], isTrue);
+  });
+
+  test('ReplayStateView parses guided showcase pacing', () {
+    final state = ReplayStateView.fromJson({
+      'active': true,
+      'paused': true,
+      'currentMinute': 7,
+      'totalMinutes': 120,
+      'speed': 1,
+      'mode': 'showcase',
+      'beat': 1,
+      'nextBeatMinute': 9,
+      'awaitingAction': true,
+    });
+    expect(state.mode, 'showcase');
+    expect(state.beat, 1);
+    expect(state.nextBeatMinute, 9);
+    expect(state.awaitingAction, isTrue);
   });
 
   testWidgets('collectible detail opens with layered tilt guidance', (

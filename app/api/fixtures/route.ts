@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSource, sourceMode } from "@/lib/txline/source";
 import { GamePhase, isLivePhase, type Fixture, type ScoreSnapshot } from "@/lib/txline/types";
+import { canonicalizeTournamentFixtures } from "@/lib/txline/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,26 @@ export async function GET() {
       return NextResponse.json({ fixtures: cache.fixtures });
     }
     const source = getSource();
-    const fixtures = await source.listFixtures();
+    const sourceFixtures = await source.listFixtures();
+    let fixtures = sourceFixtures;
+
+    if (sourceMode() === "live") {
+      const canonical = canonicalizeTournamentFixtures(sourceFixtures);
+      if (!canonical.ok) {
+        if (cache?.fixtures.length === 104) {
+          return NextResponse.json({
+            fixtures: cache.fixtures,
+            stale: true,
+            catalogWarning: canonical.reason,
+          });
+        }
+        return NextResponse.json(
+          { error: canonical.reason, fixtures: [] },
+          { status: 503 },
+        );
+      }
+      fixtures = canonical.fixtures;
+    }
 
     // attach live/final scores so the Fixtures tab is a real results board
     if (sourceMode() === "live") {

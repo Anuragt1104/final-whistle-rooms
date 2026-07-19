@@ -2,7 +2,7 @@
   "name": "final-whistle-rooms",
   "version": "1.0.0",
   "private": true,
-  "description": "Final Whistle Rooms — a verified private live watch-room for World Cup fans, powered by TxLINE on Solana.",
+  "description": "Final Whistle — a TxLINE-powered fan-retention engine that turns verified match events into playable collectible lineage.",
   "packageManager": "pnpm@10.6.3",
   "scripts": {
     "dev": "next dev",

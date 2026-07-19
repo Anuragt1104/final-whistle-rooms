@@ -32,10 +32,11 @@ class _PassScreenState extends State<PassScreen> {
       final id = await IdentityStore.getOrCreate();
       _fanId = id.pubkey;
       final d = await _api.passState(_fanId);
-      if (mounted) setState(() {
-        _data = d;
-        _err = null;
-      });
+      if (mounted)
+        setState(() {
+          _data = d;
+          _err = null;
+        });
     } catch (e) {
       if (mounted) {
         setState(() => _err = 'server');
@@ -103,13 +104,13 @@ class _PassScreenState extends State<PassScreen> {
     final priceUsd = _data?['priceUsd'] ?? 15;
     final xpInTier = _xp % _xpPerTier;
     return Scaffold(
-      backgroundColor: AppColors.paper,
+      backgroundColor: StadiumColors.canvas,
       appBar: AppBar(
-        backgroundColor: AppColors.ink,
-        foregroundColor: AppColors.cream,
+        backgroundColor: StadiumColors.canvas,
+        foregroundColor: StadiumColors.text,
         title: Text(
           'WORLD CUP PASS',
-          style: display(18, color: AppColors.cream),
+          style: display(18, color: StadiumColors.text),
         ),
       ),
       body: _err != null
@@ -122,7 +123,7 @@ class _PassScreenState extends State<PassScreen> {
                     Text(
                       'Can\'t reach the server — check Settings → Server, then retry.',
                       textAlign: TextAlign.center,
-                      style: body(color: AppColors.mut),
+                      style: body(color: StadiumColors.muted),
                     ),
                     const SizedBox(height: 16),
                     PrimaryButton('Retry', expand: true, onTap: _load),
@@ -140,8 +141,13 @@ class _PassScreenState extends State<PassScreen> {
                 // season hero: tier + XP bar + premium CTA
                 Container(
                   decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(18),
+                    gradient: const LinearGradient(
+                      colors: [StadiumColors.panelRaised, Color(0xFF23183E)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: StadiumColors.violet, width: 1),
                   ),
                   padding: const EdgeInsets.all(16),
                   child: Column(

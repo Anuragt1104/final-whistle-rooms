@@ -9,15 +9,7 @@ import '../widgets/common.dart';
 import '../widgets/player_sheet.dart';
 
 void showTeamSheet(BuildContext context, Team team) {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: AppColors.paper,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-    ),
-    builder: (_) => _TeamSheet(team: team),
-  );
+  Navigator.push(context, fwrRoute(_TeamSheet(team: team)));
 }
 
 class _TeamSheet extends StatefulWidget {
@@ -34,100 +26,116 @@ class _TeamSheetState extends State<_TeamSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: .78,
-      minChildSize: .5,
-      maxChildSize: .96,
-      expand: false,
-      builder: (_, scroll) => FutureBuilder<TeamTournamentData>(
-        future: _future,
-        builder: (_, snap) {
-          final data = snap.data;
-          return ListView(
-            controller: scroll,
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.line,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.ink, Color(0xFF261947)],
-                  ),
-                  borderRadius: BorderRadius.all(Radius.circular(20)),
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleFlag(team: widget.team, size: 64),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.team.name.toUpperCase(),
-                            style: display(25, color: AppColors.cream),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '2026 TOURNAMENT · TXLINE VERIFIED',
-                            style: label(
-                              color: const Color(0xFFB8FF36),
-                              size: 9.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              if (snap.connectionState != ConnectionState.done)
-                const Padding(
-                  padding: EdgeInsets.all(36),
-                  child: Center(
-                    child: CircularProgressIndicator(color: AppColors.orange),
-                  ),
-                )
-              else if (snap.hasError || data == null) ...[
-                _errorCard(),
-              ] else ...[
+    return Scaffold(
+      backgroundColor: StadiumColors.canvas,
+      body: SafeArea(
+        child: FutureBuilder<TeamTournamentData>(
+          future: _future,
+          builder: (_, snap) {
+            final data = snap.data;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+              children: [
                 Row(
                   children: [
-                    const SectionLabel('Latest tournament squad'),
-                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: StadiumColors.text,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
                     Text(
-                      _freshness(data),
-                      style: label(color: AppColors.mut, size: 8.5),
+                      'TEAM',
+                      style: label(color: StadiumColors.muted, size: 10),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                if (data.players.isEmpty)
-                  _empty('Squad not announced by TxLINE yet.')
-                else
-                  _squad(data),
-                const SizedBox(height: 20),
-                const SectionLabel('Tournament results'),
-                if (data.recentResults.isEmpty)
-                  _empty('No tournament results yet.')
-                else
-                  ...data.recentResults.map(_result),
+                Container(
+                  decoration: stadiumGradientPanel(
+                    accent: teamColor(widget.team.code),
+                  ),
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      CircleFlag(team: widget.team, size: 64),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.team.name.toUpperCase(),
+                              style: display(25, color: AppColors.cream),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '2026 TOURNAMENT · TXLINE VERIFIED',
+                              style: label(
+                                color: const Color(0xFFB8FF36),
+                                size: 9.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                if (snap.connectionState != ConnectionState.done)
+                  const Padding(
+                    padding: EdgeInsets.all(36),
+                    child: Center(
+                      child: CircularProgressIndicator(color: AppColors.orange),
+                    ),
+                  )
+                else if (snap.hasError || data == null) ...[
+                  _errorCard(),
+                ] else ...[
+                  Row(
+                    children: [
+                      Text(
+                        'LATEST TOURNAMENT SQUAD',
+                        style: label(
+                          color: StadiumColors.text,
+                          size: 11,
+                          weight: FontWeight.w900,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _freshness(data),
+                        style: label(color: AppColors.mut, size: 8.5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (data.players.isEmpty)
+                    _empty('Squad not announced by TxLINE yet.')
+                  else
+                    _squad(data),
+                  const SizedBox(height: 20),
+                  Text(
+                    'TOURNAMENT RESULTS',
+                    style: label(
+                      color: StadiumColors.text,
+                      size: 11,
+                      weight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  if (data.recentResults.isEmpty)
+                    _empty('No tournament results yet.')
+                  else
+                    ...data.recentResults.map(_result),
+                ],
               ],
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

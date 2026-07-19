@@ -103,6 +103,28 @@ export interface MomentDropView {
   teamCode?: string;
   imageUrl?: string;
   artKey?: string;
+  calledIt?: boolean;
+  promptId?: string;
+  promptQuestion?: string;
+  answerLabel?: string;
+  proof?: {
+    root?: string;
+    leaf?: string;
+    sourceEventId?: string;
+    anchored?: boolean;
+  };
+}
+
+export interface ReplayStateView {
+  active: boolean;
+  paused: boolean;
+  currentMinute: number;
+  totalMinutes: number;
+  speed: number;
+  mode?: "standard" | "showcase";
+  beat?: number;
+  nextBeatMinute?: number;
+  awaitingAction?: boolean;
 }
 
 export interface RoomView {
@@ -119,6 +141,10 @@ export interface RoomView {
   feedFreshness: "waiting" | "fresh" | "stale";
   lineupStatus: "unknown" | "announced";
   sourceUpdatedAt?: number;
+  /** Monotonic room snapshot version for SSE merge / skip. */
+  revision: number;
+  /** Aggregated Official Hub reaction bursts (emoji → count). */
+  reactionTally: Record<string, number>;
   momentum: number;
   win: WinChance;
   /** Home win-chance sampled once per match-minute — the live momentum story. */
@@ -142,5 +168,6 @@ export interface RoomView {
   voice: boolean;
   reactionPack: string;
   replay: boolean;
+  replayState?: ReplayStateView;
   createdAt: number;
 }

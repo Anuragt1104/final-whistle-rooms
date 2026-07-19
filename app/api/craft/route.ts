@@ -5,7 +5,7 @@ import { addXp, XP } from "@/lib/platform/pass";
 
 export const dynamic = "force-dynamic";
 
-/** POST /api/craft { fanId, momentIds: string[] } */
+/** POST /api/craft { fanId, momentIds, primaryMomentId?, actionId? } */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const fanId = String(body.fanId ?? "");
@@ -13,7 +13,10 @@ export async function POST(req: NextRequest) {
   if (!fanId || momentIds.length < 2) {
     return NextResponse.json({ error: "fanId and momentIds (≥2) required" }, { status: 400 });
   }
-  const result = craft(fanId, momentIds);
+  const result = craft(fanId, momentIds, {
+    primaryMomentId: body.primaryMomentId ? String(body.primaryMomentId) : undefined,
+    actionId: body.actionId ? String(body.actionId) : undefined,
+  });
   if ("error" in result) return NextResponse.json(result, { status: 400 });
   earn(fanId, EARN.craft, "craft");
   addXp(fanId, XP.craft, "craft");

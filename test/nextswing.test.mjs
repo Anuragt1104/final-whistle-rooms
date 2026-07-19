@@ -5,6 +5,7 @@ import {
   tryResolve,
   forceResolve,
   biasFromIntensity,
+  isDefinitiveTerminalPhase,
 } from '../lib/game/nextswing.ts';
 
 const score = {
@@ -16,6 +17,15 @@ const score = {
   phase: 2,
 };
 const win = { home: 55, draw: 25, away: 20 };
+
+test('extra time is running play, not a definitive terminal phase', () => {
+  assert.equal(isDefinitiveTerminalPhase(4), false); // provisional FT can lead to ET
+  assert.equal(isDefinitiveTerminalPhase(5), false);
+  assert.equal(isDefinitiveTerminalPhase(7), false);
+  assert.equal(isDefinitiveTerminalPhase(8), false);
+  assert.equal(isDefinitiveTerminalPhase(9), true);
+  assert.equal(isDefinitiveTerminalPhase(10), true);
+});
 
 test('win-swing forceResolve: HIGHER when the favourite rises, LOWER when it falls', () => {
   const p = { resolver: { kind: 'win-swing', side: 'home', baseline: 55, minute: 45 } };

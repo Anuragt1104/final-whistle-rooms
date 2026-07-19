@@ -98,7 +98,7 @@ class _MatchScreenState extends State<MatchScreen> {
         statusBarColor: Colors.transparent,
       ),
       child: Scaffold(
-        backgroundColor: AppColors.paper,
+        backgroundColor: StadiumColors.canvas,
         body: Column(
           children: [
             Container(
@@ -149,14 +149,16 @@ class _MatchScreenState extends State<MatchScreen> {
     final stale = data?.stale == true;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      color: stale ? const Color(0xFFFFE7A7) : const Color(0xFFE9F7E1),
+      color: stale
+          ? StadiumColors.amber.withValues(alpha: .13)
+          : StadiumColors.mint.withValues(alpha: .1),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       child: Row(
         children: [
           Icon(
             stale ? Icons.cloud_off_rounded : Icons.verified_rounded,
             size: 16,
-            color: stale ? const Color(0xFF8A6300) : const Color(0xFF2D6A30),
+            color: stale ? StadiumColors.amber : StadiumColors.mint,
           ),
           const SizedBox(width: 7),
           Expanded(
@@ -167,9 +169,7 @@ class _MatchScreenState extends State<MatchScreen> {
                         ? 'Checking verified TxLINE match data…'
                         : 'Verified TxLINE match data'),
               style: body(
-                color: stale
-                    ? const Color(0xFF8A6300)
-                    : const Color(0xFF2D6A30),
+                color: stale ? StadiumColors.amber : StadiumColors.mint,
                 size: 11.5,
                 weight: FontWeight.w700,
               ),
@@ -191,7 +191,7 @@ class _MatchScreenState extends State<MatchScreen> {
   Widget _tabBar() {
     const tabs = ['Overview', 'Stats', 'Line-ups'];
     return Container(
-      color: AppColors.paper,
+      color: StadiumColors.canvas,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
       child: Row(
         children: [
@@ -206,16 +206,20 @@ class _MatchScreenState extends State<MatchScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 9),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: _tab == i ? AppColors.ink : AppColors.cardAlt,
+                      color: _tab == i
+                          ? StadiumColors.orange
+                          : StadiumColors.canvasRaised,
                       borderRadius: BorderRadius.circular(11),
                       border: Border.all(
-                        color: _tab == i ? AppColors.ink : AppColors.line,
+                        color: _tab == i
+                            ? StadiumColors.orange
+                            : StadiumColors.hairline,
                       ),
                     ),
                     child: Text(
                       tabs[i].toUpperCase(),
                       style: label(
-                        color: _tab == i ? AppColors.cream : AppColors.mut,
+                        color: _tab == i ? Colors.white : StadiumColors.muted,
                         size: 9.5,
                       ),
                     ),
@@ -231,7 +235,7 @@ class _MatchScreenState extends State<MatchScreen> {
   Widget _body() {
     if (_loading && _data == null)
       return const Center(
-        child: CircularProgressIndicator(color: AppColors.orange),
+        child: CircularProgressIndicator(color: StadiumColors.orange),
       );
     if (_data == null) return _unavailable();
     return switch (_tab) {
@@ -247,17 +251,21 @@ class _MatchScreenState extends State<MatchScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.cloud_off_rounded, size: 44, color: AppColors.mut),
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 44,
+            color: StadiumColors.muted,
+          ),
           const SizedBox(height: 12),
           Text(
             'Verified match data is unavailable',
-            style: display(19),
+            style: display(19, color: StadiumColors.text),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 6),
           Text(
             'No dummy stats or old squad will be substituted.',
-            style: body(color: AppColors.mut, size: 13),
+            style: body(color: StadiumColors.muted, size: 13),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 14),
@@ -290,7 +298,7 @@ class _MatchScreenState extends State<MatchScreen> {
           ],
           _lineupStatus(data),
           const SizedBox(height: 14),
-          const SectionLabel('Confirmed match events'),
+          _darkSection('Confirmed match events'),
           if (data.events.isEmpty)
             _empty(
               _fixture.status == 'scheduled'
@@ -300,7 +308,7 @@ class _MatchScreenState extends State<MatchScreen> {
           else
             _events(data.events),
           const SizedBox(height: 14),
-          const SectionLabel('Match information'),
+          _darkSection('Match information'),
           Container(
             decoration: cardBox(),
             padding: const EdgeInsets.all(14),
@@ -627,7 +635,7 @@ class _MatchScreenState extends State<MatchScreen> {
     child: Text(
       text,
       textAlign: TextAlign.center,
-      style: body(color: AppColors.mut, size: 12.5),
+      style: body(color: StadiumColors.muted, size: 12.5),
     ),
   );
   Widget _centerEmpty(String text) => Center(
@@ -636,7 +644,19 @@ class _MatchScreenState extends State<MatchScreen> {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: body(color: AppColors.mut, size: 13.5),
+        style: body(color: StadiumColors.muted, size: 13.5),
+      ),
+    ),
+  );
+
+  Widget _darkSection(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 10, top: 4),
+    child: Text(
+      text.toUpperCase(),
+      style: label(
+        color: StadiumColors.text,
+        size: 11,
+        weight: FontWeight.w900,
       ),
     ),
   );

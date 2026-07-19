@@ -19,27 +19,105 @@ class AppColors {
   static const gold = Color(0xFFE0A33C);
 }
 
+/// Product-wide adaptive stadium tokens. Legacy paper tokens remain for dense
+/// reading sheets while primary destinations use this darker system.
+class StadiumColors {
+  static const canvas = Color(0xFF070A0F);
+  static const canvasRaised = Color(0xFF0D121A);
+  static const navigation = Color(0xFF090D13);
+  static const panel = Color(0xFF121924);
+  static const panelRaised = Color(0xFF182231);
+  static const panelWarm = Color(0xFF211B17);
+  static const hairline = Color(0xFF263244);
+  static const text = Color(0xFFF7F1E5);
+  static const textSoft = Color(0xFFD3CCBF);
+  static const muted = Color(0xFF8995A5);
+  static const orange = Color(0xFFF45B24);
+  static const live = Color(0xFFFF4D37);
+  static const mint = Color(0xFF55E3A4);
+  static const lime = Color(0xFFB8FF36);
+  static const violet = Color(0xFF9B6BFF);
+  static const gold = Color(0xFFF5C451);
+  static const amber = Color(0xFFFFC857);
+}
+
 const kDisplay = 'Anton';
 const kBody = 'Archivo';
 
 ThemeData buildTheme() {
   final base = ThemeData.light(useMaterial3: true);
   return base.copyWith(
-    scaffoldBackgroundColor: AppColors.paper,
+    scaffoldBackgroundColor: StadiumColors.canvas,
     colorScheme: base.colorScheme.copyWith(
-      primary: AppColors.orange,
-      secondary: AppColors.ink,
-      surface: AppColors.card,
-      brightness: Brightness.light,
+      primary: StadiumColors.orange,
+      secondary: StadiumColors.violet,
+      surface: StadiumColors.panel,
+      onSurface: StadiumColors.text,
+      brightness: Brightness.dark,
     ),
     textTheme: base.textTheme.apply(
-      bodyColor: AppColors.ink,
-      displayColor: AppColors.ink,
+      bodyColor: StadiumColors.text,
+      displayColor: StadiumColors.text,
       fontFamily: kBody,
+    ),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: StadiumColors.canvas,
+      foregroundColor: StadiumColors.text,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+    ),
+    dividerColor: StadiumColors.hairline,
+    dialogTheme: const DialogThemeData(
+      backgroundColor: StadiumColors.panel,
+      surfaceTintColor: Colors.transparent,
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: StadiumColors.canvasRaised,
+      surfaceTintColor: Colors.transparent,
     ),
     splashFactory: InkRipple.splashFactory,
   );
 }
+
+BoxDecoration stadiumPanel({
+  Color? color,
+  Color? border,
+  double radius = 20,
+  List<BoxShadow>? shadow,
+}) => BoxDecoration(
+  color: color ?? StadiumColors.panel,
+  borderRadius: BorderRadius.circular(radius),
+  border: Border.all(color: border ?? StadiumColors.hairline),
+  boxShadow: shadow,
+);
+
+BoxDecoration stadiumGradientPanel({
+  required Color accent,
+  double radius = 24,
+}) => BoxDecoration(
+  gradient: LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color.alphaBlend(
+        accent.withValues(alpha: .24),
+        StadiumColors.panelRaised,
+      ),
+      StadiumColors.panel,
+      StadiumColors.canvasRaised,
+    ],
+    stops: const [0, .52, 1],
+  ),
+  borderRadius: BorderRadius.circular(radius),
+  border: Border.all(color: accent.withValues(alpha: .42)),
+  boxShadow: [
+    BoxShadow(
+      color: accent.withValues(alpha: .11),
+      blurRadius: 28,
+      offset: const Offset(0, 14),
+    ),
+  ],
+);
 
 /// Heavy condensed display text (Anton).
 TextStyle display(

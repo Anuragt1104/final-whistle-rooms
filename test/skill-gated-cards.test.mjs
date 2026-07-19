@@ -87,6 +87,11 @@ test("moments + packs mint ONLY for correct answers", async () => {
   // and the drop is attributed to the right member
   assert.equal(rt.momentDrops.length, 1);
   assert.equal(rt.momentDrops[0].memberId, right.memberId);
+  assert.equal(rt.momentDrops[0].calledIt, true);
+  assert.equal(rt.momentDrops[0].promptId, prompt.id);
+  assert.equal(rt.momentDrops[0].promptQuestion, prompt.question);
+  assert.equal(rt.momentDrops[0].answerLabel, "Belgium");
+  assert.equal(rt.momentDrops[0].proof?.sourceEventId, rt.momentDrops[0].sourceEventId);
 });
 
 test("correct answer still earns a fallback Moment with no recent event", async () => {

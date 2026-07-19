@@ -11,7 +11,14 @@ class Brand extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('FINAL WHISTLE', style: display(small ? 17 : 21, spacing: 0.5)),
+        Text(
+          'FINAL WHISTLE',
+          style: display(
+            small ? 17 : 21,
+            color: StadiumColors.text,
+            spacing: 0.5,
+          ),
+        ),
         Text(
           'WORLD CUP LIVE',
           style: label(color: AppColors.orange, size: small ? 8 : 9.5),
@@ -300,21 +307,21 @@ class SectionLabel extends StatelessWidget {
 
 InputDecoration fwrInput(String hint) => InputDecoration(
   hintText: hint,
-  hintStyle: body(color: AppColors.mut, size: 14),
+  hintStyle: body(color: StadiumColors.muted, size: 14),
   filled: true,
-  fillColor: AppColors.card,
+  fillColor: StadiumColors.panel,
   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
   border: OutlineInputBorder(
     borderRadius: BorderRadius.circular(13),
-    borderSide: const BorderSide(color: AppColors.line),
+    borderSide: const BorderSide(color: StadiumColors.hairline),
   ),
   enabledBorder: OutlineInputBorder(
     borderRadius: BorderRadius.circular(13),
-    borderSide: const BorderSide(color: AppColors.line),
+    borderSide: const BorderSide(color: StadiumColors.hairline),
   ),
   focusedBorder: OutlineInputBorder(
     borderRadius: BorderRadius.circular(13),
-    borderSide: const BorderSide(color: AppColors.orange, width: 1.5),
+    borderSide: const BorderSide(color: StadiumColors.orange, width: 1.5),
   ),
 );
 
