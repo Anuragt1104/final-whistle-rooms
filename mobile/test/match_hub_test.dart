@@ -5,11 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:final_whistle/api/live_data.dart';
 import 'package:final_whistle/api/models.dart';
 import 'package:final_whistle/match_hub/freshness.dart';
+import 'package:final_whistle/match_hub/controller.dart';
 import 'package:final_whistle/match_hub/models.dart';
 import 'package:final_whistle/match_hub/palette.dart';
+import 'package:final_whistle/match_hub/shell.dart';
 import 'package:final_whistle/match_hub/timeline.dart';
 import 'package:final_whistle/match_hub/widgets/header.dart';
 import 'package:final_whistle/match_hub/widgets/section_rail.dart';
+import 'package:final_whistle/state/room_controller.dart';
 
 Team _team(String code, String name) => Team(
       id: code.toLowerCase(),
@@ -85,7 +88,90 @@ RoomView _room({
   );
 }
 
+class _ReplayRoomController extends RoomController {
+  final RoomView value;
+
+  _ReplayRoomController(this.value) : super(value.id) {
+    memberId = 'me';
+  }
+
+  @override
+  RoomView? get room => value;
+
+  @override
+  Map<String, String> get myPicks => const {};
+}
+
+class _RecordingHubController extends MatchHubController {
+  String? replayAction;
+
+  _RecordingHubController(RoomController roomController)
+    : super(roomController: roomController);
+
+  @override
+  Future<void> controlReplay({
+    required String action,
+    int? minute,
+    double? speed,
+  }) async {
+    replayAction = action;
+  }
+}
+
 void main() {
+  testWidgets('showcase Next Beat stays above the persistent match dock', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(432, 960));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final room = _room(
+      replay: true,
+      replayState: ReplayStateView(
+        active: true,
+        paused: true,
+        currentMinute: 0,
+        totalMinutes: 120,
+        speed: 1,
+        mode: 'showcase',
+        beat: 0,
+        nextBeatMinute: 7,
+        awaitingAction: true,
+      ),
+    );
+    final roomController = _ReplayRoomController(room);
+    final hub = _RecordingHubController(roomController);
+    addTearDown(hub.dispose);
+    addTearDown(roomController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MatchHubShell(
+          hub: hub,
+          room: room,
+          myPicks: const {},
+          joined: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final nextBeat = find.widgetWithText(FilledButton, 'NEXT BEAT');
+    final rewardsDock = find.ancestor(
+      of: find.text('Rewards'),
+      matching: find.byType(InkWell),
+    );
+    expect(nextBeat, findsOneWidget);
+    expect(rewardsDock, findsOneWidget);
+    expect(
+      tester.getRect(nextBeat).bottom,
+      lessThanOrEqualTo(tester.getRect(rewardsDock).top),
+    );
+
+    await tester.tap(nextBeat);
+    await tester.pump();
+    expect(hub.replayAction, 'nextBeat');
+  });
+
   test('lifecycle badges cover pregame live HT ET pens FT replay', () {
     expect(
       lifecycleBadge(_room(status: 'lobby', lifecycle: 'pregame'), isReplay: false),

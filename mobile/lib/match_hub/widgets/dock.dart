@@ -5,6 +5,8 @@ import '../models.dart';
 import '../palette.dart';
 
 class PersistentMatchDock extends StatelessWidget {
+  static const double height = 68;
+
   final MatchHubUnreadCounts unread;
   final bool visible;
   final bool officialHub;
@@ -41,7 +43,7 @@ class PersistentMatchDock extends StatelessWidget {
         child: SafeArea(
           top: false,
           child: SizedBox(
-            height: 68 + (officialHub ? 0 : 0),
+            height: height,
             child: Padding(
               padding: EdgeInsets.fromLTRB(8, 6, 8, 4 + (bottom > 0 ? 0 : 4)),
               child: Row(

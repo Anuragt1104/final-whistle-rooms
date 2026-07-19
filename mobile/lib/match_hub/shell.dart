@@ -154,6 +154,12 @@ class _MatchHubShellState extends State<MatchHubShell> {
                           speed: speed,
                         ),
                   ),
+                if (replay != null && replay.active)
+                  SizedBox(
+                    height:
+                        PersistentMatchDock.height +
+                        MediaQuery.paddingOf(context).bottom,
+                  ),
               ],
             ),
           ),

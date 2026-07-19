@@ -91,11 +91,15 @@ class ReplayControlDock extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(
-              'VERIFIED TxLINE HISTORICAL REPLAY',
-              style: label(color: StadiumColors.mint, size: 9),
+            Expanded(
+              child: Text(
+                'VERIFIED TxLINE HISTORICAL REPLAY',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: label(color: StadiumColors.mint, size: 9),
+              ),
             ),
-            const Spacer(),
+            const SizedBox(width: 8),
             Text(
               "${state.currentMinute}' / ${state.totalMinutes}'",
               style: body(color: AppColors.cream, size: 11),
